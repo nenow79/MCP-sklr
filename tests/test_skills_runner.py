@@ -1,0 +1,210 @@
+import os
+import sys
+import time
+
+import pytest
+
+from skills_engine import runner
+from skills_engine.runner import (
+    build_command,
+    clean_env,
+    resolve_script,
+    run_command,
+    truncate_stream,
+    validate_timeout,
+)
+
+
+def _skill_dir(tmp_path):
+    base = tmp_path / "demo"
+    (base / "scripts").mkdir(parents=True)
+    (base / "SKILL.md").write_text("---\nname: demo\ndescription: d\n---\n", encoding="utf-8")
+    return base
+
+
+def _script(base, name, code):
+    path = base / "scripts" / name
+    path.write_text(code, encoding="utf-8")
+    return path
+
+
+# --- timeout ---
+@pytest.mark.parametrize("value", [1, 60, 300])
+def test_validate_timeout_ok(value):
+    assert validate_timeout(value) is None
+
+
+@pytest.mark.parametrize("value", [0, -1, 301, 10**6, True, "60", 1.5, None])
+def test_validate_timeout_bad(value):
+    assert validate_timeout(value) is not None
+
+
+# --- resolve_script ---
+def test_resolve_script_ok(tmp_path):
+    base = _skill_dir(tmp_path)
+    script = _script(base, "run.py", "print(1)")
+    assert resolve_script(base, "scripts/run.py") == script.resolve()
+
+
+@pytest.mark.parametrize("bad", ["../SKILL.md", "scripts/../SKILL.md", "SKILL.md", "references/x.py"])
+def test_resolve_script_must_be_in_scripts(tmp_path, bad):
+    base = _skill_dir(tmp_path)
+    (base / "references").mkdir()
+    (base / "references" / "x.py").write_text("x", encoding="utf-8")
+    with pytest.raises(ValueError):
+        resolve_script(base, bad)
+
+
+def test_resolve_script_absolute_blocked(tmp_path):
+    base = _skill_dir(tmp_path)
+    script = _script(base, "run.py", "print(1)")
+    with pytest.raises(ValueError):
+        resolve_script(base, str(script))
+
+
+def test_resolve_script_empty_and_missing(tmp_path):
+    base = _skill_dir(tmp_path)
+    with pytest.raises(ValueError):
+        resolve_script(base, " ")
+    with pytest.raises(FileNotFoundError):
+        resolve_script(base, "scripts/nope.py")
+
+
+def test_resolve_script_symlink_escape_blocked(tmp_path):
+    base = _skill_dir(tmp_path)
+    outside = tmp_path / "outside.py"
+    outside.write_text("print('x')", encoding="utf-8")
+    link = base / "scripts" / "link.py"
+    try:
+        os.symlink(outside, link)
+    except (OSError, NotImplementedError):
+        pytest.skip("Brak uprawnień do tworzenia symlinków")
+    with pytest.raises(ValueError):
+        resolve_script(base, "scripts/link.py")
+
+
+# --- build_command ---
+def test_build_command_python(tmp_path):
+    base = _skill_dir(tmp_path)
+    script = _script(base, "run.py", "")
+    command = build_command(script, ["--a", "b c"], "PYEXE")
+    assert command == ["PYEXE", str(script), "--a", "b c"]
+
+
+def test_build_command_unsupported_extension(tmp_path):
+    base = _skill_dir(tmp_path)
+    script = _script(base, "run.exe", "")
+    with pytest.raises(ValueError):
+        build_command(script, [], "PYEXE")
+
+
+def test_build_command_missing_interpreter(tmp_path, monkeypatch):
+    base = _skill_dir(tmp_path)
+    script = _script(base, "run.js", "")
+    monkeypatch.setattr(runner.shutil, "which", lambda _name: None)
+    with pytest.raises(FileNotFoundError):
+        build_command(script, [], "PYEXE")
+
+
+def test_build_command_uses_which_for_node(tmp_path, monkeypatch):
+    base = _skill_dir(tmp_path)
+    script = _script(base, "run.js", "")
+    monkeypatch.setattr(runner.shutil, "which", lambda name: f"/bin/{name}")
+    assert build_command(script, ["x"], "PYEXE")[0] == "/bin/node"
+
+
+# --- clean_env ---
+def test_clean_env_drops_secrets():
+    env = clean_env({"PATH": "p", "SYSTEMROOT": "s", "API_TOKEN": "secret", "BEARER": "x", "path": "lower"})
+    assert "API_TOKEN" not in env
+    assert "BEARER" not in env
+    assert env["PYTHONIOENCODING"] == "utf-8"
+    assert env["PYTHONUTF8"] == "1"
+    assert env["SYSTEMROOT"] == "s"
+
+
+# --- truncate ---
+def test_truncate_stream():
+    short, cut = truncate_stream("abc", "stdout")
+    assert (short, cut) == ("abc", False)
+    long, cut = truncate_stream("x" * 20000, "stdout")
+    assert cut is True
+    assert len(long) < 7000
+    assert "skrócony" in long
+
+
+# --- run_command (prawdziwe procesy) ---
+def test_run_command_success(tmp_path):
+    base = _skill_dir(tmp_path)
+    script = _script(base, "ok.py", "import sys; print('out'); print('err', file=sys.stderr)")
+    result = run_command([sys.executable, str(script)], base, 20, clean_env())
+    assert result["started"] is True
+    assert result["exit_code"] == 0
+    assert result["stdout"] == "out"
+    assert result["stderr"] == "err"
+    assert result["timed_out"] is False
+
+
+def test_run_command_nonzero_exit(tmp_path):
+    base = _skill_dir(tmp_path)
+    script = _script(base, "fail.py", "import sys; sys.exit(3)")
+    result = run_command([sys.executable, str(script)], base, 20, clean_env())
+    assert result["exit_code"] == 3
+
+
+def test_run_command_utf8_output(tmp_path):
+    base = _skill_dir(tmp_path)
+    script = _script(base, "pl.py", "print('zażółć gęślą jaźń')")
+    result = run_command([sys.executable, str(script)], base, 20, clean_env())
+    assert result["stdout"] == "zażółć gęślą jaźń"
+
+
+def test_run_command_cwd_is_skill_dir(tmp_path):
+    base = _skill_dir(tmp_path)
+    script = _script(base, "cwd.py", "import os; print(os.getcwd())")
+    result = run_command([sys.executable, str(script)], base, 20, clean_env())
+    assert os.path.samefile(result["stdout"], base)
+
+
+def test_run_command_stdin_is_closed(tmp_path):
+    base = _skill_dir(tmp_path)
+    script = _script(base, "stdin.py", "import sys; print(repr(sys.stdin.read()))")
+    result = run_command([sys.executable, str(script)], base, 20, clean_env())
+    assert result["exit_code"] == 0
+    assert result["stdout"] == "''"
+
+
+def test_run_command_does_not_leak_secrets(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIBECODER_SECRET_TOKEN", "topsecret")
+    base = _skill_dir(tmp_path)
+    script = _script(base, "env.py", "import os; print(os.environ.get('VIBECODER_SECRET_TOKEN', 'absent'))")
+    result = run_command([sys.executable, str(script)], base, 20, clean_env())
+    assert result["stdout"] == "absent"
+
+
+def test_run_command_timeout_kills_and_returns_partial(tmp_path):
+    base = _skill_dir(tmp_path)
+    script = _script(
+        base, "slow.py",
+        "import sys, time\nprint('partial', flush=True)\ntime.sleep(30)\n",
+    )
+    started = time.monotonic()
+    result = run_command([sys.executable, str(script)], base, 2, clean_env())
+    elapsed = time.monotonic() - started
+    assert result["timed_out"] is True
+    assert elapsed < 15
+    assert "partial" in result["stdout"]
+
+
+def test_run_command_missing_executable(tmp_path):
+    result = run_command([str(tmp_path / "no-such-binary")], tmp_path, 5, clean_env())
+    assert result["started"] is False
+    assert "error" in result
+
+
+def test_run_command_truncates_big_output(tmp_path):
+    base = _skill_dir(tmp_path)
+    script = _script(base, "big.py", "print('x' * 50000)")
+    result = run_command([sys.executable, str(script)], base, 20, clean_env())
+    assert result["stdout_truncated"] is True
+    assert len(result["stdout"]) < 7000
