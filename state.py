@@ -26,6 +26,14 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "base": None,
         "envs": {},
     },
+    "tasks": {
+        "max_parallel": 2,
+        "max_queued": 50,
+        "max_wait_s": 8,
+        "retention_days": 30,
+        "retention_max": 500,
+        "approval_timeout_s": 120,
+    },
     "references": {},
     "external_mcp": {},
 }

@@ -48,6 +48,23 @@ def test_partial_file_is_merged_with_defaults(tmp_path):
     assert config["skills"]["central_dir"] == "~/.agents/skills"
 
 
+def test_old_file_without_tasks_section_gets_task_defaults(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"server": {"port": 8101}}), encoding="utf-8")
+    config = load_config(path)
+    assert config["tasks"] == DEFAULT_CONFIG["tasks"]
+    assert config["tasks"]["max_parallel"] == 2
+    assert config["tasks"]["max_wait_s"] == 8
+
+
+def test_partial_tasks_section_is_merged(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"tasks": {"max_parallel": 4}}), encoding="utf-8")
+    config = load_config(path)
+    assert config["tasks"]["max_parallel"] == 4
+    assert config["tasks"]["max_queued"] == 50
+
+
 def test_atomic_save_leaves_no_tmp_file(tmp_path):
     path = tmp_path / "config.json"
     save_config(load_config(path), path)

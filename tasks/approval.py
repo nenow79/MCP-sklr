@@ -22,6 +22,10 @@ class ApprovalService:
         self._notifier = notifier
         self._resolver: Optional[Resolver] = None
 
+    def set_notifier(self, notifier: Optional[Notifier]) -> None:
+        """Podpina UI (okno tkinter w 4a, panel web w 4b). Notifier nie może blokować."""
+        self._notifier = notifier
+
     def bind(self, resolver: Resolver) -> None:
         """Wołane przez TaskManager: podpina obsługę decyzji."""
         self._resolver = resolver
