@@ -1,5 +1,6 @@
 import os
 import sys
+import threading
 import time
 
 import pytest
@@ -208,3 +209,55 @@ def test_run_command_truncates_big_output(tmp_path):
     result = run_command([sys.executable, str(script)], base, 20, clean_env())
     assert result["stdout_truncated"] is True
     assert len(result["stdout"]) < 7000
+
+
+# --- cancel_event ---
+def test_run_command_cancel_event_not_set(tmp_path):
+    base = _skill_dir(tmp_path)
+    script = _script(base, "ok.py", "print('out')")
+    result = run_command([sys.executable, str(script)], base, 20, clean_env(), threading.Event())
+    assert result["exit_code"] == 0
+    assert result["stdout"] == "out"
+    assert result["cancelled"] is False
+    assert result["timed_out"] is False
+
+
+def test_run_command_cancel_running_process(tmp_path):
+    base = _skill_dir(tmp_path)
+    script = _script(
+        base, "slow.py",
+        "import time\nprint('partial', flush=True)\ntime.sleep(30)\n",
+    )
+    event = threading.Event()
+    timer = threading.Timer(1.0, event.set)
+    timer.start()
+    started = time.monotonic()
+    try:
+        result = run_command([sys.executable, str(script)], base, 60, clean_env(), event)
+    finally:
+        timer.cancel()
+    assert time.monotonic() - started < 15
+    assert result["started"] is True
+    assert result["cancelled"] is True
+    assert result["timed_out"] is False
+    assert "partial" in result["stdout"]
+
+
+def test_run_command_cancel_before_start(tmp_path):
+    base = _skill_dir(tmp_path)
+    script = _script(base, "ok.py", "print('out')")
+    event = threading.Event()
+    event.set()
+    result = run_command([sys.executable, str(script)], base, 20, clean_env(), event)
+    assert result["started"] is False
+    assert result["cancelled"] is True
+
+
+def test_run_command_timeout_with_unset_cancel_event(tmp_path):
+    base = _skill_dir(tmp_path)
+    script = _script(base, "slow.py", "import time\ntime.sleep(30)\n")
+    started = time.monotonic()
+    result = run_command([sys.executable, str(script)], base, 2, clean_env(), threading.Event())
+    assert time.monotonic() - started < 15
+    assert result["timed_out"] is True
+    assert result["cancelled"] is False

@@ -3,6 +3,7 @@
 import os
 import shutil
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Tuple
@@ -14,6 +15,7 @@ APPROVAL_TIMEOUT = 120      # czekanie na decyzję użytkownika (nie wlicza się
 STREAM_LIMIT = 6000
 SCRIPTS_DIR = "scripts"
 KILL_GRACE_SECONDS = 5
+CANCEL_POLL_SECONDS = 0.5
 
 INTERPRETERS = {".py": None, ".js": "node", ".sh": "bash"}  # None = interpreter przekazany z zewnątrz
 
@@ -107,9 +109,17 @@ def _kill_process_tree(process: subprocess.Popen) -> None:
 
 
 def run_command(
-    command: List[str], cwd: Path, timeout: int, env: Optional[Dict[str, str]] = None
+    command: List[str],
+    cwd: Path,
+    timeout: int,
+    env: Optional[Dict[str, str]] = None,
+    cancel_event: Optional[threading.Event] = None,
 ) -> Dict[str, Any]:
-    """Uruchamia komendę bez shella. Po timeoucie ubija drzewo procesów i zwraca częściowy output."""
+    """Uruchamia komendę bez shella. Po timeoucie lub anulowaniu (cancel_event)
+    ubija drzewo procesów i zwraca częściowy output."""
+    if cancel_event is not None and cancel_event.is_set():
+        return {"started": False, "cancelled": True, "error": "Anulowano przed startem."}
+
     flags = 0
     if os.name == "nt":
         flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -132,15 +142,29 @@ def run_command(
         return {"started": False, "error": f"Nie udało się uruchomić procesu: {exc}"}
 
     timed_out = False
-    try:
-        stdout, stderr = process.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        timed_out = True
+    cancelled = False
+    deadline = started + timeout
+    stdout = stderr = ""
+    while True:
+        if cancel_event is not None and cancel_event.is_set():
+            cancelled = True
+        else:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                timed_out = True
+            else:
+                try:
+                    stdout, stderr = process.communicate(
+                        timeout=min(CANCEL_POLL_SECONDS, remaining))
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
         _kill_process_tree(process)
         try:
             stdout, stderr = process.communicate(timeout=KILL_GRACE_SECONDS)
         except subprocess.TimeoutExpired:
             stdout, stderr = "", ""
+        break
 
     stdout_out, stdout_truncated = truncate_stream((stdout or "").strip(), "stdout")
     stderr_out, stderr_truncated = truncate_stream((stderr or "").strip(), "stderr")
@@ -153,4 +177,5 @@ def run_command(
         "stderr_truncated": stderr_truncated,
         "duration_s": round(time.monotonic() - started, 2),
         "timed_out": timed_out,
+        "cancelled": cancelled,
     }
