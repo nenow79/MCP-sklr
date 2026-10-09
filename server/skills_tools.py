@@ -111,7 +111,7 @@ def activate_skill_impl(registry: SkillRegistry, name: str) -> Dict[str, Any]:
 
 def read_skill_resource_impl(
     registry: SkillRegistry,
-    skill: str,
+    name: str,
     path: str,
     max_chars: int = DEFAULT_READ_CHARS,
 ) -> Dict[str, Any]:
@@ -122,9 +122,9 @@ def read_skill_resource_impl(
                 "success": False,
                 "error": f"max_chars musi być liczbą całkowitą od {MIN_READ_CHARS} do {MAX_READ_CHARS}.",
             }
-        record = _get_with_rescan(registry, skill)
+        record = _get_with_rescan(registry, name)
         if record is None:
-            return _not_found_error(registry, skill)
+            return _not_found_error(registry, name)
 
         target = resolve_resource_path(record.base_dir, path)
         text, truncated, total = read_resource_text(target, max_chars)
@@ -173,7 +173,7 @@ def run_skill_script_impl(
     config: Dict[str, Any],
     trust_store: TrustStore,
     approver: Approver,
-    skill: str,
+    name: str,
     script: str,
     args: Optional[List[str]] = None,
     timeout: int = DEFAULT_TIMEOUT,
@@ -188,9 +188,9 @@ def run_skill_script_impl(
         if not isinstance(args, list) or not all(isinstance(a, str) and "\x00" not in a for a in args):
             return {"success": False, "error": "args musi być listą napisów (bez znaku NUL)."}
 
-        record = _get_with_rescan(registry, skill)
+        record = _get_with_rescan(registry, name)
         if record is None:
-            return _not_found_error(registry, skill)
+            return _not_found_error(registry, name)
 
         script_path = resolve_script(record.base_dir, script)
 

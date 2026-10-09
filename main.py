@@ -70,17 +70,17 @@ def activate_skill(name: str) -> Dict[str, Any]:
 
 
 @register_tool
-def read_skill_resource(skill: str, path: str, max_chars: int = DEFAULT_READ_CHARS) -> Dict[str, Any]:
+def read_skill_resource(name: str, path: str, max_chars: int = DEFAULT_READ_CHARS) -> Dict[str, Any]:
     """
     Czyta plik tekstowy z katalogu skilla (np. references/guide.md), ścieżka względna od katalogu skilla.
     Nie wychodzi poza katalog skilla. Domyślnie max 12000 znaków (zakres 1000-80000).
     """
-    return skills_tools.read_skill_resource_impl(REGISTRY, skill, path, max_chars)
+    return skills_tools.read_skill_resource_impl(REGISTRY, name, path, max_chars)
 
 
 @register_tool
 def run_skill_script(
-    skill: str,
+    name: str,
     script: str,
     args: Optional[List[str]] = None,
     timeout: int = DEFAULT_TIMEOUT,
@@ -95,7 +95,7 @@ def run_skill_script(
     """
     return skills_tools.run_skill_script_impl(
         REGISTRY, CONFIG, TRUST_STORE, gui_simple.ask_skill_confirmation,
-        skill, script, args, timeout,
+        name, script, args, timeout,
     )
 
 

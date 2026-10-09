@@ -30,7 +30,7 @@ def _setup(tmp_path, metadata="", source_dir="central", script_body="import sys;
 def _call(tmp_path, registry, approver, config=None, **kwargs):
     config = config if config is not None else {"skills": {"trust": {}}}
     store = TrustStore(config)
-    params = dict(skill="demo", script="scripts/run.py", args=["a", "b"], timeout=30, default_python=sys.executable)
+    params = dict(name="demo", script="scripts/run.py", args=["a", "b"], timeout=30, default_python=sys.executable)
     params.update(kwargs)
     return run_skill_script_impl(registry, config, store, approver, **params), config, store
 
@@ -173,7 +173,7 @@ def test_unknown_skill_and_bad_script_path(tmp_path):
     central, _ = _setup(tmp_path)
     registry = SkillRegistry(central_dir=central)
     approver = FakeApprover("allow")
-    assert _call(tmp_path, registry, approver, skill="nope")[0]["success"] is False
+    assert _call(tmp_path, registry, approver, name="nope")[0]["success"] is False
     assert _call(tmp_path, registry, approver, script="../SKILL.md")[0]["success"] is False
     assert _call(tmp_path, registry, approver, script="SKILL.md")[0]["success"] is False
     assert _call(tmp_path, registry, approver, script="scripts/missing.py")[0]["success"] is False

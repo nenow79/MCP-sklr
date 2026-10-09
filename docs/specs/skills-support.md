@@ -18,7 +18,8 @@
 ## Narzędzia MCP
 - `list_skills` – katalog (name, description, źródło, status zaufania).
 - `activate_skill(name)` – treść w `<skill_content name="...">`, katalog skilla, lista zasobów (bez ich czytania). `name` jako enum. Deduplikacja aktywacji w sesji.
-- `run_skill_script(skill, script, args)` – uruchomienie skryptu z `scripts/` danego skilla.
+- `read_skill_resource(name, path)` – plik tekstowy z katalogu skilla.
+- `run_skill_script(name, script, args, timeout)` – uruchomienie skryptu z `scripts/` danego skilla. Parametr `name` oznacza nazwę skilla we wszystkich narzędziach (zgodnie z polem `name` we frontmatterze).
 - Pliki `references/` czytane istniejącym `read_file`; katalogi skills dozwolone tylko do odczytu w path guard.
 
 ## Rozszerzenia (klucze `metadata`)
