@@ -17,7 +17,8 @@
 | 1 | `skills_engine` | scanner, parser SKILL.md (tolerancja błędnego YAML), walidacja lenientna, kolizje nazw | testy jednostkowe: poprawny skill, zły YAML, brak description |
 | 2 | `list_skills`, `activate_skill` | katalog, `<skill_content>`, lista zasobów, enum nazw, deduplikacja | test + wywołanie z harnessa |
 | 3 | Runner i trust | hash SKILL.md + scripts/, `vibecoder-confirm`, interpreter z `conda-env`, limity outputu, timeout, błąd z komendą `conda create` | testy z atrapą skryptu; skill demo |
-| 4 | `ApprovalService` + minimalne GUI | kolejka zatwierdzeń, tkinter w głównym wątku, serwer MCP w wątku w tle, dźwięk/okno na wierzchu | ręcznie: wywołanie z potwierdzeniem |
+| 4a | Kolejka zadań | SQLite, stany zadań, pula wątków, `run_skill_script` z `wait` (domyślnie 8 s), narzędzia `get_task`/`list_tasks`/`wait_task`/`cancel_task`, `ApprovalService` niezależny od UI; zatwierdzenia tymczasowo przez `gui_simple.py` (ADR 0002) | testy jednostkowe kolejki (stany, anulowanie, restart) + wywołanie z harnessa |
+| 4b | Panel webowy | `127.0.0.1:8102`, lista i szczegóły zadań, zatwierdzanie/odrzucanie, token + ciasteczko `HttpOnly`, kontrola `Origin`/`Host`, powiadomienia | testy API panelu + ręcznie: zatwierdzenie z przeglądarki |
 | 5 | Narzędzia podstawowe | pliki/workspace, `edit_file` z diffem, search, `execute_command` + guardy + `policy.py`, referencje, zewnętrzne MCP (trwała konfiguracja) | testy path guarda i polityk |
 | 6 | Pełne okno konfiguracji | zakładki Workspace, MCP, Skills (włączanie, potwierdzenia), API, Log | ręczny przegląd |
 | 7 | Kontekst projektu | `workspace_overview` z AGENTS.md i CURRENT.md, fallback `.vibecoder_context.md`, `save_progress` | test na tym repo i starym projekcie |
@@ -25,9 +26,10 @@
 | 9 | Przełączenie | port 8100, usunięcie `.vibecoder_context.md`, aktualizacja AGENTS.md | praca na prawdziwym projekcie |
 
 ## MVP
-Fazy 0–4: skills da się wylistować, aktywować i uruchomić z potwierdzeniem; GUI stabilne. Testowalne równolegle ze starym MCP. Faza 5 jest największa (przeniesienie dużej części starego `main.py`).
+Fazy 0–4b: skills da się wylistować, aktywować i uruchomić jako zadanie w kolejce z zatwierdzaniem w panelu webowym. Testowalne równolegle ze starym MCP. Faza 5 jest największa (przeniesienie dużej części starego `main.py`).
 
 ## Ryzyka
-- Tkinter w głównym wątku + FastMCP w tle: weryfikacja w fazie 4, przed dalszą rozbudową.
-- Nieznane wymagania harnessa wobec nowych narzędzi (limity, timeouty): wczesne testy na porcie 8101.
+- Limit harnessa: pojedyncze wywołanie MCP do ok. 11 s (bezpiecznie 8 s), potem błąd parsowania pingu SSE. Stąd asynchroniczna kolejka (ADR 0002). Nieznany limit tur narzędziowych w jednej odpowiedzi.
+- Bezpieczeństwo panelu web: model ma powłokę, więc zatwierdzanie wymaga tajnego tokenu tylko w pamięci serwera; panel na osobnym porcie bez CORS (ADR 0002). Panel testowany częściowo ręcznie.
+- Serwer nie może obudzić LLM po zakończeniu zadania: powiadomienie trafia tylko do użytkownika w panelu.
 - Testy uruchamia użytkownik: tempo zależy od pętli "agent pisze, użytkownik uruchamia".
