@@ -1,3 +1,7 @@
+import json
+import threading
+import time
+
 from skills_engine.trust import TrustStore, compute_skill_hash
 
 
@@ -111,3 +115,79 @@ def test_trust_store_creates_missing_sections():
 def test_trust_store_tolerates_malformed_entry():
     config = {"skills": {"trust": {"demo": "garbage"}}}
     assert TrustStore(config).is_trusted("demo", "abc") is False
+
+
+def _run_threads(targets):
+    errors = []
+
+    def wrap(fn):
+        def run():
+            try:
+                fn()
+            except Exception as exc:  # pragma: no cover
+                errors.append(exc)
+        return run
+
+    threads = [threading.Thread(target=wrap(t)) for t in targets]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join()
+    return errors
+
+
+def test_trust_store_concurrent_trust_all_entries_present():
+    config = {}
+    snapshots = []
+    store = TrustStore(config, save=lambda: snapshots.append(json.dumps(config)))
+
+    def worker(w):
+        def run():
+            for i in range(25):
+                store.trust(f"skill-{w}-{i}", f"hash-{w}-{i}")
+        return run
+
+    errors = _run_threads([worker(w) for w in range(8)])
+    assert not errors
+    assert len(config["skills"]["trust"]) == 200
+    assert len(snapshots) == 200
+
+
+def test_trust_store_save_is_never_concurrent():
+    config = {}
+    state = {"inside": 0, "max": 0}
+
+    def slow_save():
+        state["inside"] += 1
+        state["max"] = max(state["max"], state["inside"])
+        time.sleep(0.002)
+        state["inside"] -= 1
+
+    store = TrustStore(config, save=slow_save)
+
+    def worker(w):
+        def run():
+            for i in range(10):
+                store.trust(f"s-{w}-{i}", "h")
+        return run
+
+    errors = _run_threads([worker(w) for w in range(6)])
+    assert not errors
+    assert state["max"] == 1
+
+
+def test_trust_store_concurrent_read_write_same_name():
+    config = {}
+    store = TrustStore(config, save=lambda: json.dumps(config))
+
+    def writer():
+        for i in range(50):
+            store.trust("demo", f"h{i}")
+            store.revoke("demo")
+
+    def reader():
+        for i in range(200):
+            store.is_trusted("demo", f"h{i % 50}")
+
+    errors = _run_threads([writer, writer, reader, reader])
+    assert not errors

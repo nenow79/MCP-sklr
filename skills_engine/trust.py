@@ -2,6 +2,7 @@
 """Zaufanie do skills: hash SKILL.md + scripts/ i trwały rejestr zaufanych hashy."""
 import hashlib
 import os
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -57,24 +58,28 @@ class TrustStore:
     def __init__(self, config: Dict[str, Any], save: Optional[Callable[[], None]] = None) -> None:
         self._config = config
         self._save = save
+        self._lock = threading.RLock()
 
     def _entries(self) -> Dict[str, Any]:
         return self._config.setdefault("skills", {}).setdefault("trust", {})
 
     def is_trusted(self, name: str, skill_hash: str) -> bool:
-        entry = self._entries().get(name)
-        return isinstance(entry, dict) and entry.get("hash") == skill_hash
+        with self._lock:
+            entry = self._entries().get(name)
+            return isinstance(entry, dict) and entry.get("hash") == skill_hash
 
     def trust(self, name: str, skill_hash: str) -> None:
-        self._entries()[name] = {
-            "hash": skill_hash,
-            "trusted_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        }
-        if self._save:
-            self._save()
+        with self._lock:
+            self._entries()[name] = {
+                "hash": skill_hash,
+                "trusted_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            }
+            if self._save:
+                self._save()
 
     def revoke(self, name: str) -> bool:
-        removed = self._entries().pop(name, None) is not None
-        if removed and self._save:
-            self._save()
-        return removed
+        with self._lock:
+            removed = self._entries().pop(name, None) is not None
+            if removed and self._save:
+                self._save()
+            return removed
