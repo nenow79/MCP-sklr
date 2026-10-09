@@ -31,8 +31,10 @@ def test_status_sets():
 def test_create_and_get_roundtrip(store):
     t = store.create(skill="hello-skill", source="central", script="hello.py",
                      args=["--name", "Zażółć"], command=["python", "hello.py"],
-                     timeout=30, offer_trust=True)
+                     timeout=30, offer_trust=True, skill_dir="C:\\skills\\hello",
+                     script_preview="print(1)")
     assert t.id == 1
+    assert t.skill_dir == "C:\\skills\\hello" and t.script_preview == "print(1)"
     assert t.status == TaskStatus.QUEUED
     assert t.args == ["--name", "Zażółć"]
     assert t.command == ["python", "hello.py"]

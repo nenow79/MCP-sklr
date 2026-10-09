@@ -35,6 +35,8 @@ class Task:
     skill: str = ""
     source: str = ""
     script: str = ""
+    skill_dir: str = ""
+    script_preview: str = ""
     args: List[str] = field(default_factory=list)
     timeout: int = 60
     command: List[str] = field(default_factory=list)

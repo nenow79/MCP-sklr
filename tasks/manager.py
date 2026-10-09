@@ -58,6 +58,10 @@ class TaskManager:
         self._stopped = False
         approval.bind(self.resolve_approval)
 
+    @property
+    def max_wait_s(self) -> float:
+        return self._max_wait_s
+
     # --- publiczne API ---
     def submit(self, fields: Dict[str, Any], executor: Executor, needs_approval: bool,
                verify: Optional[Callable[[], Optional[str]]] = None,

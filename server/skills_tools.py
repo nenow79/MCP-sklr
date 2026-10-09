@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Logika narzędzi MCP dla skills (bez zależności od FastMCP - łatwe testowanie)."""
 import sys
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from skills_engine.conda_env import resolve_env_python
 from skills_engine.content import (
@@ -16,12 +17,9 @@ from skills_engine.content import (
 from skills_engine.policy import decide_confirmation
 from skills_engine.registry import SkillRegistry
 from skills_engine.runner import (
-    APPROVAL_TIMEOUT,
     DEFAULT_TIMEOUT,
     build_command,
-    clean_env,
     resolve_script,
-    run_command,
     validate_timeout,
 )
 from skills_engine.trust import TrustStore, compute_skill_hash
@@ -29,8 +27,22 @@ from skills_engine.trust import TrustStore, compute_skill_hash
 MAX_DIAGNOSTICS = 50
 SCRIPT_PREVIEW_CHARS = 1500
 
-# approver(title, message, allow_trust, timeout_s) -> "allow" | "trust" | "deny" | "timeout"
-Approver = Callable[[str, str, bool, int], str]
+
+@dataclass
+class PreparedRun:
+    """Zwalidowane uruchomienie skryptu: opis zadania dla kolejki."""
+    skill: str
+    source: str
+    base_dir: Path
+    script_rel: str
+    args: List[str]
+    timeout: int
+    command: List[str]
+    skill_hash: str
+    approval_required: bool
+    offer_trust: bool
+    approval_reason: str
+    script_preview: str
 
 
 def _not_found_error(registry: SkillRegistry, name: str) -> Dict[str, Any]:
@@ -154,31 +166,17 @@ def _script_preview(path: Path) -> str:
     return text
 
 
-def _approval_message(record, script_rel: str, args: List[str], command: List[str],
-                      skill_hash: str, reason: str, preview: str) -> str:
-    return (
-        f"Skill:      {record.name} ({record.source})\n"
-        f"Skrypt:     {script_rel}\n"
-        f"Argumenty:  {args if args else '(brak)'}\n"
-        f"Interpreter: {command[0]}\n"
-        f"Katalog:    {record.base_dir}\n"
-        f"Hash:       {skill_hash[:16]}...\n\n"
-        f"Powód pytania: {reason}\n\n"
-        f"--- Podgląd skryptu ---\n{preview}"
-    )
-
-
-def run_skill_script_impl(
+def prepare_script_run(
     registry: SkillRegistry,
     config: Dict[str, Any],
     trust_store: TrustStore,
-    approver: Approver,
     name: str,
     script: str,
     args: Optional[List[str]] = None,
     timeout: int = DEFAULT_TIMEOUT,
     default_python: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> Union[PreparedRun, Dict[str, Any]]:
+    """Walidacja uruchomienia skryptu. Zwraca PreparedRun albo {"success": False, "error": ...}."""
     try:
         timeout_error = validate_timeout(timeout)
         if timeout_error:
@@ -212,56 +210,20 @@ def run_skill_script_impl(
         trusted = trust_store.is_trusted(record.name, approved_hash)
         decision = decide_confirmation(record.source, record.metadata, trusted)
 
-        if decision.required:
-            script_rel = script_path.relative_to(record.base_dir.resolve()).as_posix()
-            title = "Ufaj temu skillowi?" if decision.offer_trust else "Uruchomienie skryptu skilla"
-            message = _approval_message(
-                record, script_rel, args, command, approved_hash, decision.reason,
-                _script_preview(script_path),
-            )
-            answer = approver(title, message, decision.offer_trust, APPROVAL_TIMEOUT)
-            if answer == "timeout":
-                return {"success": False, "error": "Brak odpowiedzi użytkownika w czasie oczekiwania; skrypt nie został uruchomiony."}
-            if answer not in ("allow", "trust"):
-                return {"success": False, "error": "Użytkownik zablokował uruchomienie skryptu."}
-
-            # Skill mógł się zmienić w trakcie oczekiwania na decyzję.
-            if compute_skill_hash(record.base_dir) != approved_hash:
-                return {
-                    "success": False,
-                    "error": "Skill zmienił się podczas oczekiwania na zatwierdzenie; skrypt nie został uruchomiony. Ponów wywołanie.",
-                }
-            if answer == "trust" and decision.offer_trust:
-                trust_store.trust(record.name, approved_hash)
-
-        result = run_command(command, record.base_dir, timeout, clean_env())
-        if not result.get("started"):
-            return {"success": False, "error": result["error"]}
-
-        data = {
-            "skill": record.name,
-            "script": script_path.relative_to(record.base_dir.resolve()).as_posix(),
-            "exit_code": result["exit_code"],
-            "stdout": result["stdout"],
-            "stderr": result["stderr"],
-            "stdout_truncated": result["stdout_truncated"],
-            "stderr_truncated": result["stderr_truncated"],
-            "duration_s": result["duration_s"],
-            "timed_out": result["timed_out"],
-        }
-        if result["timed_out"]:
-            return {
-                "success": False,
-                "error": f"Skrypt przerwany po {timeout} s (timeout); proces został zakończony. Zwrócono częściowy output.",
-                "data": data,
-            }
-        if result["exit_code"] != 0:
-            return {
-                "success": False,
-                "error": f"Skrypt zakończył się kodem {result['exit_code']}.",
-                "data": data,
-            }
-        return {"success": True, "data": data}
+        return PreparedRun(
+            skill=record.name,
+            source=record.source,
+            base_dir=record.base_dir,
+            script_rel=script_path.relative_to(record.base_dir.resolve()).as_posix(),
+            args=list(args),
+            timeout=timeout,
+            command=command,
+            skill_hash=approved_hash,
+            approval_required=decision.required,
+            offer_trust=decision.offer_trust,
+            approval_reason=decision.reason if decision.required else "",
+            script_preview=_script_preview(script_path),
+        )
     except (ValueError, FileNotFoundError) as e:
         return {"success": False, "error": str(e)}
     except Exception as e:

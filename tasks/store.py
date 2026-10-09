@@ -13,8 +13,8 @@ _BOOL_FIELDS = ("offer_trust", "stdout_truncated", "stderr_truncated")
 
 _COLUMNS = (
     "created_at", "started_at", "finished_at", "status", "skill", "source",
-    "script", "args", "timeout", "command", "skill_hash", "approval_reason",
-    "offer_trust", "decision", "decided_at", "exit_code", "stdout", "stderr",
+    "script", "skill_dir", "script_preview", "args", "timeout", "command",
+    "skill_hash", "approval_reason", "offer_trust", "decision", "decided_at", "exit_code", "stdout", "stderr",
     "stdout_truncated", "stderr_truncated", "duration_s", "error",
 )
 
@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     skill TEXT NOT NULL DEFAULT '',
     source TEXT NOT NULL DEFAULT '',
     script TEXT NOT NULL DEFAULT '',
+    skill_dir TEXT NOT NULL DEFAULT '',
+    script_preview TEXT NOT NULL DEFAULT '',
     args TEXT NOT NULL DEFAULT '[]',
     timeout INTEGER NOT NULL DEFAULT 60,
     command TEXT NOT NULL DEFAULT '[]',
