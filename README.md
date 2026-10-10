@@ -15,7 +15,13 @@ Serwer: `http://127.0.0.1:8101/mcp` (host, port i CORS w `config.json`).
 - `ping`, `list_skills`, `activate_skill`, `read_skill_resource`.
 - `run_skill_script(name, script, args, timeout, wait)` - skrypt jako zadanie w kolejce (SQLite `tasks.db`).
 - `get_task`, `list_tasks`, `wait_task`, `cancel_task` - status i sterowanie zadaniami.
-- Sekcja `tasks` w `config.json`: `max_parallel`, `max_queued`, `max_wait_s` (limit 8), `retention_days`, `retention_max`, `approval_timeout_s`.
+- Sekcja `tasks` w `config.json`: `max_parallel`, `max_queued`, `max_wait_s` (limit 8), `retention_days`, `retention_max`, `approval_timeout_s` (tylko okno tkinter), `approval_expiry_min` (wygaśnięcie oczekującego zadania, domyślnie 60), `approval_ui` (`panel` | `dialog`).
+
+## Panel zatwierdzeń
+- Zadania wymagające zatwierdzenia obsługuje panel webowy na `http://127.0.0.1:8102` (tylko localhost).
+- Przy starcie serwera w konsoli pojawia się link z jednorazowym tokenem sesji (`http://127.0.0.1:8102/#token=...`), a przeglądarka otwiera się automatycznie. Token jest generowany przy każdym starcie i nie jest nigdzie zapisywany; po restarcie serwera użyj nowego linku.
+- Panel: lista zadań, szczegóły (podgląd skryptu, stdout/stderr), zatwierdzanie, odrzucanie, anulowanie, powiadomienia (dźwięk, licznik w tytule karty).
+- Sekcja `panel` w `config.json`: `enabled`, `port` (8102), `open_browser`. Gdy panel nie wystartuje (np. zajęty port) lub `tasks.approval_ui` = `dialog`, zatwierdzenia idą przez okno tkinter.
 
 ## Testy
 ```

@@ -65,6 +65,22 @@ def test_partial_tasks_section_is_merged(tmp_path):
     assert config["tasks"]["max_queued"] == 50
 
 
+def test_panel_and_approval_defaults(tmp_path):
+    config = load_config(tmp_path / "config.json")
+    assert config["panel"] == {"enabled": True, "port": 8102, "open_browser": True}
+    assert config["tasks"]["approval_ui"] == "panel"
+    assert config["tasks"]["approval_expiry_min"] == 60
+
+
+def test_old_file_without_panel_section_gets_panel_defaults(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"tasks": {"max_parallel": 3}}), encoding="utf-8")
+    config = load_config(path)
+    assert config["panel"]["port"] == 8102
+    assert config["tasks"]["approval_ui"] == "panel"
+    assert config["tasks"]["max_parallel"] == 3
+
+
 def test_atomic_save_leaves_no_tmp_file(tmp_path):
     path = tmp_path / "config.json"
     save_config(load_config(path), path)

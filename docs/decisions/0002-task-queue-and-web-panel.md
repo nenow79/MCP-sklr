@@ -32,11 +32,14 @@ Pomiar limitu harnessa (`sleep.py`, skill `hello-skill`), serwer sklr podłączo
 - Serwer nie może obudzić LLM. "Powiadom mnie po zakończeniu" oznacza powiadomienie użytkownika w panelu; model dowiaduje się o wyniku przez `get_task` / `list_tasks` / `wait_task` po prośbie użytkownika albo własnym odpytywaniu (kosztuje tury narzędziowe).
 - Nieznany limit tur narzędziowych harnessa w jednej odpowiedzi.
 
+## Rozstrzygnięcia (fazy 4a i 4b)
+- `json_response=True` w `http_app()`: włączone, ale niekonkluzywne. Błąd `: ping` nadal występuje przy pierwszym wywołaniu po restarcie serwera (ponowienie działa), więc to prawdopodobnie nawiązywanie sesji po stronie klienta. Kolejka z `wait` do 8 s pozostaje wymagana.
+- Limity kolejki: `max_parallel` 2, `max_queued` 50, retencja 30 dni / 500 zadań, output 6000 znaków na strumień (konfiguracja `tasks`).
+- Panel działa w wątku procesu serwera (drugi `uvicorn.Server`, bind `127.0.0.1`), z zapasowym oknem tkinter, gdy nie wystartuje.
+- Wygaśnięcie zadań `awaiting_approval`: `tasks.approval_expiry_min` (domyślnie 60), po czym `rejected` z `decision: timeout`.
+
 ## Otwarte pytania
-- Czy dodatkowo włączyć `json_response=True` w `http_app()` (FastMCP 4.0.x) i sprawdzić, czy znika błąd pingów; kolejka jest potrzebna niezależnie od wyniku.
-- Limity kolejki: liczba równoległych zadań, maksymalny rozmiar zapisanego wyniku, retencja historii.
-- Zatwierdzenie pojedynczego zadania a zaufanie do skryptu na stałe (hash, istniejący `TrustStore`).
-- Sposób startu panelu: w wątku serwera czy osobny proces.
+- Zatwierdzenie pojedynczego zadania a zaufanie do skryptu na stałe (hash, istniejący `TrustStore`): kiedy `policy.py` ma ustawiać `offer_trust` (dziś zawsze `false` dla domyślnej polityki).
 
 ## Konsekwencje
 Kolejka i API panelu są fundamentem; interfejs jest wymienny. Zmiana pociąga za sobą nowe moduły (`tasks/`, panel web), migrację `run_skill_script` na model zadań i aktualizację `gui_simple.py` (tymczasowy dialog do czasu fazy 4b).

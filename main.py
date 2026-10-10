@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Vibecoder Skills MCP - punkt wejścia (faza 4a: skills + kolejka zadań)."""
+import secrets
+import webbrowser
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -8,7 +10,9 @@ from fastmcp import FastMCP
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 
-import gui_simple
+from panel.app import create_panel_app
+from panel.auth import PanelAuth
+from panel.server import PanelServer, build_panel_url
 from server import skills_tools, task_tools
 from skills_engine import SkillRegistry
 from skills_engine.content import DEFAULT_READ_CHARS
@@ -17,6 +21,7 @@ from skills_engine.trust import TrustStore
 from state import load_config, resolve_central_skills_dir, resolve_workspace_path, save_config
 from tasks.approval import ApprovalService
 from tasks.dialog_adapter import make_dialog_notifier
+from tasks.expiry import ExpiryWatcher
 from tasks.manager import TaskManager
 from tasks.store import TaskStore
 from telemetry import track_mcp_tool
@@ -62,12 +67,51 @@ TASK_MANAGER = TaskManager(
     max_queued=_positive_int(_TASKS_CFG.get("max_queued"), 50),
     max_wait_s=MAX_WAIT_S,
 )
-# Tymczasowo (do fazy 4b): zatwierdzanie przez okno tkinter; w 4b adapterem będzie panel web.
-APPROVAL.set_notifier(make_dialog_notifier(
-    APPROVAL,
-    gui_simple.ask_skill_confirmation,
-    _positive_int(_TASKS_CFG.get("approval_timeout_s"), 120),
-))
+_PANEL_CFG = CONFIG.get("panel", {})
+APPROVAL_UI = _TASKS_CFG.get("approval_ui", "panel")
+if APPROVAL_UI not in ("panel", "dialog"):
+    APPROVAL_UI = "panel"
+PANEL_PORT = _positive_int(_PANEL_CFG.get("port"), 8102)
+PANEL_AUTH = PanelAuth(port=PANEL_PORT)
+PANEL_SERVER = None  # ustawiany w __main__, gdy panel działa
+EXPIRY_WATCHER = None
+
+
+def enable_dialog_approvals() -> None:
+    """Zatwierdzanie przez okno tkinter (tryb 'dialog' lub zapas, gdy panel nie wystartuje)."""
+    import gui_simple  # leniwie: w trybie 'panel' tkinter nie jest ładowany
+
+    APPROVAL.set_notifier(make_dialog_notifier(
+        APPROVAL,
+        gui_simple.ask_skill_confirmation,
+        _positive_int(_TASKS_CFG.get("approval_timeout_s"), 120),
+    ))
+
+
+def start_approval_ui() -> str:
+    """Uruchamia interfejs zatwierdzeń; zwraca opis do wypisania w konsoli."""
+    global PANEL_SERVER, EXPIRY_WATCHER
+    if APPROVAL_UI == "dialog" or not _PANEL_CFG.get("enabled", True):
+        enable_dialog_approvals()
+        return "okno tkinter (panel wyłączony w konfiguracji)"
+    app = create_panel_app(TASK_MANAGER, APPROVAL, PANEL_AUTH)
+    server = PanelServer(app, PANEL_PORT)
+    if not server.start():
+        enable_dialog_approvals()
+        return (f"UWAGA: panel nie wystartował (port {PANEL_PORT} zajęty?), "
+                "zapasowo okno tkinter")
+    PANEL_SERVER = server
+    expiry_min = _TASKS_CFG.get("approval_expiry_min", 60)
+    if isinstance(expiry_min, (int, float)) and not isinstance(expiry_min, bool) and expiry_min > 0:
+        EXPIRY_WATCHER = ExpiryWatcher(TASK_MANAGER, expiry_min * 60)
+        EXPIRY_WATCHER.start()
+    url = build_panel_url(PANEL_PORT, PANEL_AUTH.token)
+    if _PANEL_CFG.get("open_browser", True):
+        try:
+            webbrowser.open(url)
+        except Exception:
+            pass
+    return f"panel zatwierdzeń: {url}"
 
 mcp = FastMCP("Vibecoder_Skills")
 
@@ -134,7 +178,7 @@ def run_skill_script(
     Czeka maks. `wait` s (domyślnie 8, limit 8). Szybki skrypt: od razu wynik (exit_code, stdout, stderr,
     po 6000 znaków) wraz z task_id i status. Wolny: success=true z task_id i status (queued/running) -
     użyj wait_task(task_id) / get_task(task_id). Użytkownik zwykle musi zatwierdzić uruchomienie
-    w oknie GUI: wtedy od razu wraca task_id ze statusem awaiting_approval (zatwierdza użytkownik,
+    w panelu zatwierdzeń (lub oknie GUI): wtedy od razu wraca task_id ze statusem awaiting_approval (zatwierdza użytkownik,
     nie ty); po jego decyzji sprawdź wynik przez wait_task / get_task.
     """
     return task_tools.run_skill_script_impl(
@@ -199,21 +243,26 @@ if __name__ == "__main__":
 
     scan = REGISTRY.rescan()
     print("\n" + "=" * 50)
-    print("Uruchamianie serwera Vibecoder Skills MCP (faza 4a)...")
+    print("Uruchamianie serwera Vibecoder Skills MCP (faza 4b)...")
     print(f"Adres serwera MCP: http://127.0.0.1:{port}/mcp")
     print(f"Skills: {len(scan.skills)} (przesłonięte: {len(scan.shadowed)}, uwagi: {len(scan.diagnostics)})")
     for diagnostic in scan.diagnostics:
         print(f"  [{diagnostic.level}] {diagnostic.path}: {diagnostic.message}")
     print(f"Zadania: baza {TASKS_DB.name}, przerwane restartem: {INTERRUPTED_ON_START}, "
           f"usunięte (retencja): {PURGED_ON_START}, max równolegle: {MAX_PARALLEL}")
+    print(f"Zatwierdzenia: {start_approval_ui()}")
     print("=" * 50 + "\n")
 
     try:
         uvicorn.run(
-            mcp.http_app(middleware=get_middleware()),
+            mcp.http_app(middleware=get_middleware(), json_response=True),
             host=host,
             port=port,
             log_level="info",
         )
     finally:
+        if EXPIRY_WATCHER is not None:
+            EXPIRY_WATCHER.stop()
+        if PANEL_SERVER is not None:
+            PANEL_SERVER.stop()
         TASK_MANAGER.shutdown()

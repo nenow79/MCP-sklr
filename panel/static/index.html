@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Vibecoder - zatwierdzenia</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <h1>Vibecoder: zadania</h1>
+    <div class="topbar-right">
+      <span id="pending-badge" class="badge badge-pending" hidden></span>
+      <button id="notify-btn" type="button" class="btn">Włącz powiadomienia i dźwięk</button>
+    </div>
+  </header>
+
+  <div id="banner" class="banner" role="alert" hidden></div>
+
+  <main class="layout">
+    <section class="column">
+      <h2>Czeka na decyzję</h2>
+      <div id="pending-list" class="task-list"></div>
+
+      <div class="section-head">
+        <h2>Pozostałe zadania</h2>
+        <label class="filter">Status:
+          <select id="status-filter">
+            <option value="">wszystkie</option>
+            <option value="queued">queued</option>
+            <option value="running">running</option>
+            <option value="done">done</option>
+            <option value="failed">failed</option>
+            <option value="rejected">rejected</option>
+            <option value="timed_out">timed_out</option>
+            <option value="cancelled">cancelled</option>
+            <option value="interrupted">interrupted</option>
+          </select>
+        </label>
+      </div>
+      <div id="other-list" class="task-list"></div>
+    </section>
+
+    <section class="column">
+      <h2>Szczegóły</h2>
+      <div id="details" class="details">
+        <p class="muted">Wybierz zadanie z listy.</p>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

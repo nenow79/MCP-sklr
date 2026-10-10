@@ -1,0 +1,151 @@
+:root {
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --text: #1c2026;
+  --muted: #6a7280;
+  --border: #d9dde3;
+  --accent: #2563eb;
+  --ok: #15803d;
+  --warn: #b45309;
+  --bad: #b91c1c;
+  --neutral: #4b5563;
+  --code-bg: #f0f2f5;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14171c;
+    --panel: #1d2128;
+    --text: #e6e8ec;
+    --muted: #9aa3b2;
+    --border: #2f353f;
+    --accent: #5b8def;
+    --ok: #4ade80;
+    --warn: #fbbf24;
+    --bad: #f87171;
+    --neutral: #9ca3af;
+    --code-bg: #12151a;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+h1 { font-size: 18px; margin: 0; }
+h2 { font-size: 15px; margin: 16px 0 8px; }
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 20px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+.topbar-right { display: flex; gap: 12px; align-items: center; }
+
+.banner {
+  margin: 12px 20px 0;
+  padding: 10px 14px;
+  border-radius: 6px;
+  background: var(--bad);
+  color: #fff;
+}
+.banner.info { background: var(--accent); }
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 1fr) minmax(360px, 1.4fr);
+  gap: 20px;
+  padding: 0 20px 24px;
+}
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; }
+}
+
+.section-head { display: flex; justify-content: space-between; align-items: center; }
+.filter { color: var(--muted); font-size: 13px; }
+select, .btn {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 10px;
+}
+.btn { cursor: pointer; }
+.btn:hover:not(:disabled) { border-color: var(--accent); }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.btn-allow { background: var(--ok); border-color: var(--ok); color: #fff; }
+.btn-trust { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn-deny { background: var(--bad); border-color: var(--bad); color: #fff; }
+
+.task-list { display: flex; flex-direction: column; gap: 8px; }
+
+.task-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+.task-card.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.task-card.is-pending { border-left: 4px solid var(--warn); }
+.task-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.task-title { font-weight: 600; }
+.task-meta { color: var(--muted); font-size: 12px; margin-top: 2px; word-break: break-all; }
+.task-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+
+.badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--neutral);
+}
+.badge-pending, .status-awaiting_approval { background: var(--warn); }
+.status-queued, .status-running { background: var(--accent); }
+.status-done { background: var(--ok); }
+.status-failed, .status-timed_out, .status-rejected { background: var(--bad); }
+.status-cancelled, .status-interrupted { background: var(--neutral); }
+
+.details {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  min-height: 120px;
+}
+.details dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 14px;
+  margin: 0 0 12px;
+}
+.details dt { color: var(--muted); }
+.details dd { margin: 0; word-break: break-all; }
+.details h3 { font-size: 13px; margin: 14px 0 4px; color: var(--muted); }
+
+pre {
+  margin: 0;
+  padding: 8px 10px;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: 12px/1.4 ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+
+.muted { color: var(--muted); }
+[hidden] { display: none !important; }

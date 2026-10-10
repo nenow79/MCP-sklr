@@ -1,6 +1,6 @@
 # Faza 4a: kolejka zadań (plan do akceptacji, bez kodu)
 
-Status: ZAAKCEPTOWANY (decyzje 1-7 potwierdzone; w pkt 1 wybrana alternatywa). Podstawa: ADR 0002 (`docs/decisions/0002-task-queue-and-web-panel.md`).
+Status: ZREALIZOWANA (kroki 1-7 zrobione; testy ręczne A-E zaliczone, eksperyment F niekonkluzywny; decyzje 1-7 potwierdzone, w pkt 1 wybrana alternatywa). Podstawa: ADR 0002 (`docs/decisions/0002-task-queue-and-web-panel.md`).
 Cel: `run_skill_script` przestaje blokować wywołanie MCP (limit harnessa ok. 11 s, bezpiecznie 8 s). Skrypt staje się zadaniem w kolejce; LLM odpytuje o status. Panel webowy to faza 4b.
 
 ## Stan wyjściowy (z kodu)
@@ -66,6 +66,14 @@ Przejścia:
 5. `server/task_tools.py` + testy narzędzi; migracja testów `test_skills_run_tool.py` do nowego modelu (te same przypadki: path traversal, nieznany skill, trust, hash, timeout).
 6. Integracja w `main.py`, konfiguracja `tasks`, adapter tkinter -> `ApprovalService`.
 7. Testy ręczne z harnessa: `hello.py` (szybkie, wynik od razu), `sleep.py` 30 s (zwraca `running`, `wait_task`, `get_task`, `cancel_task`), zadanie z potwierdzeniem (okno -> `queued` -> `done`), odrzucenie, restart serwera (`interrupted`).
+
+## Wyniki kroku 7 (testy ręczne z harnessa, 2026-10-10) - ZROBIONY
+- A. `hello.py`: zatwierdzenie w oknie -> `done`, exit 0, wynik poprawny. OK.
+- B. `sleep.py` 30 s: `running`, `wait_task` wraca z podpowiedzią, `cancel_task` -> `cancelled` z częściowym outputem. OK. Uwaga: `exit_code` = 1 przy `cancelled` (kosmetyka).
+- C. `awaiting_approval` -> `queued` -> `running` -> `done`. OK.
+- D. Odrzucenie w oknie -> `rejected`, `decision: deny`, skrypt się nie uruchomił. OK.
+- E. Restart serwera w trakcie `running` -> `interrupted`, `error: "serwer zrestartowany"`. OK.
+- F (decyzja 7, `json_response=True`): niekonkluzywny. Błąd `: ping` nadal występuje przy pierwszym wywołaniu po restarcie serwera, więc to prawdopodobnie nawiązywanie sesji po stronie klienta, a nie długie wywołanie. Pomiaru 12/15/30 s nie wykonano (wywołania kolejki trwają maks. 8 s). Decyzja: `json_response=True` zostaje w `main.py`.
 
 ## Poza zakresem 4a
 Panel webowy, token, ciasteczko, powiadomienia (4b). Narzędzia plików i `execute_command` (faza 5).

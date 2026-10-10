@@ -33,6 +33,13 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "retention_days": 30,
         "retention_max": 500,
         "approval_timeout_s": 120,
+        "approval_expiry_min": 60,
+        "approval_ui": "panel",
+    },
+    "panel": {
+        "enabled": True,
+        "port": 8102,
+        "open_browser": True,
     },
     "references": {},
     "external_mcp": {},
