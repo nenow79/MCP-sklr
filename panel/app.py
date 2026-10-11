@@ -18,6 +18,7 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
 from panel.auth import COOKIE_NAME, PanelAuth
+from roots import RootConflict, RootError, RootNotFound
 from tasks.approval import ApprovalService
 from tasks.manager import TaskManager, TaskNotFoundError, TaskStateError
 from tasks.models import TaskStatus
@@ -88,8 +89,27 @@ def _parse_task_id(request: Request) -> Optional[int]:
     return value if value > 0 else None
 
 
+def _root_error_response(exc: RootError) -> JSONResponse:
+    if isinstance(exc, RootNotFound):
+        return _err(str(exc), 404)
+    if isinstance(exc, RootConflict):
+        return _err(str(exc), 409)
+    return _err(str(exc), 400)
+
+
+def _opt_str(body: dict, key: str) -> Optional[str]:
+    """Pole tekstowe opcjonalne: brak lub null = None; inny typ niż napis = ValueError."""
+    value = body.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"Pole '{key}' musi być tekstem.")
+    return value
+
+
 def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: PanelAuth,
-                     static_dir: Optional[Path] = None) -> Starlette:
+                     static_dir: Optional[Path] = None, roots: Any = None) -> Starlette:
+    """`roots` (RootsRegistry) jest opcjonalne: bez niego endpointy /api/roots nie istnieją (404)."""
     static_path = Path(static_dir) if static_dir is not None else DEFAULT_STATIC_DIR
 
     async def create_session(request: Request) -> JSONResponse:
@@ -151,6 +171,63 @@ def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: Pane
             return _err("Nie ma takiego zadania.", 404)
         return _ok(task.to_dict())
 
+    async def list_roots(request: Request) -> JSONResponse:
+        entries = await run_in_threadpool(roots.list_status)
+        return _ok({"count": len(entries), "roots": entries})
+
+    async def add_root(request: Request) -> JSONResponse:
+        body = await _json_body(request)
+        if body is None:
+            return _err("Oczekiwano obiektu JSON.", 400)
+        try:
+            path = _opt_str(body, "path")
+            mode = _opt_str(body, "mode")
+            alias = _opt_str(body, "alias")
+            description = _opt_str(body, "description") or ""
+            make_default = body.get("default", False)
+            if not isinstance(make_default, bool):
+                raise ValueError("Pole 'default' musi być true lub false.")
+            if not path:
+                raise ValueError("Podaj ścieżkę do folderu.")
+            root = await run_in_threadpool(roots.add, path, mode, alias or None, description,
+                                           make_default)
+        except RootError as exc:
+            return _root_error_response(exc)
+        except ValueError as exc:
+            return _err(str(exc), 400)
+        return _ok(root.to_dict(), 201)
+
+    async def update_root(request: Request) -> JSONResponse:
+        body = await _json_body(request)
+        if body is None:
+            return _err("Oczekiwano obiektu JSON.", 400)
+        try:
+            mode = _opt_str(body, "mode")
+            description = _opt_str(body, "description")
+            new_alias = _opt_str(body, "new_alias")
+            root = await run_in_threadpool(
+                lambda: roots.update(request.path_params["alias"], mode=mode,
+                                     description=description, new_alias=new_alias or None))
+        except RootError as exc:
+            return _root_error_response(exc)
+        except ValueError as exc:
+            return _err(str(exc), 400)
+        return _ok(root.to_dict())
+
+    async def delete_root(request: Request) -> JSONResponse:
+        try:
+            root = await run_in_threadpool(roots.remove, request.path_params["alias"])
+        except RootError as exc:
+            return _root_error_response(exc)
+        return _ok(root.to_dict())
+
+    async def default_root(request: Request) -> JSONResponse:
+        try:
+            root = await run_in_threadpool(roots.set_default, request.path_params["alias"])
+        except RootError as exc:
+            return _root_error_response(exc)
+        return _ok(root.to_dict())
+
     async def index(request: Request):
         index_file = static_path / "index.html"
         if not index_file.is_file():
@@ -165,6 +242,14 @@ def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: Pane
         Route("/api/tasks/{task_id}/cancel", cancel, methods=["POST"]),
         Route("/", index, methods=["GET"]),
     ]
+    if roots is not None:
+        routes[-1:-1] = [
+            Route("/api/roots", list_roots, methods=["GET"]),
+            Route("/api/roots", add_root, methods=["POST"]),
+            Route("/api/roots/{alias}/update", update_root, methods=["POST"]),
+            Route("/api/roots/{alias}/delete", delete_root, methods=["POST"]),
+            Route("/api/roots/{alias}/default", default_root, methods=["POST"]),
+        ]
     if static_path.is_dir():
         routes.append(Mount("/static", app=StaticFiles(directory=str(static_path)), name="static"))
 

@@ -24,7 +24,62 @@ def build_title(task: Task) -> str:
     return "Ufaj temu skillowi?" if task.offer_trust else "Uruchomienie skryptu skilla"
 
 
+MAX_DIALOG_CHARS = 10000  # dłuższa treść nie mieści się w oknie zapasowym: odrzucamy zamiast zatwierdzać na ślepo
+AUTO_DENY_KINDS = ("root_change", "secret_reveal")  # tylko panel (zarządzanie dostępem i sekrety)
+
+
+def _escape_controls(text: str) -> str:
+    """Znaki sterujące i dwukierunkowe Unicode pokazujemy jawnie (nie mogą ukrywać treści)."""
+    out = []
+    for ch in text:
+        code = ord(ch)
+        if ch in "\n\t" or (code >= 0x20 and code != 0x7F
+                            and not 0x200B <= code <= 0x200F
+                            and not 0x202A <= code <= 0x202E
+                            and not 0x2066 <= code <= 0x2069):
+            out.append(ch)
+        else:
+            out.append(f"<U+{code:04X}>")
+    return "".join(out)
+
+
+def _generic_body(task: Task) -> str:
+    payload = task.payload or {}
+    lines = [
+        f"Zadanie:    #{task.id}",
+        f"Rodzaj:     {task.kind}" + ("  [WRAŻLIWE]" if task.sensitive else ""),
+        f"Tytuł:      {task.title or '(brak)'}",
+    ]
+    if task.command:
+        lines.append(f"Komenda:    {task.command}")
+    for key in ("root", "cwd", "path", "paths"):
+        if payload.get(key):
+            lines.append(f"{key}: {payload[key]}")
+    if task.approval_reason:
+        lines.append(f"\nPowód pytania: {task.approval_reason}")
+    if payload.get("description"):
+        lines.append(f"\nOpis od modelu (niezweryfikowany): {payload['description']}")
+    if payload.get("diff"):
+        lines.append(f"\n--- Diff ---\n{payload['diff']}")
+    return "\n".join(lines)
+
+
+def should_auto_deny(task: Task) -> str:
+    """Zwraca powód automatycznego odrzucenia w oknie zapasowym albo pusty napis."""
+    if task.kind == "skill_script":
+        return ""
+    if task.sensitive:
+        return "zadanie wrażliwe wymaga panelu"
+    if task.kind in AUTO_DENY_KINDS:
+        return f"zadanie '{task.kind}' wymaga panelu"
+    if len(build_message(task)) > MAX_DIALOG_CHARS:
+        return f"treść dłuższa niż {MAX_DIALOG_CHARS} znaków nie mieści się w oknie"
+    return ""
+
+
 def build_message(task: Task) -> str:
+    if task.kind != "skill_script":
+        return _escape_controls(_generic_body(task))
     interpreter = task.command[0] if task.command else "(brak)"
     return (
         f"Zadanie:    #{task.id}\n"
@@ -43,6 +98,17 @@ def make_dialog_notifier(approval: ApprovalService, ask: AskFunc, timeout_s: int
     """Zwraca notifier dla ApprovalService: pokazuje okno w wątku tła i odsyła decyzję."""
 
     def worker(task: Task) -> None:
+        reason = should_auto_deny(task)
+        if reason:
+            logger.warning("Okno zapasowe: zadanie %s odrzucone automatycznie (%s). "
+                           "Użyj panelu zatwierdzeń.", task.id, reason)
+            try:
+                approval.resolve(task.id, "deny")
+            except (TaskStateError, TaskNotFoundError):
+                pass
+            except Exception:
+                logger.exception("Nie udało się odrzucić zadania %s", task.id)
+            return
         try:
             answer = ask(build_title(task), build_message(task), task.offer_trust, timeout_s)
         except Exception:

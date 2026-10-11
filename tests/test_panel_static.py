@@ -33,6 +33,23 @@ def test_index_references_local_assets():
     assert 'src="/static/app.js"' in html
 
 
+def test_index_has_roots_tab_and_form():
+    html = read("index.html")
+    for element_id in ("tab-tasks", "tab-roots", "tasks-view", "roots-view", "roots-list",
+                       "root-form", "root-path", "root-mode", "root-alias", "root-description",
+                       "root-default"):
+        assert f'id="{element_id}"' in html, element_id
+    assert "Foldery" in html
+
+
+def test_js_uses_roots_api_and_ids_exist_in_html():
+    js = read("app.js")
+    html = read("index.html")
+    assert "/api/roots" in js
+    for element_id in set(re.findall(r'\$\("([a-z-]+)"\)', js)):
+        assert f'id="{element_id}"' in html, element_id
+
+
 def test_index_has_no_external_resources():
     html = read("index.html")
     assert not re.search(r'(?:src|href)\s*=\s*"(?:https?:)?//', html)

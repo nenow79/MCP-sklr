@@ -116,6 +116,14 @@ select, .btn {
 .status-done { background: var(--ok); }
 .status-failed, .status-timed_out, .status-rejected { background: var(--bad); }
 .status-cancelled, .status-interrupted { background: var(--neutral); }
+.badge-kind { background: var(--accent); margin-right: 6px; }
+.badge-sensitive { background: var(--bad); margin-right: 6px; }
+
+.from-model { color: var(--muted); font-size: 12px; font-style: italic; margin-top: 8px; }
+.from-model pre { font-style: normal; }
+.diff { white-space: pre; overflow-x: auto; }
+.diff-add { color: var(--ok); }
+.diff-del { color: var(--bad); }
 
 .details {
   background: var(--panel);
@@ -145,6 +153,47 @@ pre {
   white-space: pre-wrap;
   word-break: break-word;
   font: 12px/1.4 ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+
+.tabs { display: flex; gap: 6px; }
+.tab {
+  font: inherit;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 5px 14px;
+  cursor: pointer;
+}
+.tab.active { border-color: var(--accent); font-weight: 600; }
+
+.roots-view { padding: 0 20px 24px; max-width: 900px; }
+.root-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.root-card.is-default { border-left: 4px solid var(--accent); }
+.root-card.is-invalid { border-left: 4px solid var(--bad); }
+.root-path { color: var(--muted); font-size: 12px; margin-top: 2px; word-break: break-all; }
+.root-edit { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: center; }
+.root-edit input[type="text"] { flex: 1 1 200px; }
+.badge-rw { background: var(--warn); margin-right: 6px; }
+.badge-ro { background: var(--neutral); margin-right: 6px; }
+.badge-default { background: var(--accent); margin-left: 6px; }
+.badge-invalid { background: var(--bad); margin-left: 6px; }
+
+.root-form { display: grid; gap: 10px; max-width: 560px; }
+.root-form label { display: grid; gap: 4px; color: var(--muted); font-size: 13px; }
+.root-form label.check { display: flex; gap: 8px; align-items: center; }
+input[type="text"] {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
 }
 
 .muted { color: var(--muted); }

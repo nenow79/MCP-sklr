@@ -8,14 +8,26 @@ from typing import Any, Dict, List, Optional
 
 from tasks.models import ACTIVE_STATUSES, TERMINAL_STATUSES, Task, TaskStatus
 
-_JSON_FIELDS = ("args", "command")
-_BOOL_FIELDS = ("offer_trust", "stdout_truncated", "stderr_truncated")
+_JSON_FIELDS = ("args", "command")        # listy
+_DICT_FIELDS = ("payload",)               # słowniki (JSON)
+_BOOL_FIELDS = ("offer_trust", "stdout_truncated", "stderr_truncated", "sensitive")
+
+SCHEMA_VERSION = 1
 
 _COLUMNS = (
     "created_at", "started_at", "finished_at", "status", "skill", "source",
     "script", "skill_dir", "script_preview", "args", "timeout", "command",
     "skill_hash", "approval_reason", "offer_trust", "decision", "decided_at", "exit_code", "stdout", "stderr",
     "stdout_truncated", "stderr_truncated", "duration_s", "error",
+    "kind", "title", "payload", "sensitive",
+)
+
+# Kolumny dodane po fazie 4b: (nazwa, definicja SQL) - migracja addytywna starych baz.
+_ADDED_COLUMNS = (
+    ("kind", "TEXT NOT NULL DEFAULT 'skill_script'"),
+    ("title", "TEXT NOT NULL DEFAULT ''"),
+    ("payload", "TEXT NOT NULL DEFAULT '{}'"),
+    ("sensitive", "INTEGER NOT NULL DEFAULT 0"),
 )
 
 _SCHEMA = """
@@ -44,7 +56,11 @@ CREATE TABLE IF NOT EXISTS tasks (
     stdout_truncated INTEGER NOT NULL DEFAULT 0,
     stderr_truncated INTEGER NOT NULL DEFAULT 0,
     duration_s REAL,
-    error TEXT NOT NULL DEFAULT ''
+    error TEXT NOT NULL DEFAULT '',
+    kind TEXT NOT NULL DEFAULT 'skill_script',
+    title TEXT NOT NULL DEFAULT '',
+    payload TEXT NOT NULL DEFAULT '{}',
+    sensitive INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 """
@@ -57,6 +73,8 @@ def now_iso() -> str:
 def _encode(field_name: str, value: Any) -> Any:
     if field_name in _JSON_FIELDS:
         return json.dumps(list(value), ensure_ascii=False)
+    if field_name in _DICT_FIELDS:
+        return json.dumps(dict(value or {}), ensure_ascii=False)
     if field_name in _BOOL_FIELDS:
         return 1 if value else 0
     if isinstance(value, TaskStatus):
@@ -68,6 +86,8 @@ def _row_to_task(row: sqlite3.Row) -> Task:
     d = dict(row)
     for f in _JSON_FIELDS:
         d[f] = json.loads(d[f])
+    for f in _DICT_FIELDS:
+        d[f] = json.loads(d[f]) if d.get(f) else {}
     for f in _BOOL_FIELDS:
         d[f] = bool(d[f])
     d["status"] = TaskStatus(d["status"])
@@ -83,7 +103,16 @@ class TaskStore:
             if str(db_path) != ":memory:":
                 self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.executescript(_SCHEMA)
+            self._migrate()
             self._conn.commit()
+
+    def _migrate(self) -> None:
+        """Dodaje brakujące kolumny w bazach sprzed fazy 5 (tylko addytywnie) i ustawia user_version."""
+        existing = {row["name"] for row in self._conn.execute("PRAGMA table_info(tasks)")}
+        for name, definition in _ADDED_COLUMNS:
+            if name not in existing:
+                self._conn.execute(f"ALTER TABLE tasks ADD COLUMN {name} {definition}")
+        self._conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     def close(self) -> None:
         with self._lock:

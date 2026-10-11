@@ -24,7 +24,13 @@ ACTIVE_STATUSES = frozenset({
 })
 TERMINAL_STATUSES = frozenset(set(TaskStatus) - set(ACTIVE_STATUSES))
 
-_SUMMARY_EXCLUDED = ("stdout", "stderr", "command")
+KIND_SKILL_SCRIPT = "skill_script"
+TASK_KINDS = (
+    KIND_SKILL_SCRIPT, "file_edit", "file_write", "folder",
+    "command", "root_change", "secret_reveal",
+)
+
+_SUMMARY_EXCLUDED = ("stdout", "stderr", "command", "payload")
 
 
 @dataclass
@@ -54,6 +60,10 @@ class Task:
     stderr_truncated: bool = False
     duration_s: Optional[float] = None
     error: str = ""
+    kind: str = KIND_SKILL_SCRIPT
+    title: str = ""
+    payload: Dict[str, Any] = field(default_factory=dict)
+    sensitive: bool = False
 
     @property
     def is_terminal(self) -> bool:

@@ -88,6 +88,45 @@ def test_atomic_save_leaves_no_tmp_file(tmp_path):
     assert not (tmp_path / "config.json.tmp").exists()
 
 
+def test_save_retries_when_replace_is_temporarily_denied(tmp_path, monkeypatch):
+    import state
+    path = tmp_path / "config.json"
+    real_replace = state.os.replace
+    calls = []
+
+    def flaky_replace(src, dst):
+        calls.append(1)
+        if len(calls) <= 2:
+            raise PermissionError(13, "Access is denied")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(state.os, "replace", flaky_replace)
+    monkeypatch.setattr(state.time, "sleep", lambda _s: None)
+    save_config(load_config(path), path)
+    assert len(calls) == 3
+    assert path.is_file()
+    assert not (tmp_path / "config.json.tmp").exists()
+
+
+def test_save_gives_up_after_retries_and_cleans_tmp(tmp_path, monkeypatch):
+    import pytest
+    import state
+    path = tmp_path / "config.json"
+    calls = []
+
+    def always_denied(src, dst):
+        calls.append(1)
+        raise PermissionError(13, "Access is denied")
+
+    monkeypatch.setattr(state.os, "replace", always_denied)
+    monkeypatch.setattr(state.time, "sleep", lambda _s: None)
+    with pytest.raises(PermissionError):
+        save_config(load_config(path), path)
+    assert len(calls) == state.REPLACE_RETRIES
+    assert not path.exists()
+    assert not (tmp_path / "config.json.tmp").exists()
+
+
 def test_resolve_central_skills_dir_expands_home():
     config = json.loads(json.dumps(DEFAULT_CONFIG))
     resolved = resolve_central_skills_dir(config)

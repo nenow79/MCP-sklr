@@ -10,7 +10,11 @@
 </head>
 <body>
   <header class="topbar">
-    <h1>Vibecoder: zadania</h1>
+    <h1>Vibecoder</h1>
+    <nav class="tabs">
+      <button id="tab-tasks" type="button" class="tab active">Zadania</button>
+      <button id="tab-roots" type="button" class="tab">Foldery</button>
+    </nav>
     <div class="topbar-right">
       <span id="pending-badge" class="badge badge-pending" hidden></span>
       <button id="notify-btn" type="button" class="btn">Włącz powiadomienia i dźwięk</button>
@@ -19,7 +23,7 @@
 
   <div id="banner" class="banner" role="alert" hidden></div>
 
-  <main class="layout">
+  <main id="tasks-view" class="layout">
     <section class="column">
       <h2>Czeka na decyzję</h2>
       <div id="pending-list" class="task-list"></div>
@@ -49,6 +53,36 @@
         <p class="muted">Wybierz zadanie z listy.</p>
       </div>
     </section>
+  </main>
+
+  <main id="roots-view" class="roots-view" hidden>
+    <h2>Foldery dostępne dla modelu</h2>
+    <p class="muted">Tryb rw: odczyt i zapis (zapis wymaga zatwierdzenia). Tryb ro: tylko odczyt.
+      Skills projektowe są czytane z folderu domyślnego.</p>
+    <div id="roots-list" class="task-list"></div>
+
+    <h2>Dodaj folder</h2>
+    <form id="root-form" class="root-form" autocomplete="off">
+      <label>Ścieżka (bezwzględna)
+        <input id="root-path" type="text" required placeholder="C:\projekty\app">
+      </label>
+      <label>Tryb
+        <select id="root-mode">
+          <option value="rw">rw (odczyt i zapis)</option>
+          <option value="ro">ro (tylko odczyt)</option>
+        </select>
+      </label>
+      <label>Alias (opcjonalnie)
+        <input id="root-alias" type="text" maxlength="32" placeholder="np. frontend">
+      </label>
+      <label>Opis (opcjonalnie)
+        <input id="root-description" type="text" maxlength="200">
+      </label>
+      <label class="check">
+        <input id="root-default" type="checkbox"> Ustaw jako domyślny
+      </label>
+      <button type="submit" class="btn btn-allow">Dodaj folder</button>
+    </form>
   </main>
 </body>
 </html>

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Vibecoder Skills MCP - punkt wejścia (faza 4a: skills + kolejka zadań)."""
-import secrets
+import shutil
 import webbrowser
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -10,15 +10,18 @@ from fastmcp import FastMCP
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 
+from config_store import ConfigStore
 from panel.app import create_panel_app
 from panel.auth import PanelAuth
 from panel.server import PanelServer, build_panel_url
-from server import skills_tools, task_tools
+from roots import MigrationResult, Root
+from roots_registry import RootsRegistry
+from server import roots_tools, skills_tools, task_tools
 from skills_engine import SkillRegistry
 from skills_engine.content import DEFAULT_READ_CHARS
 from skills_engine.runner import DEFAULT_TIMEOUT
 from skills_engine.trust import TrustStore
-from state import load_config, resolve_central_skills_dir, resolve_workspace_path, save_config
+from state import CONFIG_FILE, load_config, resolve_central_skills_dir
 from tasks.approval import ApprovalService
 from tasks.dialog_adapter import make_dialog_notifier
 from tasks.expiry import ExpiryWatcher
@@ -41,16 +44,52 @@ def _positive_int(value: Any, default: int) -> int:
 _TASKS_CFG = CONFIG.get("tasks", {})
 MAX_WAIT_S = min(_positive_int(_TASKS_CFG.get("max_wait_s"), MAX_WAIT_LIMIT_S), MAX_WAIT_LIMIT_S)
 
-# Do fazy 4 (GUI) workspace pochodzi z config.json (workspace.path); null = tylko katalog centralny.
-PROJECT_ROOT = resolve_workspace_path(CONFIG)
-WORKSPACE_NAME = PROJECT_ROOT.name if PROJECT_ROOT else ""
+CONFIG_STORE = ConfigStore(CONFIG, CONFIG_FILE)  # jedyna ścieżka zapisu configu (wspólny lock)
+CONFIG_BACKUP = CONFIG_FILE.with_name(CONFIG_FILE.name + ".bak")
+ROOTS = RootsRegistry(CONFIG_STORE, central_dir=lambda: resolve_central_skills_dir(CONFIG))
+
+
+def _migrate_roots() -> Optional[MigrationResult]:
+    """Jednorazowa migracja workspace i references na roots; przed nią kopia config.json.bak."""
+    if CONFIG.get("roots") is not None:
+        return None
+    try:
+        if CONFIG_FILE.is_file() and not CONFIG_BACKUP.exists():
+            shutil.copy2(CONFIG_FILE, CONFIG_BACKUP)
+        return ROOTS.migrate()
+    except Exception as exc:  # błąd migracji nie może zatrzymać serwera; config zostaje bez zmian
+        print(f"UWAGA: migracja folderów nie powiodła się: {exc}")
+        return None
+
+
+ROOTS_MIGRATION = _migrate_roots()
+
+
+def _default_root_path() -> Optional[Path]:
+    default = ROOTS.default()
+    return Path(default.path) if default else None
+
+
+def _default_root_alias() -> str:
+    default = ROOTS.default()
+    return default.alias if default else ""
+
 
 REGISTRY = SkillRegistry(
     central_dir=resolve_central_skills_dir(CONFIG),
-    project_root=PROJECT_ROOT,
+    project_root=_default_root_path(),  # skills projektowe tylko z domyślnego roota
     disabled=CONFIG["skills"]["disabled"],
 )
-TRUST_STORE = TrustStore(CONFIG, save=lambda: save_config(CONFIG))
+
+
+def _on_default_root_change(old: Optional[Root], new: Optional[Root]) -> None:
+    """Zmiana domyślnego folderu: odświeża skills projektowe (wołane poza lockiem configu)."""
+    REGISTRY.set_project_root(Path(new.path) if new else None)
+    REGISTRY.rescan()
+
+
+ROOTS.set_default_listener(_on_default_root_change)
+TRUST_STORE = TrustStore(CONFIG, save=CONFIG_STORE.save, lock=CONFIG_STORE.lock)
 
 TASK_STORE = TaskStore(str(TASKS_DB))
 INTERRUPTED_ON_START = TASK_STORE.mark_interrupted()
@@ -94,7 +133,7 @@ def start_approval_ui() -> str:
     if APPROVAL_UI == "dialog" or not _PANEL_CFG.get("enabled", True):
         enable_dialog_approvals()
         return "okno tkinter (panel wyłączony w konfiguracji)"
-    app = create_panel_app(TASK_MANAGER, APPROVAL, PANEL_AUTH)
+    app = create_panel_app(TASK_MANAGER, APPROVAL, PANEL_AUTH, roots=ROOTS)
     server = PanelServer(app, PANEL_PORT)
     if not server.start():
         enable_dialog_approvals()
@@ -118,7 +157,7 @@ mcp = FastMCP("Vibecoder_Skills")
 
 def register_tool(function):
     """Rejestruje narzędzie MCP wraz z lekką telemetrią użycia."""
-    return mcp.tool(track_mcp_tool(function, lambda: WORKSPACE_NAME))
+    return mcp.tool(track_mcp_tool(function, _default_root_alias))
 
 
 @register_tool
@@ -224,6 +263,31 @@ def cancel_task(task_id: int) -> Dict[str, Any]:
     return task_tools.cancel_task_impl(TASK_MANAGER, task_id)
 
 
+@register_tool
+def list_roots() -> Dict[str, Any]:
+    """
+    Zwraca foldery dostępne dla modelu (roots): alias, tryb (rw = odczyt i zapis, ro = tylko odczyt),
+    opis, ścieżkę, flagę default i available. Narzędzia plikowe przyjmują parametr root (alias);
+    brak parametru, pusty napis lub "false" oznacza folder domyślny. Foldery dodaje użytkownik w panelu
+    zatwierdzeń (zakładka Foldery).
+    """
+    return roots_tools.list_roots_impl(ROOTS)
+
+
+@register_tool
+def request_root(path: str, mode: str = "ro", alias: Optional[str] = None, description: str = "") -> Dict[str, Any]:
+    """
+    Prosi użytkownika o dodanie folderu do roots. path: bezwzględna ścieżka istniejącego folderu,
+    mode: "ro" (tylko odczyt, domyślnie) albo "rw" (odczyt i zapis), alias opcjonalny (małe litery, cyfry,
+    "_" i "-"), description krótki opis. Zawsze tworzy zadanie do zatwierdzenia w panelu (zatwierdza
+    użytkownik, nie ty): od razu zwraca task_id ze statusem awaiting_approval. Zatrzymaj się i poczekaj
+    na wiadomość użytkownika zamiast odpytywać wait_task. Folder pojawi się w list_roots dopiero po
+    zatwierdzeniu. Pierwsze wywołanie po restarcie serwera może dać błąd ": ping" mimo utworzenia zadania:
+    przed ponowieniem sprawdź list_tasks.
+    """
+    return roots_tools.request_root_impl(ROOTS, TASK_MANAGER, path, mode, alias, description)
+
+
 def get_middleware():
     return [
         Middleware(
@@ -248,6 +312,14 @@ if __name__ == "__main__":
     print(f"Skills: {len(scan.skills)} (przesłonięte: {len(scan.shadowed)}, uwagi: {len(scan.diagnostics)})")
     for diagnostic in scan.diagnostics:
         print(f"  [{diagnostic.level}] {diagnostic.path}: {diagnostic.message}")
+    default_root = ROOTS.default()
+    print(f"Foldery: {len(ROOTS.list())}, domyślny: "
+          f"{default_root.alias + ' (' + default_root.mode + ')' if default_root else 'brak'}")
+    if ROOTS_MIGRATION is not None and ROOTS_MIGRATION.migrated:
+        print(f"  migracja z workspace i references: {len(ROOTS_MIGRATION.roots)} folderów, "
+              f"pominięte: {len(ROOTS_MIGRATION.skipped)}, kopia: {CONFIG_BACKUP.name}")
+        for source, reason in ROOTS_MIGRATION.skipped:
+            print(f"  [pominięto] {source}: {reason}")
     print(f"Zadania: baza {TASKS_DB.name}, przerwane restartem: {INTERRUPTED_ON_START}, "
           f"usunięte (retencja): {PURGED_ON_START}, max równolegle: {MAX_PARALLEL}")
     print(f"Zatwierdzenia: {start_approval_ui()}")

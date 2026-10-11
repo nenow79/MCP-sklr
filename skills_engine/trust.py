@@ -55,10 +55,12 @@ def compute_skill_hash(base_dir: Path) -> str:
 class TrustStore:
     """Rejestr zaufanych hashy w config['skills']['trust'] (nazwa -> {hash, trusted_at})."""
 
-    def __init__(self, config: Dict[str, Any], save: Optional[Callable[[], None]] = None) -> None:
+    def __init__(self, config: Dict[str, Any], save: Optional[Callable[[], None]] = None,
+                 lock: Optional[Any] = None) -> None:
         self._config = config
         self._save = save
-        self._lock = threading.RLock()
+        # wspólny lock z ConfigStore (jedna synchronizacja dla całego configu); domyślnie własny
+        self._lock = lock if lock is not None else threading.RLock()
 
     def _entries(self) -> Dict[str, Any]:
         return self._config.setdefault("skills", {}).setdefault("trust", {})

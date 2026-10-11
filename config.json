@@ -18,6 +18,22 @@
     "base": null,
     "envs": {}
   },
+  "tasks": {
+    "max_parallel": 2,
+    "max_queued": 50,
+    "max_wait_s": 8,
+    "retention_days": 30,
+    "retention_max": 500,
+    "approval_timeout_s": 120,
+    "approval_expiry_min": 60,
+    "approval_ui": "panel"
+  },
+  "panel": {
+    "enabled": true,
+    "port": 8102,
+    "open_browser": true
+  },
   "references": {},
-  "external_mcp": {}
+  "external_mcp": {},
+  "roots": []
 }

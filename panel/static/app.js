@@ -13,6 +13,7 @@
     audioCtx: null,
     pollTimer: null,
     stopped: false,
+    tab: "tasks",
     busy: {}              // id zadania -> true, gdy trwa wysyłanie decyzji
   };
 
@@ -121,16 +122,31 @@
     return el("span", { className: "badge status-" + status, text: status });
   }
 
+  function kindBadges(task) {
+    var out = [];
+    if (task.kind && task.kind !== "skill_script") {
+      out.push(el("span", { className: "badge badge-kind", text: task.kind }));
+    }
+    if (task.sensitive) {
+      out.push(el("span", { className: "badge badge-sensitive", text: "wrażliwe" }));
+    }
+    return out;
+  }
+
   function taskCard(task, isPending) {
     var cls = "task-card" + (isPending ? " is-pending" : "") +
               (task.id === state.selectedId ? " selected" : "");
+    var isSkill = !task.kind || task.kind === "skill_script";
+    var titleText = "#" + task.id + "  " + (isSkill ? task.skill : (task.title || task.kind));
+    var metaText = isSkill
+      ? task.script + (task.args && task.args.length ? " " + task.args.join(" ") : "")
+      : task.kind;
     var card = el("div", { className: cls }, [
       el("div", { className: "task-head" }, [
-        el("span", { className: "task-title", text: "#" + task.id + "  " + task.skill }),
+        el("span", { className: "task-title" }, kindBadges(task).concat([document.createTextNode(titleText)])),
         statusBadge(task.status)
       ]),
-      el("div", { className: "task-meta",
-                  text: task.script + (task.args && task.args.length ? " " + task.args.join(" ") : "") }),
+      el("div", { className: "task-meta", text: metaText }),
       el("div", { className: "task-meta", text: fmtTime(task.created_at) })
     ]);
     card.addEventListener("click", function () { selectTask(task.id); });
@@ -138,7 +154,7 @@
     var actions = el("div", { className: "task-actions" });
     if (task.status === "awaiting_approval") {
       actions.appendChild(actionButton(task, "Zezwól", "btn btn-allow", "decision", "allow"));
-      if (task.offer_trust) {
+      if (task.offer_trust && !task.sensitive && isSkill) {
         actions.appendChild(actionButton(task, "Ufaj skillowi", "btn btn-trust", "decision", "trust"));
       }
       actions.appendChild(actionButton(task, "Odrzuć", "btn btn-deny", "decision", "deny"));
@@ -238,19 +254,45 @@
     parent.appendChild(el("pre", { text: text }));
   }
 
+  function diffBlock(parent, text) {
+    if (!text) { return; }
+    parent.appendChild(el("h3", { text: "Diff" }));
+    var pre = el("pre", { className: "diff" });
+    String(text).split("\n").forEach(function (line, index, all) {
+      var cls = line.charAt(0) === "+" ? "diff-add" : (line.charAt(0) === "-" ? "diff-del" : "");
+      var span = el("span", { className: cls, text: line });
+      pre.appendChild(span);
+      if (index < all.length - 1) { pre.appendChild(document.createTextNode("\n")); }
+    });
+    parent.appendChild(pre);
+  }
+
   function renderDetails(task) {
     var box = $("details");
     box.textContent = "";
+    var isSkill = !task.kind || task.kind === "skill_script";
     box.appendChild(el("h3", { text: "Zadanie #" + task.id }));
+    kindBadges(task).forEach(function (badge) { box.appendChild(badge); });
     box.appendChild(statusBadge(task.status));
     var dl = el("dl");
-    row(dl, "Skill", task.skill + " (" + task.source + ")");
-    row(dl, "Skrypt", task.script);
-    row(dl, "Argumenty", task.args && task.args.length ? JSON.stringify(task.args) : "(brak)");
+    if (isSkill) {
+      row(dl, "Skill", task.skill + " (" + task.source + ")");
+      row(dl, "Skrypt", task.script);
+      row(dl, "Argumenty", task.args && task.args.length ? JSON.stringify(task.args) : "(brak)");
+      row(dl, "Katalog", task.skill_dir);
+      row(dl, "Hash skilla", task.skill_hash);
+    } else {
+      var payload = task.payload || {};
+      row(dl, "Rodzaj", task.kind);
+      row(dl, "Tytuł", task.title);
+      row(dl, "Folder (root)", payload.root);
+      row(dl, "Tryb folderu", payload.mode);
+      row(dl, "Katalog roboczy", payload.cwd);
+      row(dl, "Ścieżka", payload.path);
+      row(dl, "Ścieżki", payload.paths && payload.paths.length ? payload.paths.join(", ") : null);
+    }
     row(dl, "Timeout", task.timeout + " s");
-    row(dl, "Katalog", task.skill_dir);
     row(dl, "Komenda", task.command && task.command.length ? JSON.stringify(task.command) : "-");
-    row(dl, "Hash skilla", task.skill_hash);
     row(dl, "Powód pytania", task.approval_reason);
     row(dl, "Decyzja", task.decision);
     row(dl, "Utworzone", fmtTime(task.created_at));
@@ -260,6 +302,17 @@
     row(dl, "Czas trwania", task.duration_s === null || task.duration_s === undefined ? null : task.duration_s + " s");
     row(dl, "Błąd", task.error);
     box.appendChild(dl);
+    if (!isSkill) {
+      diffBlock(box, (task.payload || {}).diff);
+      var description = (task.payload || {}).description;
+      if (description) {
+        var note = el("div", { className: "from-model" }, [
+          el("div", { text: "Opis od modelu (niezweryfikowany, nie jest częścią zatwierdzanej treści):" }),
+          el("pre", { text: description })
+        ]);
+        box.appendChild(note);
+      }
+    }
     block(box, "Podgląd skryptu", task.script_preview);
     block(box, "stdout" + (task.stdout_truncated ? " (obcięty)" : ""), task.stdout);
     block(box, "stderr" + (task.stderr_truncated ? " (obcięty)" : ""), task.stderr);
@@ -296,6 +349,131 @@
     });
   }
 
+  // --- foldery (roots) ---
+
+  function showTab(name) {
+    var isRoots = name === "roots";
+    state.tab = name;
+    $("tasks-view").hidden = isRoots;
+    $("roots-view").hidden = !isRoots;
+    $("tab-tasks").className = isRoots ? "tab" : "tab active";
+    $("tab-roots").className = isRoots ? "tab active" : "tab";
+    if (isRoots) { refreshRoots(); }
+  }
+
+  function rootsResult(res, okMessage) {
+    if (res.status === 401) { authFailed(); return false; }
+    if (res.status === 404 && !(res.json && res.json.error)) {
+      showBanner("Zarządzanie folderami jest wyłączone w tej wersji serwera.", true);
+      return false;
+    }
+    if (res.status >= 200 && res.status < 300 && res.json.success) {
+      if (okMessage) { showBanner(okMessage, true); } else { hideBanner(); }
+      return true;
+    }
+    showBanner((res.json && res.json.error) || ("Błąd HTTP " + res.status), false);
+    return false;
+  }
+
+  function rootAction(alias, action, body, okMessage) {
+    var path = "/api/roots/" + encodeURIComponent(alias) + "/" + action;
+    return api("POST", path, body || {}).then(function (res) {
+      rootsResult(res, okMessage);
+    }).catch(function () {
+      showBanner("Brak połączenia z serwerem panelu.", false);
+    }).then(refreshRoots);
+  }
+
+  function rootCard(root) {
+    var cls = "root-card" + (root.default ? " is-default" : "") + (root.valid ? "" : " is-invalid");
+    var head = el("div", { className: "task-head" }, [
+      el("span", { className: "task-title" }, [
+        el("span", { className: "badge badge-" + root.mode, text: root.mode }),
+        document.createTextNode(root.alias),
+        root.default ? el("span", { className: "badge badge-default", text: "domyślny" }) : null,
+        root.valid ? null : el("span", { className: "badge badge-invalid", text: "niedostępny" })
+      ])
+    ]);
+    var card = el("div", { className: cls }, [
+      head,
+      el("div", { className: "root-path", text: root.path }),
+      root.valid ? null : el("div", { className: "root-path", text: root.reason })
+    ]);
+
+    var description = el("input", { type: "text" });
+    description.value = root.description || "";
+    description.maxLength = 200;
+    var mode = el("select");
+    ["rw", "ro"].forEach(function (value) {
+      var option = el("option", { text: value });
+      option.value = value;
+      mode.appendChild(option);
+    });
+    mode.value = root.mode;
+
+    var edit = el("div", { className: "root-edit" }, [
+      mode,
+      description,
+      el("button", { type: "button", className: "btn", text: "Zapisz", onclick: function () {
+        rootAction(root.alias, "update", { mode: mode.value, description: description.value },
+                   "Zapisano folder '" + root.alias + "'.");
+      } })
+    ]);
+    if (!root.default) {
+      edit.appendChild(el("button", { type: "button", className: "btn btn-trust", text: "Ustaw domyślny",
+        onclick: function () { rootAction(root.alias, "default", {}, "Domyślny folder: '" + root.alias + "'."); } }));
+    }
+    edit.appendChild(el("button", { type: "button", className: "btn btn-deny", text: "Usuń", onclick: function () {
+      if (window.confirm("Usunąć folder '" + root.alias + "' z listy? Pliki na dysku zostają.")) {
+        rootAction(root.alias, "delete", {}, "Usunięto folder '" + root.alias + "'.");
+      }
+    } }));
+    card.appendChild(edit);
+    return card;
+  }
+
+  function refreshRoots() {
+    return api("GET", "/api/roots").then(function (res) {
+      var list = $("roots-list");
+      if (res.status === 401) { authFailed(); return; }
+      list.textContent = "";
+      if (res.status === 404) {
+        list.appendChild(el("p", { className: "muted", text: "Zarządzanie folderami jest wyłączone w tej wersji serwera." }));
+        return;
+      }
+      if (res.status !== 200 || !res.json.success) {
+        showBanner("Błąd pobierania folderów (HTTP " + res.status + ").", false);
+        return;
+      }
+      var roots = res.json.data.roots;
+      if (!roots.length) {
+        list.appendChild(el("p", { className: "muted", text: "Brak folderów. Dodaj pierwszy poniżej." }));
+        return;
+      }
+      roots.forEach(function (root) { list.appendChild(rootCard(root)); });
+    }).catch(function () {
+      showBanner("Brak połączenia z serwerem panelu.", false);
+    });
+  }
+
+  function submitRoot(event) {
+    event.preventDefault();
+    var body = {
+      path: $("root-path").value.trim(),
+      mode: $("root-mode").value,
+      alias: $("root-alias").value.trim(),
+      description: $("root-description").value.trim(),
+      default: $("root-default").checked
+    };
+    api("POST", "/api/roots", body).then(function (res) {
+      if (rootsResult(res, "Dodano folder.")) {
+        $("root-form").reset();
+      }
+    }).catch(function () {
+      showBanner("Brak połączenia z serwerem panelu.", false);
+    }).then(refreshRoots);
+  }
+
   // --- start ---
 
   function exchangeToken() {
@@ -315,6 +493,9 @@
   function init() {
     $("notify-btn").addEventListener("click", enableNotifications);
     $("status-filter").addEventListener("change", function () { refresh(); });
+    $("tab-tasks").addEventListener("click", function () { showTab("tasks"); });
+    $("tab-roots").addEventListener("click", function () { showTab("roots"); });
+    $("root-form").addEventListener("submit", submitRoot);
     document.addEventListener("visibilitychange", function () {
       if (!document.hidden && !state.stopped) { tick(); }
     });

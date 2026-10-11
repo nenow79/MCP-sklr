@@ -114,7 +114,7 @@ class TaskManager:
                     f"Zadanie {task_id} nie oczekuje na zatwierdzenie (status: {task.status.value}).")
             ctx = self._ctx.get(task_id)
             if decision in ("allow", "trust"):
-                if decision == "trust" and not task.offer_trust:
+                if decision == "trust" and (not task.offer_trust or task.sensitive):
                     decision = "allow"
                 if ctx is not None:
                     ctx.decision = decision
@@ -230,6 +230,8 @@ class TaskManager:
             status, error = TaskStatus.DONE, ""
         else:
             status, error = TaskStatus.FAILED, f"Kod wyjścia {result.get('exit_code')}."
+        if status in (TaskStatus.CANCELLED, TaskStatus.TIMED_OUT):
+            fields["exit_code"] = None  # kod ubitego przez nas procesu nie ma znaczenia
         self._finish(task_id, status, error=error, **fields)
 
     def _finish(self, task_id: int, status: TaskStatus, error: str = "", **fields: Any) -> None:
