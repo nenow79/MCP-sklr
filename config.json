@@ -35,5 +35,27 @@
   },
   "references": {},
   "external_mcp": {},
-  "roots": []
+  "roots": [
+    {
+      "alias": "todo",
+      "path": "C:\\Users\\rap1tw\\1_MyScripts\\testy\\ToDo",
+      "mode": "rw",
+      "description": "",
+      "default": true
+    },
+    {
+      "alias": "test",
+      "path": "C:\\Users\\rap1tw\\1_MyScripts\\testy\\Kalifornia",
+      "mode": "ro",
+      "description": "",
+      "default": false
+    },
+    {
+      "alias": "gotest",
+      "path": "C:\\Users\\rap1tw\\1_MyScripts\\testy\\GoTest",
+      "mode": "rw",
+      "description": "test request_root",
+      "default": false
+    }
+  ]
 }

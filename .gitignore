@@ -3,3 +3,4 @@ __pycache__/
 .pytest_cache/
 logs/
 tasks.db*
+config.json.bak
