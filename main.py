@@ -16,7 +16,7 @@ from panel.auth import PanelAuth
 from panel.server import PanelServer, build_panel_url
 from roots import MigrationResult, Root
 from roots_registry import RootsRegistry
-from server import roots_tools, skills_tools, task_tools
+from server import file_tools, roots_tools, search_tools, skills_tools, task_tools
 from skills_engine import SkillRegistry
 from skills_engine.content import DEFAULT_READ_CHARS
 from skills_engine.runner import DEFAULT_TIMEOUT
@@ -286,6 +286,53 @@ def request_root(path: str, mode: str = "ro", alias: Optional[str] = None, descr
     przed ponowieniem sprawdź list_tasks.
     """
     return roots_tools.request_root_impl(ROOTS, TASK_MANAGER, path, mode, alias, description)
+
+
+@register_tool
+def list_directory(subpath: str = "", root: Any = None) -> Dict[str, Any]:
+    """Listuje jeden poziom katalogu: katalogi z /, limit 500, bez folderów śmieciowych.
+    root: alias; brak, pusty napis, False lub 'false' = domyślny. Odczyt bez zatwierdzania.
+    """
+    return file_tools.list_directory_impl(ROOTS, subpath, root)
+
+
+@register_tool
+def read_file(filepath: str, start_line: Optional[int] = None, end_line: Optional[int] = None,
+              max_chars: int = 12000, root: Any = None, line_numbers: bool = False) -> Dict[str, Any]:
+    """Czyta plik lub zakres linii (od 1, końce włącznie); zastępuje read_file_lines.
+    Domyślnie 12000 znaków; max_chars przycinane do 1000-80000, plik do 5 MB.
+    UTF-8/BOM lub cp1250; binarne, .pfx i .p12 odrzucane. Sekrety maskowane przed skróceniem.
+    Zwraca total_lines, eol, truncated, masked i masked_count; line_numbers dodaje numery linii.
+    root: alias; brak, pusty napis, False lub 'false' = domyślny; absolutna ścieżka wybiera root
+    po położeniu, jeśli nie podano aliasu. Odczyt bez zadania i bez zatwierdzania.
+    """
+    return file_tools.read_file_impl(ROOTS, filepath, start_line, end_line, max_chars, root, line_numbers)
+
+
+@register_tool
+def read_files_batch(requests: List[Dict[str, Any]], max_total_chars: int = 24000) -> Dict[str, Any]:
+    """Czyta od 1 do 10 plików ze wspólnym budżetem znaków (domyślnie 24000, zakres 1000-80000).
+    Wpis: filepath, opcjonalnie start_line, end_line, max_chars, root, line_numbers.
+    root określany per wpis; brak = domyślny. Maskowanie jak w read_file, błąd jednego pliku
+    nie blokuje pozostałych. results zawiera sukces/błąd per wpis; index liczony od 0.
+    """
+    return file_tools.read_files_batch_impl(ROOTS, requests, max_total_chars)
+
+
+@register_tool
+def search_code(query: str, subpath: str = "", case_sensitive: bool = False,
+                context_lines: int = 0, max_matches: int = 30, max_total_chars: int = 24000,
+                root: Any = None) -> Dict[str, Any]:
+    """Szuka dosłownej frazy w tekście PO maskowaniu sekretów; zastępuje search_code_context.
+    subpath może być katalogiem albo plikiem. root: alias, brak/puste/False/'false' = domyślny;
+    '*' przeszukuje wszystkie roots, wyniki opisane aliasem. Bez ripgrepa i bez zatwierdzania.
+    context_lines przycinane do 0-30, max_matches do 1-500, max_total_chars do 1000-80000.
+    Scala nakładające się okna kontekstu; count to liczba dopasowanych linii, nie fragmentów.
+    Budżet około 6 s: wyniki częściowe z truncated i truncated_reason. Pomija foldery śmieciowe,
+    symlinki/junctiony, pliki binarne i powyżej 1 MB. Ostrzeżenia rootów/pliki pominięte w metadata.
+    """
+    return search_tools.search_code_impl(
+        ROOTS, query, subpath, case_sensitive, context_lines, max_matches, max_total_chars, root)
 
 
 def get_middleware():

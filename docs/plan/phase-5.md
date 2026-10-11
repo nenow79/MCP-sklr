@@ -271,6 +271,37 @@ Status kroków: 1) ZROBIONY (`config_store.py`, parametr `lock` w `TrustStore`, 
 Testy kroków 1-3 przechodzą (potwierdzone przez użytkownika): `test_config_store.py`, `test_state.py`, `test_roots.py`, `test_roots_migration.py`, `test_roots_registry.py`. Kroki 1-3 nie są jeszcze podłączone w `main.py` (to krok 5), więc działający sklr jest bez zmian poza ponawianiem zapisu configu w `state.save_config`.
 Dodatkowo w kroku 1: `state.save_config` ponawia `os.replace` przy `PermissionError` (Windows, chwilowa blokada pliku) i sprząta plik `.tmp` (wykryte testem współbieżnym; testy w `tests/test_state.py`).
 
+## Plan podfazy 5a: path guard, odczyt i search (ZAAKCEPTOWANY)
+
+Pliki. Nowe: `server/path_guard.py` (`resolve_path(registry, path, root, write, allow_empty)` -> `ResolvedPath(root, owner, path, relative)`; błąd `PathError`), `server/secrets_mask.py` (P14), `server/file_tools.py` (`list_directory`, `read_file`, `read_files_batch`, `search_code`; ewentualnie `server/search_tools.py`). Zmieniany: `main.py` (rejestracja 4 narzędzi).
+
+Path guard: ścieżka względna liczona od roota, bezwzględna tylko wewnątrz któregoś roota (bez parametru `root` root wybierany po ścieżce). Odrzucane przed `resolve()`: znaki sterujące, UNC i `\\?\`, strumienie NTFS, nazwy zarezerwowane (`CON`, `NUL`, `COM1-9`, `LPT1-9`, także z rozszerzeniem), końcowe kropki i spacje, znaki `<>"|?*`, ścieżka zaczynająca się od ukośnika bez dysku, ścieżka z dyskiem bez ukośnika. Po `resolve()` (rozwija 8.3, symlinki, junctiony) sprawdzenie `is_relative_to` roota; tryb sprawdzany dla najgłębszego roota (`ro` w `rw` blokuje zapis).
+
+Narzędzia (parametr `root`: brak, pusty napis i `false` = domyślny; liczby przycinane do zakresu, nie błąd):
+- `list_directory(subpath, root)`: jeden poziom, katalogi z `/`, limit 500 pozycji.
+- `read_file(filepath, start_line, end_line, max_chars=12000, root, line_numbers=false)`: zastępuje `read_file` i `read_file_lines`; zwraca `eol`, `total_lines`, `truncated`; `max_chars` 1000-80000; UTF-8 z BOM, potem cp1250; binarne odrzucane; limit 5 MB.
+- `read_files_batch(requests, max_total_chars=24000)`: do 10 plików, wspólny budżet, błąd jednego nie psuje reszty.
+- `search_code(query, subpath, case_sensitive, context_lines=0, max_matches=30, max_total_chars=24000, root)`: zastępuje `search_code` i `search_code_context`; dosłowne dopasowanie; `context_lines` 0-30; `subpath` wskazujący plik = szukanie w pliku; `root="*"` = wszystkie roots; budżet czasu 6 s z `truncated`; pomijane `.git`, `node_modules`, `venv`, `.venv`, `__pycache__`, `dist`, `build`, `coverage`, `.pytest_cache`, pliki binarne i większe niż 1 MB; symlinki i junctiony nie są przeszukiwane; wyszukiwanie działa na tekście po zamaskowaniu (brak wyroczni wartości sekretu). Bez ripgrepa w 5a.
+
+Maskowanie (P14): pliki `.env`, `.env.*` (poza `.env.example`, `.env.sample`, `.env.template`), `pip.ini`, `pip.conf`, `.npmrc`, `*.pem`, `*.key`; `*.pfx` i `*.p12` odczyt zablokowany. Wartości kluczy pasujących do `TOKEN|PASSWORD|PASSWD|SECRET|KEY|CREDENTIAL|AUTH` zamieniane na `***`, hasło w `://user:pass@` na `***`, bloki `PRIVATE KEY` zastąpione znacznikiem; odpowiedź ma `masked` i `masked_count`. To heurystyka, nie granica bezpieczeństwa. `secret_reveal` odłożone do 5b; lista `sensitive` (P10) potwierdzana w 5b.
+
+Kolejność: A) `path_guard` + `secrets_mask` z testami; B) `list_directory`, `read_file`, `read_files_batch`; C) `search_code`, rejestracja w `main.py`, testy ręczne.
+
+Status 5a: **ZAMKNIĘTA; paczki A/B/C zrealizowane, testy automatyczne i wykonane testy ręczne zaliczone.** Commit 5a niepotwierdzony. Następny krok: plan 5b do akceptacji (`secret_reveal`, lista `sensitive` P10, zapisy z diffem); najlepiej wcześniej przejrzeć znany błąd powiadomień panelu w tle.
+
+Uwagi path guarda rozwiązane po osobnej akceptacji: absolutna ścieżka bez jawnego aliasu wybiera root po położeniu bez wymagania roota domyślnego; usunięto `path.strip()`, aby końcowe spacje i skrajne znaki sterujące podlegały walidacji. Dodano testy regresji, zachowano ochronę najgłębszego roota `ro`.
+
+## Wyniki 5a (ZREALIZOWANA)
+- A: `server/path_guard.py`, `server/secrets_mask.py`, `tests/test_path_guard.py`, `tests/test_secrets_mask.py`; poprawki guarda opisane powyżej.
+- B: `server/file_tools.py`, `tests/test_file_tools.py`: listowanie jednego poziomu (500), odczyt UTF-8/BOM i cp1250 do 5 MB, zakres/numeracja/EOL, maskowanie całego tekstu przed zakresem i skróceniem, batch do 10 wpisów ze wspólnym budżetem (także pozostałość poniżej 1000 znaków) i niezależnymi błędami. Numery fizycznych linii zachowane przy skracaniu bloków klucza prywatnego.
+- C: `server/search_tools.py`, `tests/test_search_tools.py`, `tests/test_file_tools_registration.py`, rejestracja czterech narzędzi w `main.py`. Search dosłowny, po maskowaniu, plik jako subpath, wszystkie roots, scalanie okien kontekstu, alias/zakres/match_lines w wyniku. `count` oznacza liczbę dopasowanych linii w zwróconych fragmentach; zakres opisuje pełne okno również przy skróconym content. `max_matches` przycinane do 1-500, `max_total_chars` do 1000-80000. Brak arbitralnej blokady tekstowych `.lock`, `.svg`, `.map`. Stary MCP porównany z referencji `vibecoder`, tylko odczyt.
+- Budżet search 6 s jest kooperacyjny (nie przerywa blokującej operacji systemu plików); `truncated_reason`: `time_budget`, `max_matches`, `max_total_chars`. Test czasu używa sztucznego zegara bez oczekiwania. Binarne, duże pliki, symlinki/junctiony i katalogi śmieciowe pomijane.
+- Użytkownik potwierdził przejście: `pytest tests/test_path_guard.py tests/test_secrets_mask.py tests/test_file_tools.py tests/test_search_tools.py tests/test_file_tools_registration.py`. Agent nie uruchamiał testów ani serwera. Użytkownik zrestartował sklr; alias `sklr` wskazuje `http://localhost:8101/mcp`, lista zawiera 15 narzędzi. Test rejestracji wyodrębnia wrappery przez AST bez importu produkcyjnego `main.py` i jego skutków ubocznych.
+- Testy ręczne przez sklr zaliczone: listowanie domyślnego/jawnego roota; zakres, numeracja, CRLF i root=False; batch między roots z błędem jednego wpisu; search w pliku, scalanie kontekstu, root='*' z ostrzeżeniem brakującego subpath jednego roota; brak dopasowań; limit dopasowań i przycięcie context_lines; odrzucenie wyjścia poza root i nieznanego aliasu z listą aliasów.
+- Maskowanie ręczne na sztucznym `todo/test-5a/.env`: odczyt/batch i search zwracają `masked=true`, `masked_count=2`; wyszukanie sztucznej wartości tokena daje 0 dopasowań, kontekst pokazuje tylko maski. Istniejący `todo/test-5a/dummy.p12` potwierdzony listowaniem: odczyt zablokowany, search pomija (`skipped_files=1`). Pliki testowe utworzył użytkownik, nie zawierają rzeczywistych sekretów.
+- Po restarcie pierwszy odczyt listy narzędzi dał znany błąd `: ping`; ponowienie odczytu zadziałało. Nie tworzono zadań w testach odczytu.
+- Doprecyzowanie zasad pracy przez użytkownika: docelowe zapisy/komendy sklr będą zawsze przez panel z natychmiastowym task_id; do czasu implementacji zapisów rozwijamy repo starym MCP z akceptacją planu i GUI. Po każdej edycji wykonano wymagane wyszukiwanie backslash+cudzysłów w katalogu; kod/config/panel poza zakresem nie były zmieniane.
+
 ## Wyniki 5.1 (ZREALIZOWANA)
 Testy ręczne (sklr na porcie 8101, panel zatwierdzeń, harness przez alias `sklr`):
 - Walidacja w panelu: odrzucone `C:\`, `C:\Users\rap1tw` i `%APPDATA%`; odrzucony także katalog centralny skills jako `rw` (zamierzone: skills centralne ładują się zawsze, niezależnie od roots).

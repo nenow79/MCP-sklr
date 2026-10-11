@@ -1,6 +1,6 @@
 # Aktualny stan
 
-Ostatnia aktualizacja: sesja 5. Fazy 4a i 4b zamknięte, faza 5 w toku: plan zaakceptowany (`docs/plan/phase-5.md`), podfazy 5.0 i 5.1 (`roots`) zrealizowane i zweryfikowane, następna 5a (path guard, odczyt plików, `search_code`).
+Ostatnia aktualizacja: domknięcie 5a. Fazy 4a i 4b zamknięte, faza 5 w toku: podfazy 5.0, 5.1 (`roots`) i 5a (path guard, odczyt plików, `search_code`) zrealizowane i zweryfikowane. Następny krok: plan 5b (zapisy z diffem i zatwierdzaniem w panelu). Szczegóły: `docs/plan/phase-5.md`.
 
 ## Zrobione
 - Kroki 1-5 roadmapy (analiza, agentskills.io, referencja starego MCP, feasibility, audyt). Decyzje: `docs/decisions/0001-architecture.md`, `docs/decisions/0002-task-queue-and-web-panel.md`, spec skills: `docs/specs/skills-support.md`, plan faz: `docs/plan/implementation.md`.
@@ -31,7 +31,7 @@ Ostatnia aktualizacja: sesja 5. Fazy 4a i 4b zamknięte, faza 5 w toku: plan zaa
 - Pierwsze wywołanie zewnętrznego MCP po restarcie sklr zwykle kończy się błędem `: ping`; wystarczy powtórzyć.
 
 ## Następny krok
-**Stan: podfazy 5.0 i 5.1 ZROBIONE i zweryfikowane. Następny krok: plan podfazy 5a** (path guard, `list_directory`, `read_file`, `read_files_batch`, `search_code` z parametrem `root`, maskowanie sekretów P14); najpierw plan do akceptacji, bez kodu przed akceptacją. Dalej wg `docs/plan/phase-5.md`: 5b (zapisy z diffem), 5c (`execute_command` + `command_policy`), 5e (domknięcie, ADR 0003).
+**Stan: podfazy 5.0, 5.1 i 5a ZAMKNIĘTE i zweryfikowane.** Paczki A/B/C: `server/path_guard.py`, `server/secrets_mask.py`, `server/file_tools.py`, `server/search_tools.py`, rejestracja czterech narzędzi w `main.py` i pięć plików testów 5a. Użytkownik potwierdził przejście testów A/B/C oraz zrestartował serwer; alias `sklr` na 8101 udostępnia 15 narzędzi. Wykonane testy ręczne zaliczone: listowanie, zakres/numeracja/CRLF, roots, batch z niezależnymi błędami, search w pliku i wszystkich roots, scalanie kontekstu, limity, blokada wyjścia poza root, maskowanie sztucznych sekretów i blokada istniejącego `.p12`. Poprawiono oba zgłoszone przypadki path guarda z testami regresji (absolutna ścieżka bez domyślnego roota, walidacja bez `path.strip()`). Szczegóły: sekcja "Wyniki 5a" w `phase-5.md`. **Następny krok: krótki plan 5b do akceptacji**, w tym `secret_reveal` i potwierdzenie listy `sensitive` P10; najlepiej wcześniej przejrzeć błąd powiadomień panelu w tle. Commit 5a nadal niepotwierdzony. Dalej: 5c (`execute_command` + `command_policy`), 5e (domknięcie, ADR 0003).
 
 Stan repo: zmiany 5.0 i 5.1 (do końca kroku 5) są w jednym commicie; `config.json` jest śledzony, ale zawiera lokalne foldery testowe, więc nie commitować go bez przeglądu (do rozstrzygnięcia: `git rm --cached` + `.gitignore` albo wersja szablonowa). `config.json.bak` jest w `.gitignore`. Zewnętrzne MCP przeniesione do fazy 6, kontekst projektu do fazy 7, skills `git`/`python-env`/`npm`/`docker`/`env-info` do fazy 8.
 Ustalenia z planu fazy 5 (zatwierdzone): zatwierdzanie zapisów i komend bez limitu czasu (zawsze natychmiastowy `task_id`), lista zmian w jednym zadaniu `edit_file`, P11 (`cd x && komenda` tłumaczone na `cwd`), maskowanie sekretów w odczycie (P14), `command_env_passthrough` (P15), `docker` tylko jako skill.
