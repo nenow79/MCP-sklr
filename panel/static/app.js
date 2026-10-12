@@ -4,6 +4,7 @@
   "use strict";
 
   var POLL_MS = 1500;
+  var BACKGROUND_POLL_MS = 5000;
   var BASE_TITLE = "Vibecoder - zatwierdzenia";
 
   var state = {
@@ -12,6 +13,8 @@
     soundEnabled: false,
     audioCtx: null,
     pollTimer: null,
+    refreshPromise: null, // wspólne żądanie dla pollingu i akcji UI
+    tickPromise: null,    // tylko jedna pętla planuje następny timer
     stopped: false,
     tab: "tasks",
     busy: {}              // id zadania -> true, gdy trwa wysyłanie decyzji
@@ -77,23 +80,33 @@
       if (!Ctx) { return; }
       state.audioCtx = state.audioCtx || new Ctx();
       var ctx = state.audioCtx;
-      var osc = ctx.createOscillator();
-      var gain = ctx.createGain();
-      osc.type = "sine";
-      osc.frequency.value = 880;
-      gain.gain.value = 0.08;
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.25);
+      function play() {
+        var osc = ctx.createOscillator();
+        var gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = 880;
+        gain.gain.value = 0.08;
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.25);
+      }
+      if (ctx.state === "suspended") {
+        ctx.resume().then(play).catch(function () { /* przeglądarka blokuje audio */ });
+      } else {
+        play();
+      }
     } catch (e) { /* dźwięk jest opcjonalny */ }
   }
 
   function systemNotify(task) {
     if (typeof Notification === "undefined" || Notification.permission !== "granted") { return; }
     try {
+      var isSkill = !task.kind || task.kind === "skill_script";
+      var body = isSkill ? (task.skill || "Skill") + " / " + (task.script || "")
+        : (task.title || task.kind || "Zadanie");
       new Notification("Zadanie #" + task.id + " czeka na decyzję",
-                       { body: task.skill + " / " + task.script });
+                       { body: body, tag: "vibecoder-task-" + task.id });
     } catch (e) { /* powiadomienia są opcjonalne */ }
   }
 
@@ -101,12 +114,21 @@
     state.soundEnabled = true;
     beep();
     var btn = $("notify-btn");
-    if (typeof Notification !== "undefined" && Notification.permission === "default") {
-      Notification.requestPermission().then(function () { btn.textContent = "Powiadomienia włączone"; });
-    } else {
-      btn.textContent = "Powiadomienia włączone";
+    function permissionLabel(permission) {
+      btn.textContent = permission === "granted" ? "Dźwięk i powiadomienia włączone"
+        : "Dźwięk włączony; powiadomienia zablokowane";
     }
     btn.disabled = true;
+    if (typeof Notification === "undefined") {
+      btn.textContent = "Dźwięk włączony; powiadomienia niedostępne";
+    } else if (Notification.permission === "default") {
+      btn.textContent = "Dźwięk włączony; oczekiwanie na zgodę";
+      Notification.requestPermission().then(permissionLabel).catch(function () {
+        btn.textContent = "Dźwięk włączony; błąd uprawnień powiadomień";
+      });
+    } else {
+      permissionLabel(Notification.permission);
+    }
   }
 
   function updateTitleAndBadge(pendingCount) {
@@ -201,8 +223,9 @@
   // --- odświeżanie ---
 
   function refresh() {
-    var filter = $("status-filter").value;
-    return api("GET", "/api/tasks?limit=100").then(function (res) {
+    if (state.stopped) { return Promise.resolve(); }
+    if (state.refreshPromise) { return state.refreshPromise; }
+    state.refreshPromise = api("GET", "/api/tasks?limit=100").then(function (res) {
       if (res.status === 401) { authFailed(); return; }
       if (res.status !== 200 || !res.json.success) {
         showBanner("Błąd pobierania zadań (HTTP " + res.status + ").", false);
@@ -210,30 +233,45 @@
       }
       hideBanner();
       var tasks = res.json.data.tasks;
+      var filter = $("status-filter").value;
       var pending = tasks.filter(function (t) { return t.status === "awaiting_approval"; });
       var others = tasks.filter(function (t) {
         return t.status !== "awaiting_approval" && (!filter || t.status === filter);
       });
       handleNewPending(pending);
       updateTitleAndBadge(pending.length);
+      if (document.hidden) { return; } // powiadomienia działają, kosztowny DOM czeka na powrót
       renderList($("pending-list"), pending, true, "Brak zadań oczekujących na decyzję.");
       renderList($("other-list"), others, false, "Brak zadań.");
       if (state.selectedId !== null) { return loadDetails(state.selectedId); }
     }).catch(function () {
       showBanner("Brak połączenia z serwerem panelu.", false);
+    }).then(function () {
+      state.refreshPromise = null;
     });
+    return state.refreshPromise;
   }
 
   function schedule() {
-    if (state.stopped) { return; }
     clearTimeout(state.pollTimer);
-    state.pollTimer = setTimeout(tick, POLL_MS);
+    state.pollTimer = null;
+    if (state.stopped) { return; }
+    state.pollTimer = setTimeout(tick, document.hidden ? BACKGROUND_POLL_MS : POLL_MS);
   }
 
   function tick() {
-    if (state.stopped) { return; }
-    if (document.hidden) { schedule(); return; }
-    refresh().then(schedule, schedule);
+    clearTimeout(state.pollTimer);
+    state.pollTimer = null;
+    if (state.stopped) { return Promise.resolve(); }
+    if (state.tickPromise) { return state.tickPromise; }
+    state.tickPromise = refresh().then(function () {
+      state.tickPromise = null;
+      schedule();
+    }, function () {
+      state.tickPromise = null;
+      schedule();
+    });
+    return state.tickPromise;
   }
 
   // --- szczegóły ---
@@ -497,7 +535,7 @@
     $("tab-roots").addEventListener("click", function () { showTab("roots"); });
     $("root-form").addEventListener("submit", submitRoot);
     document.addEventListener("visibilitychange", function () {
-      if (!document.hidden && !state.stopped) { tick(); }
+      if (!state.stopped) { tick(); }
     });
     exchangeToken().then(function () {
       if (!state.stopped) { tick(); }

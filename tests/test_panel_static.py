@@ -69,6 +69,28 @@ def test_js_has_no_dangerous_dom_apis():
         assert pattern not in js, pattern
 
 
+def test_background_polling_keeps_notifications_before_render_guard():
+    js = read("app.js")
+    refresh = js.split("  function refresh() {", 1)[1].split("  function schedule() {", 1)[0]
+    tick = js.split("  function tick() {", 1)[1].split("  // --- szczegóły ---", 1)[0]
+    assert "var BACKGROUND_POLL_MS = 5000;" in js
+    assert "document.hidden ? BACKGROUND_POLL_MS : POLL_MS" in js
+    assert "document.hidden" not in tick
+    assert "state.tickPromise" in tick and "state.refreshPromise" in refresh
+    assert refresh.index("handleNewPending(pending)") < refresh.index("if (document.hidden)")
+    assert refresh.index("updateTitleAndBadge(pending.length)") < refresh.index("if (document.hidden)")
+    assert refresh.index("if (document.hidden)") < refresh.index("renderList(")
+
+
+def test_notification_permission_audio_and_generic_task_title():
+    js = read("app.js")
+    assert "ctx.resume().then(play)" in js
+    assert "powiadomienia zablokowane" in js
+    assert "powiadomienia niedostępne" in js
+    assert 'task.title || task.kind || "Zadanie"' in js
+    assert 'tag: "vibecoder-task-" + task.id' in js
+
+
 def test_js_has_no_external_urls():
     js = read("app.js")
     assert not re.search(r"https?://(?!127\.0\.0\.1:8102)", js.replace("http://127.0.0.1:8102/#token", ""))

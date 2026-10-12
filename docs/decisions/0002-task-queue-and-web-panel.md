@@ -35,7 +35,7 @@ Pomiar limitu harnessa (`sleep.py`, skill `hello-skill`), serwer sklr podłączo
 ## Rozstrzygnięcia (fazy 4a i 4b)
 - `json_response=True` w `http_app()`: włączone, ale niekonkluzywne. Błąd `: ping` nadal występuje przy pierwszym wywołaniu po restarcie serwera (ponowienie działa), więc to prawdopodobnie nawiązywanie sesji po stronie klienta. Kolejka z `wait` do 8 s pozostaje wymagana.
 - Limity kolejki: `max_parallel` 2, `max_queued` 50, retencja 30 dni / 500 zadań, output 6000 znaków na strumień (konfiguracja `tasks`).
-- Panel działa w wątku procesu serwera (drugi `uvicorn.Server`, bind `127.0.0.1`), z zapasowym oknem tkinter, gdy nie wystartuje.
+- Panel działa w wątku procesu serwera (drugi `uvicorn.Server`, bind `127.0.0.1`). ~~Zapasowe okno tkinter, gdy panel nie wystartuje~~ **wycofane w kroku T 5b**: zatwierdzenia wyłącznie przez panel; gdy panel nie wystartuje (np. zajęty port) lub `panel.enabled=false`, serwer wypisuje błąd i kończy działanie. `gui_simple.py` i `tasks/dialog_adapter.py` usunięte; `ApprovalService` pozostaje niezależny od UI.
 - Wygaśnięcie zadań `awaiting_approval`: `tasks.approval_expiry_min` (domyślnie 60), po czym `rejected` z `decision: timeout`.
 
 ## Otwarte pytania

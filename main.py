@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Vibecoder Skills MCP - punkt wejścia (faza 4a: skills + kolejka zadań)."""
 import shutil
+import sys
 import webbrowser
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -23,7 +24,6 @@ from skills_engine.runner import DEFAULT_TIMEOUT
 from skills_engine.trust import TrustStore
 from state import CONFIG_FILE, load_config, resolve_central_skills_dir
 from tasks.approval import ApprovalService
-from tasks.dialog_adapter import make_dialog_notifier
 from tasks.expiry import ExpiryWatcher
 from tasks.manager import TaskManager
 from tasks.store import TaskStore
@@ -107,38 +107,29 @@ TASK_MANAGER = TaskManager(
     max_wait_s=MAX_WAIT_S,
 )
 _PANEL_CFG = CONFIG.get("panel", {})
-APPROVAL_UI = _TASKS_CFG.get("approval_ui", "panel")
-if APPROVAL_UI not in ("panel", "dialog"):
-    APPROVAL_UI = "panel"
 PANEL_PORT = _positive_int(_PANEL_CFG.get("port"), 8102)
 PANEL_AUTH = PanelAuth(port=PANEL_PORT)
 PANEL_SERVER = None  # ustawiany w __main__, gdy panel działa
 EXPIRY_WATCHER = None
 
 
-def enable_dialog_approvals() -> None:
-    """Zatwierdzanie przez okno tkinter (tryb 'dialog' lub zapas, gdy panel nie wystartuje)."""
-    import gui_simple  # leniwie: w trybie 'panel' tkinter nie jest ładowany
-
-    APPROVAL.set_notifier(make_dialog_notifier(
-        APPROVAL,
-        gui_simple.ask_skill_confirmation,
-        _positive_int(_TASKS_CFG.get("approval_timeout_s"), 120),
-    ))
+class PanelRequiredError(RuntimeError):
+    """Panel zatwierdzeń jest jedynym interfejsem zgód; bez niego serwer nie startuje."""
 
 
 def start_approval_ui() -> str:
-    """Uruchamia interfejs zatwierdzeń; zwraca opis do wypisania w konsoli."""
+    """Uruchamia panel zatwierdzeń; zwraca opis do konsoli albo zgłasza PanelRequiredError."""
     global PANEL_SERVER, EXPIRY_WATCHER
-    if APPROVAL_UI == "dialog" or not _PANEL_CFG.get("enabled", True):
-        enable_dialog_approvals()
-        return "okno tkinter (panel wyłączony w konfiguracji)"
+    if not _PANEL_CFG.get("enabled", True):
+        raise PanelRequiredError(
+            "panel.enabled=false: zatwierdzenia działają wyłącznie przez panel web, "
+            "więc serwer nie może działać bez panelu.")
     app = create_panel_app(TASK_MANAGER, APPROVAL, PANEL_AUTH, roots=ROOTS)
     server = PanelServer(app, PANEL_PORT)
     if not server.start():
-        enable_dialog_approvals()
-        return (f"UWAGA: panel nie wystartował (port {PANEL_PORT} zajęty?), "
-                "zapasowo okno tkinter")
+        raise PanelRequiredError(
+            f"panel nie wystartował (port {PANEL_PORT} zajęty?): zatwierdzenia działają "
+            "wyłącznie przez panel web, więc serwer nie zostanie uruchomiony.")
     PANEL_SERVER = server
     expiry_min = _TASKS_CFG.get("approval_expiry_min", 60)
     if isinstance(expiry_min, (int, float)) and not isinstance(expiry_min, bool) and expiry_min > 0:
@@ -369,7 +360,12 @@ if __name__ == "__main__":
             print(f"  [pominięto] {source}: {reason}")
     print(f"Zadania: baza {TASKS_DB.name}, przerwane restartem: {INTERRUPTED_ON_START}, "
           f"usunięte (retencja): {PURGED_ON_START}, max równolegle: {MAX_PARALLEL}")
-    print(f"Zatwierdzenia: {start_approval_ui()}")
+    try:
+        print(f"Zatwierdzenia: {start_approval_ui()}")
+    except PanelRequiredError as exc:
+        print(f"BŁĄD: {exc}")
+        TASK_MANAGER.shutdown()
+        sys.exit(1)
     print("=" * 50 + "\n")
 
     try:

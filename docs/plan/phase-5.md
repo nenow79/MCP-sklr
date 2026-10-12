@@ -101,11 +101,10 @@ Logika `decide_confirmation` jest poprawna: `offer_trust=True` tylko dla skilla 
 ### 3.2 `exit_code` przy `cancelled`
 Dziś runner zwraca kod ubitego procesu (na Windows zwykle 1), więc anulowane zadanie wygląda jak błąd. Decyzja: w `TaskManager._run` zapisujemy `exit_code = None` dla `cancelled` i `timed_out`; `FAILED` z realnym kodem bez zmian (`task_to_response` opiera się na statusie). Dostosować testy (`test_tasks_manager.py`, `test_task_tools.py`, ewentualnie `test_skills_run_tool.py`). Robimy w 5.0, bo `execute_command` dziedziczy to zachowanie.
 
-### 3.3 Rola `gui_simple.py`
-Zostaje wyłącznie jako zapas (`tasks.approval_ui: "dialog"` lub gdy panel nie wystartuje), bez rozbudowy.
-- `dialog_adapter.build_message` dostaje tekstowe warianty wg `kind` (komenda, ścieżki, diff jako zwykły tekst); `gui_simple.py` bez zmian (ogólny: tytuł, tekst, 3 przyciski).
-- Bezpieczeństwo: w trybie dialog zadania `sensitive`, `root_change` oraz zadania, których pełnej treści okno nie pokaże (za długie), są odrzucane automatycznie zamiast zatwierdzane na ślepo. Zarządzanie roots tylko w panelu.
-- Okno dialogowe ma limit czasu (`approval_timeout_s`), więc nie pasuje do zasady "decyzje bez presji czasu"; to dodatkowy powód, by traktować je tylko jako awaryjne. Los pliku rozstrzyga faza 6.
+### 3.3 Rola `gui_simple.py` (WYCOFANE w kroku T 5b)
+Pierwotna decyzja (zapas w oknie tkinter) została zastąpiona: **wszystkie zatwierdzenia idą wyłącznie przez panel web, tkinter wycofany**. Szczegóły w sekcji "Krok T" w Wynikach 5b. Poniższe punkty mają wartość historyczną:
+- (wycofane) `dialog_adapter` z wariantami tekstowymi i auto-odrzucaniem `sensitive`/`root_change`/za długiej treści;
+- (wycofane) limit czasu okna `approval_timeout_s` sprzeczny z zasadą "decyzje bez presji czasu".
 
 ## 4. `execute_command`, `command_policy` i skills
 
@@ -287,9 +286,73 @@ Maskowanie (P14): pliki `.env`, `.env.*` (poza `.env.example`, `.env.sample`, `.
 
 Kolejność: A) `path_guard` + `secrets_mask` z testami; B) `list_directory`, `read_file`, `read_files_batch`; C) `search_code`, rejestracja w `main.py`, testy ręczne.
 
-Status 5a: **ZAMKNIĘTA; paczki A/B/C zrealizowane, testy automatyczne i wykonane testy ręczne zaliczone.** Commit 5a niepotwierdzony. Następny krok: plan 5b do akceptacji (`secret_reveal`, lista `sensitive` P10, zapisy z diffem); najlepiej wcześniej przejrzeć znany błąd powiadomień panelu w tle.
+Status 5a: **ZAMKNIĘTA; paczki A/B/C zrealizowane, testy automatyczne i wykonane testy ręczne zaliczone.** Użytkownik potwierdził wykonanie commitu 5a. Błąd powiadomień panelu w tle naprawiony i zweryfikowany przed 5b; commit poprawki panelu niepotwierdzony. Plan 5b poniżej zaakceptowany (w tym secret_reveal i P10); implementacja nie rozpoczęta. Następny krok: osobny plan paczki A do akceptacji.
 
 Uwagi path guarda rozwiązane po osobnej akceptacji: absolutna ścieżka bez jawnego aliasu wybiera root po położeniu bez wymagania roota domyślnego; usunięto `path.strip()`, aby końcowe spacje i skrajne znaki sterujące podlegały walidacji. Dodano testy regresji, zachowano ochronę najgłębszego roota `ro`.
+
+## Plan podfazy 5b: zapisy i ujawnianie sekretów (ZAAKCEPTOWANY)
+
+Status: użytkownik zaakceptował podział A-D, rozszerzenie P10 oraz wynik secret_reveal wyłącznie w pamięci. **Paczka A (A1/A2) zaimplementowana i zweryfikowana testami automatycznymi przez użytkownika. Paczki B/C/D NIE ROZPOCZĘTE.** Następny krok: przegląd kodu A i kolejki oraz szczegółowy plan paczki B do osobnej akceptacji przed kodem. Ogólna akceptacja 5b nie znosi zasady akceptacji przed każdą zmianą. Narzędzia zapisów nie są jeszcze zarejestrowane ani dostępne w sklr; testy ręczne integracji pozostają na paczkę D.
+
+### Decyzje zatwierdzone
+- Operacje zmieniające stan zawsze przez kolejkę i panel, natychmiastowy task_id/awaiting_approval, bez oczekiwania na decyzję, bez Ufaj. Model czeka na wiadomość użytkownika; po błędzie :ping przed ponowieniem operacji tworzącej zadanie sprawdza list_tasks.
+- P10 sensitive: `panel/`, `command_policy.py`, `config.json`, `tasks.db*`, `.git/`, `main.py`, `state.py` oraz pliki sekretów rozpoznawane w 5a. Dodatkowo w repo serwera chronione: `server/`, `tasks/`, `roots.py`, `roots_registry.py`, `config_store.py`. Wzorce konfigurowalne; doprecyzować rozpoznawanie repo serwera i zakotwiczenie wzorców w planie paczki A, nie rozszerzać po cichu na wszystkie katalogi o tej samej nazwie.
+- Narzędzie `secret_reveal`: wynik tylko w pamięci procesu, dostępny po zatwierdzeniu przez get_task, niedostępny po restarcie. Surowy sekret nie trafia do SQLite (stdout/payload/diff/error), telemetrii ani logów. Przed zatwierdzeniem żadnego surowego sekretu w danych zadania. Potrzebne niewielkie rozszerzenie obsługi wyników zadań; limity i sprzątanie pamięci doprecyzować w paczce C. Zakresy/limity jak odczyt tekstowy; binarne .pfx/.p12 pozostają zablokowane.
+- Wiele plików: staging i os.replace per plik, wspólna blokada zapisów, rollback przy obsługiwanym błędzie. **Nie obiecujemy pełnej atomowości przy awarii procesu/systemu ani wobec zewnętrznych zapisów**; system plików nie ma jednej atomowej operacji na wielu plikach. Ograniczenie zaakceptowane, opisać także przy domknięciu/ADR.
+
+### Paczka A: przygotowanie zmian i zapis
+Nowe: `server/file_changes.py`, `server/file_transaction.py` i ich testy (np. `tests/test_file_changes.py`, `tests/test_file_transaction.py`).
+- Dokładne old_text, błąd przy 0 lub więcej niż 1 dopasowaniu z liczbą; przy 0 najbliższy fragment (zamaskowany, bez wycieku). Kilka zmian w jednym pliku wykonywanych kolejno.
+- Zachowanie kodowania UTF-8/BOM/cp1250 i końców linii, diff pogrupowany root/plik, hashe stanu początkowego. Szczegóły normalizacji wstawianej treści i limitów do przedstawienia przed implementacją.
+- Ponowny path guard/uprawnienia/hashes po zatwierdzeniu i tuż przed zapisem, brak nadpisania zmiany zewnętrznej. Walidacja wszystkich zmian przed publikacją, pliki tymczasowe, os.replace, wspólna blokada i rollback/cleanup.
+- Testy: dokładność i kolejność zmian, BOM/EOL/kodowania, nested ro, sensitive, zmiana pliku/roota między planem a wykonaniem, rollback przy błędzie częściowym i sprzątanie plików tymczasowych.
+
+### Wyniki paczki A 5b (ZREALIZOWANA)
+- A1: nowe `server/file_changes.py` i `tests/test_file_changes.py`. Dokładne old_text bez normalizacji, liczone również nakładające się wystąpienia; 0/>1 to błąd, zmiany tego samego rozwiązanego celu wykonywane kolejno. Przypięte ścieżki wejściowe, alias/root/owner i bajty początkowe/wynikowe pozostają w prywatnym planie; wyłącznie preview() jest publicznym podglądem. Nie serializować planu przez asdict() do SQLite/logów/telemetrii.
+- UTF-8/BOM/cp1250 zachowane, kodowanie ścisłe bez automatycznej konwersji. old_text dosłowny; new_text dostosowuje EOL do jednolitego LF/CRLF/CR pliku, przy mixed/none pozostaje dosłowny. Nowy plik UTF-8 bez BOM; overwrite zachowuje format istniejącego. Brak niejawnego tworzenia rodziców; binarne/UTF-16/.pfx/.p12 odrzucane.
+- Limity: 50 wpisów, 10 różnych rozwiązywanych celów, 5 MiB na plik przed/po, 20 MiB sumy przed i osobno po oraz treści żądania. Maskowany diff root/plik do 200 KiB UTF-8, kosztowne generowanie oznaczone jako skrócone. Maskowanie pełnych tekstów przed diffem/oknem/skróceniem, komunikat o ukrytej zmianie nawet przy identycznych maskach; brak publicznych hashy plików sekretów. Maskowanie nadal heurystyką 5a.
+- P10: konfigurowalny obiekt SensitivePolicy (podłączenie do konfiguracji startowej później). Wzorce ogólne zakotwiczone względem roota, katalog i potomkowie; dodatkowe server/tasks/roots/config_store tylko względem rzeczywistego repo działającego serwera ustalonego z położenia modułu. Ochrona repo serwera działa także z rootem rodzica/podkatalogu, nie rozszerza się po nazwie na inne repo.
+- Diagnostyka 0 trafień: ograniczony ranking zamaskowanych fragmentów zwykłych plików; pliki sekretów pokazują początek pełnego zamaskowanego tekstu bez rankingu wartości sekretu, do 20 linii/2000 znaków, jawne CR/LF/TAB/control/bidi. Poprawiono podgląd PEM: jednoliniowe old_text nie ogranicza już okna do samego nagłówka; dodano regresje limitów.
+- A2: nowe `server/file_transaction.py` i `tests/test_file_transaction.py`. Wspólny procesowy WRITE_LOCK, następnie wstrzyknięty reentrantny ConfigStore.lock; callback verify i ponowne guard/root/owner/rw/hash/tożsamość/tryb pliku przy wykonaniu, po stagingu i przed każdym os.replace. Staging replacement/backup w katalogu celu: mkstemp, flush/fsync, zamknięte uchwyty, kontrola tożsamości rodzica/temp i hashy. Kolejka/panel nie były zmieniane; moduł wykonywać wyłącznie po decyzji.
+- Rollback odwrotny przy obsługiwanym błędzie/anulowaniu, dla create usuwa wyłącznie własny opublikowany cel. Nie nadpisuje wykrytej zewnętrznej zmiany; niepełny rollback i cleanup raportowane jawnie. Wynik bez surowych treści/wyjątków/hashy wskazuje committed/cancelled/rollback_complete/cleanup_complete/published_count; committed może być true przy błędzie cleanup, nie ponawiać w ciemno. Cleanup dotyczy własnych rozpoznanych temp, bez kasowania cudzych lub pozostałości po restarcie na podstawie nazwy.
+- Ograniczenia: os.replace atomowy per plik, NIE pełna atomowość wieloplikowa przy awarii procesu/systemu lub zewnętrznych zapisach; TOCTOU pozostaje możliwe. Nie gwarantujemy zachowania wszystkich metadanych NTFS/ACL. Temp/backup zawiera rzeczywiste bajty (także sekretów) podczas wykonania; brak gwarancji sprzątania po awarii procesu/systemu, wykryty błąd sprzątania jest jawny.
+- Użytkownik potwierdził sukces: `pytest tests/test_file_transaction.py tests/test_file_changes.py tests/test_path_guard.py tests/test_secrets_mask.py tests/test_file_tools.py` (ostatnia poprzedzająca sukces próba: 223 collected, 218 passed/4 skipped/1 failed w przygotowaniu testu repoint). Poprawka wyłącznie testu: usunięcie istniejącego aliasu other przed użyciem tego katalogu jako app; użytkownik po powtórzeniu potwierdził sukces, bez pełnego logu końcowego. Testy obejmują konflikty, nested ro/rw, multi-root, formaty, anulowanie, wspólną blokadę, błędy staging/replace/rollback/cleanup, sekrety i junction/symlink.
+- Agent nie uruchamiał pytest/serwera/venv/pip. Po każdym zapisie wykonano wymagane search_code backslash+cudzysłów w katalogu, bez trafień w nowych plikach. main.py/panel/tasks/config bez zmian, brak rejestracji zapisów i testów ręcznych 5b. Commit paczki A oraz wcześniejszej poprawki panelu niepotwierdzone.
+
+### Krok T 5b: wygaszenie tkintera (ZREALIZOWANY)
+- Decyzja użytkownika: w sklr zatwierdzenia wyłącznie przez panel web; tkinter (używany przed panelem) wygaszony. Bez panelu sklr nie działa (wariant A).
+- Zmiany: `main.py` (usunięte `enable_dialog_approvals`, `APPROVAL_UI`, import dialogu; brak panelu lub `panel.enabled=false` -> `PanelRequiredError`, komunikat `BŁĄD:`, `TASK_MANAGER.shutdown()`, `exit 1`), `state.py` (usunięte `approval_ui` i `approval_timeout_s` z wartości domyślnych; stare klucze w lokalnym `config.json` ignorowane, config nietknięty), `README.md`, testy: `test_state.py`, `test_roots_tools.py` (test przemianowany na natychmiastowe odrzucenie jako bezpiecznik), `test_phase5_tasks.py` (bez testów okna).
+- Do usunięcia przez użytkownika (git rm): `gui_simple.py`, `tasks/dialog_adapter.py`, `tests/test_dialog_adapter.py`. Po usunięciu zniknął mechanizm auto-odrzucania i limit 10000 znaków okna; panel nie używał `dialog_adapter`.
+- Wynik: `pytest` w całości 724 passed, 7 skipped (potwierdził użytkownik). Docs: sekcja 3.3 oznaczona jako wycofana, CURRENT, ADR 0002. `request_root_impl` zostawia gałąź "panel niedostępny" jako bezpiecznik (przy wariancie A praktycznie martwa). Zapis `file_edit`/`file_write`/`folder` nie wymaga już zmiany `AUTO_DENY_KINDS` (pytanie 1 z planu B zamknięte).
+- Zasada kontynuacji: nie przywracać okna zatwierdzeń; błędny start panelu = błąd startu serwera.
+
+### Paczka B: narzędzia i kolejka (PLAN ZAAKCEPTOWANY W CZĘŚCI, implementacja NIEROZPOCZĘTA)
+Uzgodnione w rozmowie, przed implementacją wymaga potwierdzenia jako B1 i B2 osobno:
+- Kolejność: B1 (`edit_file`, `create_file`) -> B2 (`manage_folder`), każdy krok z osobnym planem plików/testów do akceptacji.
+- Przepływ: walidacja i przygotowanie planu (`prepare_edit`/`prepare_write`) przed utworzeniem zadania; błąd = brak zadania. `manager.submit(..., needs_approval=True)`, `offer_trust=False`, natychmiastowy `task_id`/`awaiting_approval` bez `wait`, podpowiedź "poczekaj na wiadomość użytkownika, po `: ping` sprawdź list_tasks". `verify` = `FileTransaction.verify`, `executor` = `FileTransaction.execute(cancel_event)`. Jeden współdzielony `FileTransaction(registry, ConfigStore.lock)`.
+- Rodzaje zadań: `file_edit`, `file_write`, `folder`; `sensitive` z planu (P10/sekrety/repo serwera). `payload`: root/ścieżki, maskowany `diff` z `preview()`, flagi, bez surowych bajtów i hashy sekretów. Tytuł krótki.
+- **`description`** (decyzja użytkownika: TAK): opcjonalny parametr w `edit_file`, `create_file`, `manage_folder`; tekst do ok. 500 znaków, odrzucane znaki sterujące i bidi; trafia do `payload.description`, panel pokazuje jako "opis od modelu (niezweryfikowany)". Jawne escapowanie znaków w panelu w D.
+- Adaptacja wyniku transakcji do menedżera (executor nigdy nie rzuca; stałe bezpieczne komunikaty): sukces -> `exit_code=0` i krótkie podsumowanie w `stdout` bez treści; anulowanie -> `cancelled=True`; konflikt/błąd -> `started=False` + komunikat; niepełny rollback/cleanup -> `failed` z jawnym komunikatem i informacją `committed` w `stdout`. Uwaga: `_finish` zapisuje `error` do SQLite, a `TaskManager` loguje wyjątki, więc nic wrażliwego w wyjątkach.
+- **`manage_folder`** (decyzja użytkownika: TAK): `create` (nowy katalog, rodzic musi istnieć, `os.mkdir`, istniejący cel = błąd) i `rename` (`new_name` to sama nazwa bez separatorów/`.`/`..`/składni Windows, ten sam rodzic, cel nie istnieje, źródło zwykły katalog nie link/junction). Zakaz create/rename dla rootów i ich przodków (obejście roots), brak przenoszenia i usuwania. Ponowny guard `write=True` przy wykonaniu. Sensitive wg P10 dla źródła i celu oraz gdy źródło leży pod/nad chronionym wzorcem (w tym katalogi repo serwera).
+- Testy B: błędne argumenty bez zadania; poprawne zadanie (`kind`, `sensitive`, `payload`, `title`, `offer_trust=False`, natychmiastowy `task_id`); brak surowych treści/hashy sekretów w zadaniu i SQLite; wykonanie po `allow` (wiele rootów); `deny`/`cancel`; konflikt po decyzji -> `failed`; anulowanie w toku; pełna kolejka; adaptacja niepełnego rollbacku; `description` (limit, znaki sterujące); `manage_folder` (create/rename, istniejący cel, root/przodek roota, nazwa ze ścieżką, junction, `ro`, sensitive).
+
+Oryginalny zapis paczki B (przed uzgodnieniami):
+Nowy `server/edit_tools.py` i `tests/test_edit_tools.py`.
+- `edit_file(changes, root)`: root per wpis, brak dziedziczy root wywołania, potem domyślny; jedno zadanie i jedna decyzja dla wielu plików/rootów.
+- `create_file(filepath, content, overwrite=False, root)`: istniejący plik odrzucany bez overwrite; overwrite pokazuje pełny diff, zastępuje rewrite_full_file.
+- `manage_folder(action, path, new_name, root)`: create/rename; brak narzędzi usuwania w fazie 5. Ponowna walidacja źródła/celu po zatwierdzeniu, bez niejawnego nadpisywania.
+- Zawsze needs_approval, offer_trust=false; odmowa/anulowanie przed wykonaniem nic nie zmienia. Testy kolejki, sensitive i konfliktów oraz błędów pojedynczych operacji.
+
+### Paczka C: secret_reveal
+Nowy `server/secret_tools.py`, `tests/test_secret_tools.py`; kontrolowane rozszerzenie tasks (dokładne pliki po przeglądzie).
+- Zawsze sensitive i panel; hash/walidacja po zatwierdzeniu. Wynik tekstowy/zakres tylko w pamięci, get_task po decyzji; brak trwałego sekretu oraz brak ujawnienia przy odmowie/anulowaniu/konflikcie.
+- Testy: SQLite i trwałe dane bez sekretu, pamięć/retencja/restart, limity, odrzucenie i anulowanie, zmiana pliku lub dostępu, brak Ufaj i blokada binarnych.
+
+### Paczka D: integracja i ręczne testy
+`main.py`: rejestracja edit_file/create_file/manage_folder/secret_reveal; panel i testy według potrzeb po przeglądzie.
+- Diff według root/plik, około 200 KB podglądu z jawnym oznaczeniem skrócenia. Nie ujawnia sekretów; szczegóły maskowania diffów sekretów ustalić przed kodem.
+- Znaki sterujące i kierunkowe Unicode w ścieżkach/komendach pokazywane jawnie, treść przez textContent, bez regresji CSP.
+- Testy wrapperów, panelu i bezpieczeństwa, potem komendy użytkownikowi; restart sklr wykonuje użytkownik. Ręcznie create/edit/multi-root/overwrite/folder/deny/cancel/conflict/ro/sensitive/secret_reveal, po :ping list_tasks przed ponowieniem.
 
 ## Wyniki 5a (ZREALIZOWANA)
 - A: `server/path_guard.py`, `server/secrets_mask.py`, `tests/test_path_guard.py`, `tests/test_secrets_mask.py`; poprawki guarda opisane powyżej.
@@ -301,6 +364,14 @@ Uwagi path guarda rozwiązane po osobnej akceptacji: absolutna ścieżka bez jaw
 - Maskowanie ręczne na sztucznym `todo/test-5a/.env`: odczyt/batch i search zwracają `masked=true`, `masked_count=2`; wyszukanie sztucznej wartości tokena daje 0 dopasowań, kontekst pokazuje tylko maski. Istniejący `todo/test-5a/dummy.p12` potwierdzony listowaniem: odczyt zablokowany, search pomija (`skipped_files=1`). Pliki testowe utworzył użytkownik, nie zawierają rzeczywistych sekretów.
 - Po restarcie pierwszy odczyt listy narzędzi dał znany błąd `: ping`; ponowienie odczytu zadziałało. Nie tworzono zadań w testach odczytu.
 - Doprecyzowanie zasad pracy przez użytkownika: docelowe zapisy/komendy sklr będą zawsze przez panel z natychmiastowym task_id; do czasu implementacji zapisów rozwijamy repo starym MCP z akceptacją planu i GUI. Po każdej edycji wykonano wymagane wyszukiwanie backslash+cudzysłów w katalogu; kod/config/panel poza zakresem nie były zmieniane.
+
+## Naprawa powiadomień panelu przed 5b (ZREALIZOWANA)
+- Przyczyna: tick pomijał pobieranie zadań przy document.hidden. Zmiany tylko w `panel/static/app.js`: polling 5 s w tle / 1,5 s na widocznej karcie, wspólne żądanie refresh i jedna pętla timerów, powiadomienia/licznik przed pominięciem renderowania list i szczegółów w tle, odświeżenie po zmianie widoczności.
+- Powiadomienia opisują rodzaj/tytuł zadania (nie tylko skill/script), mają stabilny tag; komunikat przycisku rozróżnia zgodę, odmowę i brak API. AudioContext wznawiany przy zawieszeniu; dźwięk wymaga kliknięcia użytkownika.
+- Testy: uzupełniony `tests/test_panel_static.py`, nowy `tests/test_panel_notifications.cjs` na node:test/vm z atrapami DOM/API/timerów (Node 18+, bez nowych bibliotek). Pokrycie: ukryta karta, brak duplikatów, scalanie żądań/timerów, powrót na kartę, odmowa uprawnień, opis innych rodzajów zadań, audio, błąd sieci i 401. Użytkownik potwierdził przejście obu komend.
+- Ręcznie: Ctrl+F5 panelu, włączenie powiadomień, inna aktywna karta; użytkownik potwierdził dźwięk/powiadomienie/licznik bez aktywowania panelu. Zadanie #18 hello-skill zatwierdzone w panelu, get_task: done, exit_code=0. Backend/config bez zmian, restart sklr niepotrzebny.
+- Chrome może opóźniać timery lub uśpić kartę; nie gwarantujemy 5 s przy długim uśpieniu. Osobnego kilkuminutowego testu nie wykonano. SSE nie wdrażano.
+- Edycja testu mimo błędu :ping została zapisana (potwierdzono odczytem, bez ponawiania). Po każdej edycji wymagane wyszukiwanie escape. Commit poprawki panelu niepotwierdzony.
 
 ## Wyniki 5.1 (ZREALIZOWANA)
 Testy ręczne (sklr na porcie 8101, panel zatwierdzeń, harness przez alias `sklr`):

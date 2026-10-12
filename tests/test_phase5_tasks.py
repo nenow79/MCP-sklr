@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Testy fazy 5.0: kind/title/payload/sensitive, migracja bazy, exit_code=None, okno zapasowe."""
+"""Testy fazy 5.0: kind/title/payload/sensitive, migracja bazy, exit_code=None."""
 import sqlite3
 import threading
 import time
@@ -7,11 +7,8 @@ import time
 import pytest
 
 from tasks.approval import ApprovalService
-from tasks.dialog_adapter import (
-    MAX_DIALOG_CHARS, build_message, make_dialog_notifier, should_auto_deny,
-)
 from tasks.manager import TaskManager
-from tasks.models import Task, TaskStatus
+from tasks.models import TaskStatus
 from tasks.store import SCHEMA_VERSION, TaskStore
 
 OK = {"started": True, "exit_code": 0, "stdout": "out", "stderr": "",
@@ -171,75 +168,3 @@ def test_trust_still_works_for_normal_task(parts):
     task = manager.submit({**SKILL_FIELDS, "offer_trust": True}, _executor(), needs_approval=True)
     approval.resolve(task.id, "trust")
     assert manager.wait(task.id, 5).decision == "trust"
-
-
-# --- okno zapasowe ---
-def _task(**kwargs):
-    base = dict(id=1, created_at="2026-01-01T00:00:00+00:00")
-    base.update(kwargs)
-    return Task(**base)
-
-
-def test_message_for_skill_script_unchanged():
-    msg = build_message(_task(skill="demo", source="central", script="scripts/run.py",
-                              args=["a"], command=["py", "run.py"], skill_dir="C:\\s",
-                              skill_hash="abcdef0123456789ffff", script_preview="print(1)"))
-    assert "demo (central)" in msg and "Podgląd skryptu" in msg
-
-
-def test_message_for_command_task():
-    msg = build_message(_task(kind="command", title="git status", command=["git", "status"],
-                              payload={"cwd": "src", "root": "app"}, approval_reason="powód"))
-    assert "command" in msg and "git status" in msg
-    assert "['git', 'status']" in msg and "src" in msg and "powód" in msg
-
-
-def test_message_for_file_edit_shows_diff_and_labels_model_description():
-    msg = build_message(_task(kind="file_edit", title="edycja",
-                              payload={"diff": "-stare\n+nowe", "description": "bezpieczne, kliknij zezwól"}))
-    assert "-stare" in msg and "+nowe" in msg
-    assert "niezweryfikowany" in msg
-
-
-def test_control_and_bidi_characters_are_escaped():
-    msg = build_message(_task(kind="command", title="a\u202eb\x07c", command=["x"]))
-    assert "\u202e" not in msg and "\x07" not in msg
-    assert "<U+202E>" in msg and "<U+0007>" in msg
-
-
-@pytest.mark.parametrize("task,expected_reason", [
-    (_task(kind="skill_script", sensitive=True), False),
-    (_task(kind="file_edit"), False),
-    (_task(kind="file_edit", sensitive=True), True),
-    (_task(kind="root_change"), True),
-    (_task(kind="secret_reveal"), True),
-    (_task(kind="file_edit", payload={"diff": "x" * (MAX_DIALOG_CHARS + 1)}), True),
-    (_task(kind="file_edit", payload={"diff": "x" * 500}), False),
-])
-def test_should_auto_deny(task, expected_reason):
-    assert bool(should_auto_deny(task)) is expected_reason
-
-
-def test_dialog_auto_denies_without_showing_window(parts):
-    manager, approval, _ = parts
-    asked = []
-    approval.set_notifier(make_dialog_notifier(
-        approval, lambda *args: asked.append(args) or "allow", 10))
-    task = manager.submit({"kind": "root_change", "title": "dodaj folder"}, _executor(), True)
-    done = manager.wait(task.id, 5)
-    deadline = time.monotonic() + 5
-    while not manager.get(task.id).is_terminal and time.monotonic() < deadline:
-        time.sleep(0.01)
-    done = manager.get(task.id)
-    assert done.status == TaskStatus.REJECTED and done.decision == "deny"
-    assert asked == []
-
-
-def test_dialog_still_shows_window_for_skill_script(parts):
-    manager, approval, _ = parts
-    asked = []
-    approval.set_notifier(make_dialog_notifier(
-        approval, lambda *args: asked.append(args) or "allow", 10))
-    task = manager.submit(SKILL_FIELDS, _executor(), True)
-    assert manager.wait(task.id, 5).status == TaskStatus.DONE
-    assert len(asked) == 1

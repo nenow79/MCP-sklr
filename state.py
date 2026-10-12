@@ -38,9 +38,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "max_wait_s": 8,
         "retention_days": 30,
         "retention_max": 500,
-        "approval_timeout_s": 120,
         "approval_expiry_min": 60,
-        "approval_ui": "panel",
     },
     "panel": {
         "enabled": True,

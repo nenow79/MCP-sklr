@@ -163,7 +163,7 @@ def test_request_root_conflict_after_request_fails_on_approval(env):
     assert [r.alias for r in env.registry.list()] == ["manual"]
 
 
-def test_request_root_auto_denied_when_only_dialog_available(env):
+def test_request_root_rejected_immediately_is_reported_as_error(env):
     env.approval.set_notifier(lambda task: env.approval.resolve(task.id, "deny"))
     result = request_root_impl(env.registry, env.manager, str(_dir(env.tmp, "a")), "ro")
     assert result["success"] is False and "panel" in result["error"]
