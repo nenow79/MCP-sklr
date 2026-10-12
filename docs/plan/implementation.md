@@ -5,7 +5,8 @@
 - Po każdej fazie powstają testy pytest, ale agent ich NIE uruchamia: podaje komendę, użytkownik wkleja wynik.
 - Stary MCP obsługuje bieżącą pracę (port 8100). Nowy działa równolegle na porcie **8101** do czasu przełączenia (harness nie wymaga konkretnego portu).
 - Nowe MCP: własny `venv` i `requirements.txt`; komendy instalacji podaje użytkownikowi.
-- Po każdej fazie aktualizacja `docs/plan/CURRENT.md`.
+- Po każdej fazie aktualizacja `docs/plan/CURRENT.md` i wyników planu fazy; bez osobnego aktywnego checkpointu.
+- Aktualnie pracujemy bezpośrednio przez sklr, stary MCP dostępny awaryjnie. AGENTS.md + docs/ są źródłami kontekstu. .vibecoder_context.md/.vibecoder_checkpoints.md użytkownik przeniósł do docs/archive/vibecoder/ jako historię; obecność w archiwum i brak w korzeniu potwierdzono listowaniem. Nie aktualizujemy ich ani nie wymagamy odczytu. Poniższe historyczne etapy nie przywracają obowiązku tych plików.
 
 ## Środowisko
 - Miniforge: `C:\Program Files\Miniforge3` (instalacja systemowa). Ścieżki `python.exe` środowisk wykrywane przez `conda info --envs --json` i zapisywane w `config.json` (bez zakładania lokalizacji `envs`).
@@ -21,9 +22,9 @@
 | 4b | Panel webowy | `127.0.0.1:8102`, lista i szczegóły zadań, zatwierdzanie/odrzucanie, token + ciasteczko `HttpOnly`, kontrola `Origin`/`Host`, powiadomienia | testy API panelu + ręcznie: zatwierdzenie z przeglądarki |
 | 5 | Narzędzia podstawowe | pliki/workspace, `edit_file` z diffem, search, `execute_command` + guardy + `policy.py`, referencje, zewnętrzne MCP (trwała konfiguracja) | testy path guarda i polityk |
 | 6 | Pełne okno konfiguracji | zakładki Workspace, MCP, Skills (włączanie, potwierdzenia), API, Log | ręczny przegląd |
-| 7 | Kontekst projektu | `workspace_overview` z AGENTS.md i CURRENT.md, fallback `.vibecoder_context.md`, `save_progress` | test na tym repo i starym projekcie |
+| 7 | Kontekst projektu | `workspace_overview` z AGENTS.md i CURRENT.md, `save_progress`; opcjonalny legacy fallback dla innych starych projektów do rozstrzygnięcia, bez użycia archiwum tego repo | test na tym repo i starym projekcie |
 | 8 | Skills startowe | git-commits, python-env, react-init, api-testing, change-planning, excel-analysis, project-bootstrap | walidacja formatu; użycie w praktyce |
-| 9 | Przełączenie | port 8100, usunięcie `.vibecoder_context.md`, aktualizacja AGENTS.md | praca na prawdziwym projekcie |
+| 9 | Przełączenie | docelowy port 8100, aktualizacja AGENTS.md; kontekst/checkpointy vibecodera tego repo wycofane do archiwum już podczas 5b | praca na prawdziwym projekcie |
 
 ## MVP
 Fazy 0–4b: skills da się wylistować, aktywować i uruchomić jako zadanie w kolejce z zatwierdzaniem w panelu webowym. Testowalne równolegle ze starym MCP. Faza 5 jest największa (przeniesienie dużej części starego `main.py`).

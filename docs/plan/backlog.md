@@ -10,6 +10,6 @@
 - [ ] Narzędzia MCP: `list_skills`, `activate_skill`, `run_skill_script`, `save_progress`
 - [ ] `policy.py`: twarde reguły (pytest, uvicorn) wymuszane w kodzie
 - [ ] Przeniesienie narzędzi plikowych/komend/referencji/zewnętrznych MCP ze starego MCP (refaktor na moduły)
-- [ ] `workspace_overview`: AGENTS.md + docs/plan/CURRENT.md, fallback do `.vibecoder_context.md`
+- [ ] `workspace_overview`: AGENTS.md + docs/plan/CURRENT.md; w fazie 7 rozstrzygnąć opcjonalny legacy fallback dla starych projektów. Archiwum vibecodera tego repo nie jest aktywnym źródłem.
 - [ ] Skills startowe: złote zasady (git-commits, python-env, react-init, api-testing, change-planning), excel-analysis, project-bootstrap
-- [ ] Przełączenie na nowe MCP; usunięcie `.vibecoder_context.md`
+- [ ] Domknięcie przełączenia na nowe MCP wg planu faz; aktywna praca już przez sklr. Archiwizacja wykonana ręcznie przez użytkownika: .vibecoder_context.md i .vibecoder_checkpoints.md w docs/archive/vibecoder/, brak w korzeniu repo potwierdzony listowaniem; bez dalszych aktualizacji.
