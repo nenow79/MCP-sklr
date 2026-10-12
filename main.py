@@ -17,7 +17,8 @@ from panel.auth import PanelAuth
 from panel.server import PanelServer, build_panel_url
 from roots import MigrationResult, Root
 from roots_registry import RootsRegistry
-from server import file_tools, roots_tools, search_tools, skills_tools, task_tools
+from server import edit_tools, file_tools, folder_tools, roots_tools, search_tools, skills_tools, task_tools
+from server.file_transaction import FileTransaction
 from skills_engine import SkillRegistry
 from skills_engine.content import DEFAULT_READ_CHARS
 from skills_engine.runner import DEFAULT_TIMEOUT
@@ -47,6 +48,7 @@ MAX_WAIT_S = min(_positive_int(_TASKS_CFG.get("max_wait_s"), MAX_WAIT_LIMIT_S), 
 CONFIG_STORE = ConfigStore(CONFIG, CONFIG_FILE)  # jedyna ścieżka zapisu configu (wspólny lock)
 CONFIG_BACKUP = CONFIG_FILE.with_name(CONFIG_FILE.name + ".bak")
 ROOTS = RootsRegistry(CONFIG_STORE, central_dir=lambda: resolve_central_skills_dir(CONFIG))
+FILE_TRANSACTION = FileTransaction(ROOTS, CONFIG_STORE.lock)
 
 
 def _migrate_roots() -> Optional[MigrationResult]:
@@ -324,6 +326,59 @@ def search_code(query: str, subpath: str = "", case_sensitive: bool = False,
     """
     return search_tools.search_code_impl(
         ROOTS, query, subpath, case_sensitive, context_lines, max_matches, max_total_chars, root)
+
+
+@register_tool
+def edit_file(changes: List[Dict[str, Any]], root: Any = None,
+              description: str = "") -> Dict[str, Any]:
+    """Proponuje dokładne zamiany tekstu w jednym lub wielu plikach jako jedno zadanie.
+    changes: lista wpisów filepath/old_text/new_text, opcjonalnie root per wpis (brak
+    dziedziczy root wywołania). Wymagane dokładnie jedno dopasowanie old_text; błędy
+    przygotowania nie tworzą zadania. Zachowuje kodowanie i końce linii. Limity:
+    50 zmian, 10 plików, 5 MiB na plik. Podgląd diffu maskuje sekrety i może być skrócony.
+    description: opcjonalny opis od modelu, do 500 znaków, bez control/bidi.
+    Zawsze wymaga decyzji użytkownika w panelu (zatwierdza użytkownik, nie ty), bez Ufaj.
+    Od razu zwraca task_id, bez oczekiwania. Zatrzymaj się i poczekaj na wiadomość
+    użytkownika; po decyzji sprawdź get_task. Po błędzie ': ping' przed ponowieniem
+    sprawdź list_tasks: zadanie mogło powstać. Konflikt nie nadpisuje wykrytej zmiany
+    zewnętrznej; błąd rollback/cleanup wymaga sprawdzenia plików, nie ponawiaj w ciemno.
+    """
+    return edit_tools.edit_file_impl(ROOTS, TASK_MANAGER, FILE_TRANSACTION, changes, root, description)
+
+
+@register_tool
+def create_file(filepath: str, content: str, overwrite: bool = False, root: Any = None,
+                description: str = "") -> Dict[str, Any]:
+    """Proponuje utworzenie pliku lub pełne nadpisanie (overwrite=True) jako zadanie.
+    Rodzic musi istnieć. Istniejący cel bez overwrite jest błędem bez zadania.
+    Nowy plik UTF-8 bez BOM; overwrite zachowuje dotychczasowe kodowanie i EOL.
+    Limit 5 MiB na plik; binarne, .pfx i .p12 zablokowane. Maskowany diff w panelu.
+    root: alias; brak/puste/False/'false' = domyślny. description: opis od modelu
+    do 500 znaków, bez control/bidi. Zawsze decyzja użytkownika w panelu, bez Ufaj.
+    Od razu zwraca task_id, bez oczekiwania. Zatrzymaj się i poczekaj na wiadomość
+    użytkownika (zatwierdza użytkownik, nie ty); po decyzji sprawdź get_task.
+    Po błędzie ': ping' przed ponowieniem sprawdź list_tasks: zadanie mogło powstać.
+    Błąd rollback/cleanup wymaga sprawdzenia plików, nie ponawiaj w ciemno.
+    """
+    return edit_tools.create_file_impl(
+        ROOTS, TASK_MANAGER, FILE_TRANSACTION, filepath, content, overwrite, root, description)
+
+
+@register_tool
+def manage_folder(action: str, path: str, new_name: Optional[str] = None, root: Any = None,
+                  description: str = "") -> Dict[str, Any]:
+    """Proponuje operację na katalogu: action='create' lub 'rename', zawsze jako zadanie.
+    create: rodzic istnieje, cel nie istnieje. rename: źródło zwykły katalog bez
+    linków/junctionów w ścieżce; new_name to sama nazwa, ten sam rodzic, cel nie istnieje.
+    Brak przenoszenia/usuwania; rootów i ich przodków nie można zmieniać.
+    root: alias; brak/puste/False/'false' = domyślny. description: opis od modelu
+    do 500 znaków, bez control/bidi. Zawsze decyzja użytkownika w panelu, bez Ufaj.
+    Od razu zwraca task_id, bez oczekiwania. Zatrzymaj się i poczekaj na wiadomość
+    użytkownika (zatwierdza użytkownik, nie ty); po decyzji sprawdź get_task.
+    Po błędzie ': ping' przed ponowieniem sprawdź list_tasks: zadanie mogło powstać.
+    """
+    return folder_tools.manage_folder_impl(
+        ROOTS, TASK_MANAGER, CONFIG_STORE.lock, action, path, new_name, root, description)
 
 
 def get_middleware():

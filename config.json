@@ -24,8 +24,8 @@
     "max_wait_s": 8,
     "retention_days": 30,
     "retention_max": 500,
-    "approval_timeout_s": 120,
     "approval_expiry_min": 60,
+    "approval_timeout_s": 120,
     "approval_ui": "panel"
   },
   "panel": {
@@ -37,24 +37,17 @@
   "external_mcp": {},
   "roots": [
     {
-      "alias": "todo",
-      "path": "C:\\Users\\rap1tw\\1_MyScripts\\testy\\ToDo",
+      "alias": "sklr",
+      "path": "C:\\Users\\rap1tw\\1_MyScripts\\Python\\MCP-my-codex-sklr",
       "mode": "rw",
-      "description": "",
+      "description": "nowy MCP nad którym pracujemy",
       "default": true
     },
     {
-      "alias": "test",
-      "path": "C:\\Users\\rap1tw\\1_MyScripts\\testy\\Kalifornia",
+      "alias": "vibecoder",
+      "path": "C:\\Users\\rap1tw\\1_MyScripts\\Python\\MCP-my-codex",
       "mode": "ro",
-      "description": "",
-      "default": false
-    },
-    {
-      "alias": "gotest",
-      "path": "C:\\Users\\rap1tw\\1_MyScripts\\testy\\GoTest",
-      "mode": "rw",
-      "description": "test request_root",
+      "description": "stary MCP z którego bierzemy co dobre i zmieniamy co trzeba",
       "default": false
     }
   ]

@@ -292,7 +292,7 @@ Uwagi path guarda rozwiązane po osobnej akceptacji: absolutna ścieżka bez jaw
 
 ## Plan podfazy 5b: zapisy i ujawnianie sekretów (ZAAKCEPTOWANY)
 
-Status: użytkownik zaakceptował podział A-D, rozszerzenie P10 oraz wynik secret_reveal wyłącznie w pamięci. **Paczka A (A1/A2) zaimplementowana i zweryfikowana testami automatycznymi przez użytkownika. Paczki B/C/D NIE ROZPOCZĘTE.** Następny krok: przegląd kodu A i kolejki oraz szczegółowy plan paczki B do osobnej akceptacji przed kodem. Ogólna akceptacja 5b nie znosi zasady akceptacji przed każdą zmianą. Narzędzia zapisów nie są jeszcze zarejestrowane ani dostępne w sklr; testy ręczne integracji pozostają na paczkę D.
+Status: użytkownik zaakceptował podział A-D, rozszerzenie P10 oraz wynik secret_reveal wyłącznie w pamięci. **A (A1/A2), B1 i B2 zrealizowane i zweryfikowane testami przez użytkownika. D1 (rejestracja 3 zapisów) zaimplementowana przed C, oczekuje na testy i restart; C i reszta D pozostają otwarte.** Następny krok: weryfikacja D1 oraz testy ręczne przed nowym chatem z bezpośrednim sklr. Ogólna akceptacja 5b nie znosi zasady planu i akceptacji przed każdą zmianą. Szczegóły: Wyniki B1/B2 oraz D1 poniżej.
 
 ### Decyzje zatwierdzone
 - Operacje zmieniające stan zawsze przez kolejkę i panel, natychmiastowy task_id/awaiting_approval, bez oczekiwania na decyzję, bez Ufaj. Model czeka na wiadomość użytkownika; po błędzie :ping przed ponowieniem operacji tworzącej zadanie sprawdza list_tasks.
@@ -326,7 +326,8 @@ Nowe: `server/file_changes.py`, `server/file_transaction.py` i ich testy (np. `t
 - Wynik: `pytest` w całości 724 passed, 7 skipped (potwierdził użytkownik). Docs: sekcja 3.3 oznaczona jako wycofana, CURRENT, ADR 0002. `request_root_impl` zostawia gałąź "panel niedostępny" jako bezpiecznik (przy wariancie A praktycznie martwa). Zapis `file_edit`/`file_write`/`folder` nie wymaga już zmiany `AUTO_DENY_KINDS` (pytanie 1 z planu B zamknięte).
 - Zasada kontynuacji: nie przywracać okna zatwierdzeń; błędny start panelu = błąd startu serwera.
 
-### Paczka B: narzędzia i kolejka (PLAN ZAAKCEPTOWANY W CZĘŚCI, implementacja NIEROZPOCZĘTA)
+### Paczka B: narzędzia i kolejka (B1/B2 ZREALIZOWANE, testy potwierdzone)
+B1 i B2 ukończone; poniżej zachowany uzgodniony plan. Rejestracja przeniesiona do D1 przed paczką C, aby umożliwić bezpośrednią pracę nad sklr przez sklr.
 Uzgodnione w rozmowie, przed implementacją wymaga potwierdzenia jako B1 i B2 osobno:
 - Kolejność: B1 (`edit_file`, `create_file`) -> B2 (`manage_folder`), każdy krok z osobnym planem plików/testów do akceptacji.
 - Przepływ: walidacja i przygotowanie planu (`prepare_edit`/`prepare_write`) przed utworzeniem zadania; błąd = brak zadania. `manager.submit(..., needs_approval=True)`, `offer_trust=False`, natychmiastowy `task_id`/`awaiting_approval` bez `wait`, podpowiedź "poczekaj na wiadomość użytkownika, po `: ping` sprawdź list_tasks". `verify` = `FileTransaction.verify`, `executor` = `FileTransaction.execute(cancel_event)`. Jeden współdzielony `FileTransaction(registry, ConfigStore.lock)`.
@@ -335,6 +336,30 @@ Uzgodnione w rozmowie, przed implementacją wymaga potwierdzenia jako B1 i B2 os
 - Adaptacja wyniku transakcji do menedżera (executor nigdy nie rzuca; stałe bezpieczne komunikaty): sukces -> `exit_code=0` i krótkie podsumowanie w `stdout` bez treści; anulowanie -> `cancelled=True`; konflikt/błąd -> `started=False` + komunikat; niepełny rollback/cleanup -> `failed` z jawnym komunikatem i informacją `committed` w `stdout`. Uwaga: `_finish` zapisuje `error` do SQLite, a `TaskManager` loguje wyjątki, więc nic wrażliwego w wyjątkach.
 - **`manage_folder`** (decyzja użytkownika: TAK): `create` (nowy katalog, rodzic musi istnieć, `os.mkdir`, istniejący cel = błąd) i `rename` (`new_name` to sama nazwa bez separatorów/`.`/`..`/składni Windows, ten sam rodzic, cel nie istnieje, źródło zwykły katalog nie link/junction). Zakaz create/rename dla rootów i ich przodków (obejście roots), brak przenoszenia i usuwania. Ponowny guard `write=True` przy wykonaniu. Sensitive wg P10 dla źródła i celu oraz gdy źródło leży pod/nad chronionym wzorcem (w tym katalogi repo serwera).
 - Testy B: błędne argumenty bez zadania; poprawne zadanie (`kind`, `sensitive`, `payload`, `title`, `offer_trust=False`, natychmiastowy `task_id`); brak surowych treści/hashy sekretów w zadaniu i SQLite; wykonanie po `allow` (wiele rootów); `deny`/`cancel`; konflikt po decyzji -> `failed`; anulowanie w toku; pełna kolejka; adaptacja niepełnego rollbacku; `description` (limit, znaki sterujące); `manage_folder` (create/rename, istniejący cel, root/przodek roota, nazwa ze ścieżką, junction, `ro`, sensitive).
+
+### Wyniki B1 (ZREALIZOWANE)
+- Nowe: `server/edit_tools.py` (`edit_file_impl`, `create_file_impl`, `check_description`) i `tests/test_edit_tools.py`. Użytkownik potwierdził zielone testy, restart sklr i commity A/T/poprawki panelu. Narzędzia jeszcze niezarejestrowane w `main.py` (D).
+- Przepływ jak `request_root`: `prepare_edit`/`prepare_write` przed zgłoszeniem (błąd lub brak zmian = brak zadania), `submit(needs_approval=True, verify=transaction.verify)`, natychmiastowy `task_id`, `offer_trust=False`, `timeout=10`, `sensitive` z planu. Jeden współdzielony `FileTransaction` wstrzykiwany z zewnątrz.
+- Payload: `root` (None przy wielu rootach), `paths` (`alias:ścieżka`), `diff` (jeden tekst, nagłówki `=== alias: plik [flagi] ===`), `files` (metadane bez diffu), `truncated`, `description`. Bez treści żądania, bajtów i hashy (także dla zwykłych plików). `approval_reason` zawiera powody sensitive z P10.
+- `description`: tekst do 500 znaków po `strip()`; błąd (bez zadania) dla typu innego niż napis oraz znaków Cc, Cf, Zl, Zp, Cs.
+- Adapter wyniku: sukces `exit_code=0` i `stdout` bez treści; `cancelled`; konflikt `started=False`; niepełny rollback/cleanup `failed` z `committed=...` w `stdout` (przy zapisanych zmianach komunikat zakazuje ponawiania); wyjątek daje stały komunikat bez `str(exc)`.
+- Testy: argumenty i `description`, zadanie bez zapisu przed decyzją, allow/trust/deny/cancel, wiele rootów w jednym zadaniu, konflikty po decyzji, anulowanie w toku, atrapy adaptera, brak sekretów i hashy w zadaniu i SQLite, P10, kolejka, panel niedostępny, skrócony diff.
+
+### Wyniki B2 (ZREALIZOWANE)
+- Nowe `server/folder_tools.py` i `tests/test_folder_tools.py`: `manage_folder_impl`, create (`os.mkdir`) i rename (`os.rename`, ten sam rodzic), bez usuwania i przenoszenia. Użytkownik potwierdził zielone testy B2 oraz zmienionego testu skróconego diffu B1.
+- Przygotowanie przed submit, natychmiastowy task_id i decyzja w panelu. Payload root/action/path/new_name/target/paths/diff/description; sensitive źródła i celu wg SensitivePolicy oraz przodka repo serwera. Zakaz operacji na rootach i ich przodkach, istniejącego celu, rename linków/junctionów i ścieżek z linkiem pośrednim. Case-only rename na Windows odrzucany.
+- Ponowne przygotowanie i porównanie rootów, trybów, ścieżek i tożsamości źródła po decyzji oraz w executorze pod wspólnym WRITE_LOCK i ConfigStore.lock. Cancel przed operacją; po skutecznym mkdir/rename sukces. Bez wielooperacyjnej transakcji/rollbacku; pozostaje okno TOCTOU wobec zmian zewnętrznych.
+- Testy obejmują nazwy Windows, roots/ro, linki, decyzje, konflikty, P10, błędy bez wycieku wyjątków do SQLite, wspólną blokadę zapisów i configu.
+
+### D1: wcześniejsza rejestracja zapisów (testy/restart i podstawowe próby ręczne POTWIERDZONE)
+- Świadoma zmiana kolejności zatwierdzona przez użytkownika: D1 przed C, następnie testy ręczne i nowy chat z bezpośrednim sklr. Stary vibecoder dostępny awaryjnie; roots projektu użytkownik już przygotował.
+- `main.py`: import edit_tools/folder_tools, jeden FILE_TRANSACTION = FileTransaction(ROOTS, CONFIG_STORE.lock), wrappery edit_file/create_file/manage_folder. Bez wait, opisy panelu i reguła list_tasks po błędzie :ping. Po restarcie oczekiwane 18 narzędzi.
+- Nowy `tests/test_edit_tools_registration.py`: AST bez importu main.py, dekoratory/opisy, argumenty domyślne i jawne, pojedyncza współdzielona transakcja oraz lock folderów.
+- Bez zmian panelu/configu i bez secret_reveal. C oraz reszta D (control/bidi, widok diffów, secret_reveal, domknięcie testów ręcznych) pozostają otwarte. Nie uznawać D1 za pełne domknięcie zabezpieczeń panelu.
+- Weryfikacja: użytkownik potwierdził testy D1 i restart; list_external_mcp_tools potwierdził 18 narzędzi. Pierwszy odczyt listy dał :ping, ponowienie odczytu poprawne. Ręczne: #19 create, #20 edit, #21 overwrite, #22 folder create i #23 rename -> done/exit_code=0, stan dysku potwierdzony; #24 -> rejected/deny bez zmiany; #25 -> cancelled, plik nie powstał; #26 -> failed z konfliktem po ręcznej zmianie, zachowano zmianę zewnętrzną. #24-26 zgłoszono jako trzy osobne zadania bez czekania na decyzje (nie test wieloplikowego edit_file).
+- Użytkownik podejrzewał sukces #26: API pokazało decision=allow, ale failed i konflikt; diff pozostaje propozycją, nie dowodem zapisu. Brak potwierdzonego błędu panelu. Kontrola escape przez search całego roota była częściowa (time_budget), odczyty pliku potwierdziły treść.
+- Zatwierdzona przeprowadzka do nowego chatu ze sklr bezpośrednio http://localhost:8101/mcp; root sklr rw domyślny wskazuje repo, vibecoder ro referencję. Stary MCP odłączony od chatu, lecz dostępny awaryjnie przy uszkodzeniu startu/edycji sklr.
+- Następne: odczyt kontekstu w nowym chacie, osobny plan pozostałych prób ro/sekrety/sensitive i multi-root (jeśli roots przygotowane), następnie szczegółowy plan C. Reszta D nadal otwarta. Użytkownik usuwa ręcznie d1_smoke_test.txt oraz d1_smoke_folder_renamed/, bez dodawania do commitu; d1_cancel_test.txt nie powstał. Commity B1/B2/D1 wymagają potwierdzenia.
 
 Oryginalny zapis paczki B (przed uzgodnieniami):
 Nowy `server/edit_tools.py` i `tests/test_edit_tools.py`.
