@@ -9,17 +9,21 @@ import queue
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Union
 
 from tasks.approval import VALID_DECISIONS, ApprovalService
 from tasks.models import Task, TaskStatus
 from tasks.store import TaskStore, now_iso
+from tasks.volatile_results import VolatileResult, VolatileResultStore
 
 logger = logging.getLogger(__name__)
 
 CANCEL_FINALIZE_WAIT_S = 7.0  # kill grace (5 s) + zapas na pętlę runnera
 
-Executor = Callable[[threading.Event], Dict[str, Any]]
+Executor = Callable[[threading.Event], Union[Dict[str, Any], VolatileResult]]
+SECRET_KIND = "secret_reveal"
+SECRET_ERROR = "Ujawnienie przerwane: konflikt, nieprawidłowy wynik lub błąd wewnętrzny."
+SECRET_SUMMARY = "Wynik ujawnienia dostępny wyłącznie w pamięci przez ograniczony czas."
 
 
 class QueueFullError(Exception):
@@ -41,11 +45,13 @@ class _Ctx:
     on_trust: Optional[Callable[[], None]] = None
     cancel_event: threading.Event = field(default_factory=threading.Event)
     decision: str = ""
+    confidential: bool = False
 
 
 class TaskManager:
     def __init__(self, store: TaskStore, approval: ApprovalService, max_parallel: int = 2,
-                 max_queued: int = 50, max_wait_s: float = 8):
+                 max_queued: int = 50, max_wait_s: float = 8,
+                 volatile_store: Optional[VolatileResultStore] = None):
         self._store = store
         self._approval = approval
         self._max_parallel = max(1, int(max_parallel))
@@ -56,6 +62,7 @@ class TaskManager:
         self._ctx: Dict[int, _Ctx] = {}
         self._workers = []
         self._stopped = False
+        self._volatile = volatile_store if volatile_store is not None else VolatileResultStore()
         approval.bind(self.resolve_approval)
 
     @property
@@ -69,13 +76,19 @@ class TaskManager:
         with self._cond:
             if self._stopped:
                 raise TaskStateError("Menedżer zadań jest zatrzymany.")
+            confidential = fields.get("kind") == SECRET_KIND
+            if confidential and (needs_approval is not True or fields.get("sensitive") is not True
+                                 or fields.get("offer_trust", False) is not False
+                                 or on_trust is not None):
+                raise TaskStateError("Ujawnienie wymaga panelu, flagi sensitive i braku zaufania.")
             pending = (len(self._store.list(TaskStatus.AWAITING_APPROVAL, self._max_queued))
                        + len(self._store.list(TaskStatus.QUEUED, self._max_queued)))
             if pending >= self._max_queued:
                 raise QueueFullError(f"Kolejka pełna ({self._max_queued} zadań oczekuje).")
             status = TaskStatus.AWAITING_APPROVAL if needs_approval else TaskStatus.QUEUED
             task = self._store.create(**dict(fields), status=status)
-            self._ctx[task.id] = _Ctx(executor=executor, verify=verify, on_trust=on_trust)
+            self._ctx[task.id] = _Ctx(executor=executor, verify=verify, on_trust=on_trust,
+                                      confidential=confidential)
             self._ensure_workers()
             if not needs_approval:
                 self._queue.put(task.id)
@@ -86,6 +99,35 @@ class TaskManager:
 
     def get(self, task_id: int) -> Optional[Task]:
         return self._store.get(task_id)
+
+    @staticmethod
+    def _secret_allowed(task: Optional[Task]) -> bool:
+        return bool(task is not None and task.kind == SECRET_KIND and task.sensitive
+                    and not task.offer_trust and task.decision == "allow")
+
+    def get_volatile_result(self, task_id: int) -> Dict[str, Any]:
+        """Osobny kanał dla MCP get_task; Task/panel/list/wait/cancel bez sekretu.
+
+        Callback dostępu działa poza _cond i lockiem magazynu. Ponowna kontrola
+        menedżera po pobraniu uniemożliwia zwrot po zakończonym shutdown.
+        """
+        if isinstance(task_id, bool) or not isinstance(task_id, int) or task_id < 1:
+            return {"state": "unavailable"}
+        try:
+            with self._cond:
+                task = self._store.get(task_id)
+                if self._stopped or not self._secret_allowed(task) or task.status != TaskStatus.DONE:
+                    return {"state": "unavailable"}
+            result = self._volatile.get(task_id)
+            with self._cond:
+                task = self._store.get(task_id)
+                if self._stopped or not self._secret_allowed(task) or task.status != TaskStatus.DONE:
+                    self._volatile.discard(task_id)
+                    return {"state": "unavailable"}
+                return result
+        except Exception:
+            self._volatile.discard(task_id)
+            return {"state": "unavailable"}
 
     def list(self, status: Optional[TaskStatus] = None, limit: int = 20):
         return self._store.list(status=status, limit=limit)
@@ -160,6 +202,9 @@ class TaskManager:
             self._stopped = True
             for _ in self._workers:
                 self._queue.put(None)
+            self._cond.notify_all()
+        # _stopped blokuje nowe publikacje/pobrania; join bez _cond.
+        self._volatile.close()
 
     # --- wnętrze ---
     def _require(self, task_id: int) -> Task:
@@ -183,11 +228,22 @@ class TaskManager:
             try:
                 self._run(task_id)
             except Exception:
-                logger.exception("Błąd wewnętrzny przy zadaniu %s", task_id)
+                with self._cond:
+                    ctx = self._ctx.get(task_id)
+                    confidential = ctx is None or ctx.confidential
+                if confidential:
+                    self._volatile.discard(task_id)
+                    # Bez tracebacku: wyjątek może zawierać poufną treść.
+                    logger.error("Błąd finalizacji poufnego zadania %s", task_id)
+                else:
+                    logger.exception("Błąd wewnętrzny przy zadaniu %s", task_id)
                 try:
                     self._finish(task_id, TaskStatus.FAILED, error="Błąd wewnętrzny menedżera zadań.")
                 except Exception:
-                    logger.exception("Nie udało się zakończyć zadania %s", task_id)
+                    if confidential:
+                        logger.error("Nie udało się zakończyć poufnego zadania %s", task_id)
+                    else:
+                        logger.exception("Nie udało się zakończyć zadania %s", task_id)
 
     def _run(self, task_id: int) -> None:
         with self._cond:
@@ -198,18 +254,42 @@ class TaskManager:
             self._store.update(task_id, status=TaskStatus.RUNNING, started_at=now_iso())
             self._cond.notify_all()
 
+        started = time.monotonic()
         try:
+            if ctx.confidential:
+                if not self._secret_allowed(task) or ctx.decision != "allow":
+                    self._finish(task_id, TaskStatus.FAILED, error=SECRET_ERROR)
+                    return
+                if self._stopped or ctx.cancel_event.is_set():
+                    self._finish_secret(task_id, ctx, None, started)
+                    return
             if ctx.verify is not None:
                 problem = ctx.verify()
                 if problem:
-                    self._finish(task_id, TaskStatus.FAILED, error=problem)
+                    self._finish(task_id, TaskStatus.FAILED,
+                                 error=SECRET_ERROR if ctx.confidential else problem)
                     return
             if ctx.decision == "trust" and ctx.on_trust is not None:
                 ctx.on_trust()
             result = ctx.executor(ctx.cancel_event)
         except Exception as exc:
-            logger.exception("Wyjątek w zadaniu %s", task_id)
-            self._finish(task_id, TaskStatus.FAILED, error=f"Wyjątek: {exc}")
+            if ctx.confidential:
+                self._finish_secret(task_id, ctx, None, started)
+            else:
+                logger.exception("Wyjątek w zadaniu %s", task_id)
+                self._finish(task_id, TaskStatus.FAILED, error=f"Wyjątek: {exc}")
+            return
+
+        if isinstance(result, VolatileResult):
+            ctx.confidential = True  # obejmuje także błąd wyniku z niewłaściwego kind
+            self._finish_secret(task_id, ctx, result, started)
+            return
+        if ctx.confidential:
+            # Słownik błędu może zawierać surowe stdout/error; niczego nie utrwalamy.
+            cancelled = type(result) is dict and result.get("cancelled") is True
+            if cancelled:
+                ctx.cancel_event.set()
+            self._finish_secret(task_id, ctx, None, started)
             return
 
         fields: Dict[str, Any] = {
@@ -233,6 +313,52 @@ class TaskManager:
         if status in (TaskStatus.CANCELLED, TaskStatus.TIMED_OUT):
             fields["exit_code"] = None  # kod ubitego przez nas procesu nie ma znaczenia
         self._finish(task_id, status, error=error, **fields)
+
+    def _finish_secret(self, task_id: int, ctx: _Ctx,
+                       result: Optional[VolatileResult], started: float) -> None:
+        """Finalizacja bez surowych pól executora i bez tekstu wyjątku.
+
+        Kolejność: _cond -> magazyn -> SQLite. Lock magazynu obejmuje zapis
+        DONE i aktywację; get nie widzi częściowo opublikowanego wyniku.
+        """
+        with self._cond:
+            with self._volatile._lock:
+                token = None
+                try:
+                    task = self._store.get(task_id)
+                    if task is None or task.status != TaskStatus.RUNNING:
+                        self._volatile.discard(task_id)
+                        return
+                    fields = dict(exit_code=None, stdout="", stderr="",
+                                  stdout_truncated=False, stderr_truncated=False,
+                                  duration_s=round(time.monotonic() - started, 3))
+                    if ctx.cancel_event.is_set():
+                        status, error = TaskStatus.CANCELLED, "Anulowano."
+                    elif self._stopped:
+                        status, error = TaskStatus.FAILED, "Serwer zatrzymany; wynik ujawnienia odrzucono."
+                    elif not self._secret_allowed(task) or ctx.decision != "allow" or result is None:
+                        status, error = TaskStatus.FAILED, SECRET_ERROR
+                    else:
+                        token = self._volatile.reserve(task_id, result)
+                        status, error = TaskStatus.DONE, ""
+                        fields.update(exit_code=0, stdout=SECRET_SUMMARY)
+                    self._store.update(task_id, status=status, finished_at=now_iso(),
+                                       error=error, **fields)
+                    if token is not None:
+                        self._volatile.activate(task_id, token)
+                except Exception:
+                    self._volatile.discard(task_id, token)
+                    # Nawet błąd magazynu/SQLite/clock nie trafia do tracebacku.
+                    try:
+                        self._store.update(task_id, status=TaskStatus.FAILED,
+                                           finished_at=now_iso(), error=SECRET_ERROR,
+                                           exit_code=None, stdout="", stderr="",
+                                           stdout_truncated=False, stderr_truncated=False)
+                    except Exception:
+                        logger.error("Nie udało się utrwalić błędu poufnego zadania %s", task_id)
+                finally:
+                    self._ctx.pop(task_id, None)
+                    self._cond.notify_all()
 
     def _finish(self, task_id: int, status: TaskStatus, error: str = "", **fields: Any) -> None:
         with self._cond:

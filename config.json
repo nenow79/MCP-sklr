@@ -49,6 +49,27 @@
       "mode": "ro",
       "description": "stary MCP z którego bierzemy co dobre i zmieniamy co trzeba",
       "default": false
+    },
+    {
+      "alias": "a",
+      "path": "C:\\Users\\rap1tw\\1_MyScripts\\testy\\sklr-smoke\\a",
+      "mode": "rw",
+      "description": "",
+      "default": false
+    },
+    {
+      "alias": "b",
+      "path": "C:\\Users\\rap1tw\\1_MyScripts\\testy\\sklr-smoke\\b",
+      "mode": "rw",
+      "description": "",
+      "default": false
+    },
+    {
+      "alias": "ro",
+      "path": "C:\\Users\\rap1tw\\1_MyScripts\\testy\\sklr-smoke\\ro",
+      "mode": "ro",
+      "description": "",
+      "default": false
     }
   ]
 }

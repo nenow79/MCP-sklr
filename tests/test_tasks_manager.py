@@ -316,3 +316,218 @@ def test_submit_after_shutdown(mgr):
     mgr.shutdown()
     with pytest.raises(TaskStateError):
         mgr.submit(FIELDS, _executor(), False)
+
+
+# --- C1: poufne wyniki poza Task/SQLite ---
+from tasks.volatile_results import VolatileResult, VolatileResultStore
+
+PRIVATE = "SENTINEL-MANAGER-SECRET"
+SECRET_FIELDS = dict(kind="secret_reveal", sensitive=True, offer_trust=False,
+                     title="Ujawnij testowy klucz", payload={"key": "DEMO_TOKEN"})
+
+
+def secret_executor(check=None):
+    def run(_event):
+        return VolatileResult({"content": PRIVATE, "key": "DEMO_TOKEN"}, check)
+    return run
+
+
+def allow_secret(manager, approval, executor=None, **kwargs):
+    task = manager.submit(SECRET_FIELDS, executor or secret_executor(), True, **kwargs)
+    approval.resolve(task.id, "allow")
+    return manager.wait(task.id, 5)
+
+
+def assert_no_private(manager, task_id, caplog):
+    task = manager.get(task_id)
+    assert PRIVATE not in repr(task.to_dict())
+    assert PRIVATE not in repr([t.to_dict() for t in manager.list()])
+    assert PRIVATE not in repr(manager.wait(task_id, 0).to_dict())
+    with manager._store._lock:
+        rows = manager._store._conn.execute("SELECT * FROM tasks").fetchall()
+        dump = "\n".join(manager._store._conn.iterdump())
+    assert PRIVATE not in repr([tuple(row) for row in rows]) + dump + caplog.text
+    assert all(record.exc_info is None for record in caplog.records
+               if record.name == "tasks.manager")
+
+
+def test_secret_success_only_in_separate_channel(make_manager, caplog):
+    manager, approval = make_manager()
+    pending = manager.submit(SECRET_FIELDS, secret_executor(), True)
+    assert manager.get_volatile_result(pending.id) == {"state": "unavailable"}
+    approval.resolve(pending.id, "trust")  # brak Ufaj degraduje do allow
+    done = manager.wait(pending.id, 5)
+    assert done.status == TaskStatus.DONE and done.exit_code == 0
+    assert done.decision == "allow" and done.stdout and not done.stderr
+    for _ in range(2):
+        assert manager.get_volatile_result(done.id)["data"]["content"] == PRIVATE
+    assert manager.cancel(done.id).status == TaskStatus.DONE
+    assert_no_private(manager, done.id, caplog)
+
+
+@pytest.mark.parametrize("changes,needs,on_trust", [
+    ({}, False, None), ({"sensitive": False}, True, None),
+    ({"sensitive": 1}, True, None), ({"offer_trust": True}, True, None),
+    ({"offer_trust": None}, True, None), ({}, True, lambda: None),
+])
+def test_secret_bad_submit_contract_no_task(make_manager, changes, needs, on_trust):
+    manager, _ = make_manager()
+    with pytest.raises(TaskStateError):
+        manager.submit({**SECRET_FIELDS, **changes}, secret_executor(), needs,
+                       on_trust=on_trust)
+    assert manager.list() == []
+    assert not manager._volatile._entries
+
+
+def test_volatile_result_from_wrong_kind_failed(make_manager, caplog):
+    manager, _ = make_manager()
+    task = manager.submit(FIELDS, secret_executor(), False)
+    assert manager.wait(task.id, 5).status == TaskStatus.FAILED
+    assert manager.get_volatile_result(task.id) == {"state": "unavailable"}
+    assert_no_private(manager, task.id, caplog)
+
+
+@pytest.mark.parametrize("decision", ["deny", "timeout", "cancel"])
+def test_secret_rejected_or_cancelled_never_executed(make_manager, decision):
+    manager, approval = make_manager()
+    calls = []
+    def run(_event):
+        calls.append(1)
+        return VolatileResult({"content": PRIVATE})
+    task = manager.submit(SECRET_FIELDS, run, True)
+    if decision == "cancel":
+        manager.cancel(task.id)
+    else:
+        approval.resolve(task.id, decision)
+    assert calls == []
+    assert manager.get_volatile_result(task.id) == {"state": "unavailable"}
+
+
+@pytest.mark.parametrize("source", ["verify_message", "verify_exception", "executor_exception", "dict"])
+def test_secret_errors_do_not_persist_or_log_private(make_manager, caplog, source):
+    manager, approval = make_manager()
+    def fail():
+        raise RuntimeError(PRIVATE)
+    verify = (lambda: PRIVATE) if source == "verify_message" else fail if source == "verify_exception" else None
+    executor = secret_executor()
+    if source == "executor_exception":
+        executor = lambda _event: fail()
+    elif source == "dict":
+        executor = lambda _event: {"exit_code": 0, "stdout": PRIVATE,
+                                  "stderr": PRIVATE, "error": PRIVATE}
+    done = allow_secret(manager, approval, executor, verify=verify)
+    assert done.status == TaskStatus.FAILED
+    assert manager.get_volatile_result(done.id) == {"state": "unavailable"}
+    assert_no_private(manager, done.id, caplog)
+
+
+def test_secret_cancel_running_before_publication(make_manager, caplog):
+    manager, approval = make_manager()
+    entered = threading.Event()
+    def run(event):
+        entered.set()
+        assert event.wait(5)
+        return VolatileResult({"content": PRIVATE})
+    task = manager.submit(SECRET_FIELDS, run, True)
+    approval.resolve(task.id, "allow")
+    assert entered.wait(5)
+    assert manager.cancel(task.id).status == TaskStatus.CANCELLED
+    assert manager.get_volatile_result(task.id) == {"state": "unavailable"}
+    assert_no_private(manager, task.id, caplog)
+
+
+def test_secret_callback_outside_manager_lock_and_access_revoked(make_manager):
+    manager, approval = make_manager()
+    acquired = []
+    allowed = [True]
+    def check():
+        def contender():
+            got = manager._cond.acquire(blocking=False)
+            acquired.append(got)
+            if got:
+                manager._cond.release()
+        thread = threading.Thread(target=contender)
+        thread.start()
+        thread.join(2)
+        assert not thread.is_alive()
+        return None if allowed[0] else "no access"
+    done = allow_secret(manager, approval, secret_executor(check))
+    assert manager.get_volatile_result(done.id)["state"] == "available"
+    assert acquired == [True]
+    allowed[0] = False
+    assert manager.get_volatile_result(done.id) == {"state": "denied"}
+    assert manager.get_volatile_result(done.id) == {"state": "unavailable"}
+
+
+def test_secret_ttl_and_restart_without_result(make_manager):
+    now = [100.0]
+    volatile = VolatileResultStore(ttl_seconds=5, clock=lambda: now[0])
+    manager, approval = make_manager(volatile_store=volatile)
+    done = allow_secret(manager, approval)
+    now[0] += 4
+    assert manager.get_volatile_result(done.id)["state"] == "available"
+    now[0] += 1
+    assert manager.get_volatile_result(done.id) == {"state": "unavailable"}
+    second = allow_secret(manager, approval)
+    manager.shutdown()
+    fresh_approval = ApprovalService()
+    fresh = TaskManager(manager._store, fresh_approval)
+    try:
+        assert fresh.get(second.id).status == TaskStatus.DONE
+        assert fresh.get_volatile_result(second.id) == {"state": "unavailable"}
+    finally:
+        fresh.shutdown()
+
+
+@pytest.mark.parametrize("failure", ["done", "activate", "full"])
+def test_secret_finalization_failure_discards_result(make_manager, monkeypatch, caplog, failure):
+    volatile = VolatileResultStore(max_results=1)
+    manager, approval = make_manager(volatile_store=volatile)
+    if failure == "full":
+        allow_secret(manager, approval)
+    elif failure == "activate":
+        def fail(*_args):
+            raise RuntimeError(PRIVATE)
+        monkeypatch.setattr(volatile, "activate", fail)
+    else:
+        original = manager._store.update
+        def update(task_id, **fields):
+            if fields.get("status") == TaskStatus.DONE:
+                raise RuntimeError(PRIVATE)
+            return original(task_id, **fields)
+        monkeypatch.setattr(manager._store, "update", update)
+    done = allow_secret(manager, approval)
+    assert done.status == TaskStatus.FAILED and done.exit_code is None
+    assert manager.get_volatile_result(done.id) == {"state": "unavailable"}
+    assert done.id not in volatile._entries
+    assert_no_private(manager, done.id, caplog)
+
+
+def test_secret_shutdown_blocks_late_publication(make_manager, caplog):
+    manager, approval = make_manager()
+    entered, release = threading.Event(), threading.Event()
+    def run(_event):
+        entered.set()
+        assert release.wait(5)
+        return VolatileResult({"content": PRIVATE})
+    task = manager.submit(SECRET_FIELDS, run, True)
+    approval.resolve(task.id, "allow")
+    assert entered.wait(5)
+    manager.shutdown()
+    release.set()
+    assert manager.wait(task.id, 5).status == TaskStatus.FAILED
+    assert manager.get_volatile_result(task.id) == {"state": "unavailable"}
+    assert not manager._volatile._entries
+    assert_no_private(manager, task.id, caplog)
+
+
+def test_secret_shutdown_during_access_check_no_result(make_manager):
+    manager, approval = make_manager()
+    done = allow_secret(manager, approval, secret_executor(manager.shutdown))
+    assert manager.get_volatile_result(done.id) == {"state": "unavailable"}
+
+
+@pytest.mark.parametrize("task_id", [True, 0, -1, "1", None, 999])
+def test_volatile_get_invalid_or_missing_id(make_manager, task_id):
+    manager, _ = make_manager()
+    assert manager.get_volatile_result(task_id) == {"state": "unavailable"}
