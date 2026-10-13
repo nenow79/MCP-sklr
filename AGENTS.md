@@ -4,7 +4,7 @@
 Nowy lokalny serwer MCP ("vibecoder") oparty na standardzie Agent Skills (agentskills.io). Zamienia ubogi harness przeglądarkowy w agenta: pliki/workspace, komendy z guardami, referencje, zewnętrzne MCP oraz skills (katalog, aktywacja, uruchamianie skryptów).
 
 ## Stack
-Python, FastMCP + Uvicorn (port 8100), tkinter (stałe okno konfiguracji), Miniforge/conda (środowiska skryptów skills).
+Python, FastMCP + Uvicorn (port 8100), panel webowy (127.0.0.1:8102: zatwierdzenia i konfiguracja folderów), Miniforge/conda (środowiska skryptów skills).
 
 ## Status
 Faza projektowa. Aktualny stan: `docs/plan/CURRENT.md`. Zadania: `docs/plan/backlog.md`.
@@ -18,6 +18,7 @@ Faza projektowa. Aktualny stan: `docs/plan/CURRENT.md`. Zadania: `docs/plan/back
 - Jeden plik = jedna odpowiedzialność.
 - Conventional Commits, wiadomości ekstremalnie zwięzłe.
 - Plan i akceptacja użytkownika przed każdą zmianą kodu.
+- Zadania do zatwierdzenia w panelu (edit_file, create_file, manage_folder, secret_reveal, request_root): po task_id wolno wykonać JEDNO wait_task (seconds=8); gdy status nadal awaiting_approval, napisać użytkownikowi i STOP (bez pętli i kolejnego wait_task). Po :ping najpierw list_tasks, nie ponawiać w ciemno. Decyzja zawsze po stronie użytkownika w panelu; sprawdzać rzeczywisty status i zawartość pliku.
 - Stary MCP (`MCP-my-codex`) jest referencją tylko do odczytu.
 - Nie uruchamiaj pytest ani serwera API/uvicorn bez wyraźnego polecenia; podawaj komendę użytkownikowi.
 - Python: venv/conda; instalacji i tworzenia środowisk nie wykonuj automatycznie.
