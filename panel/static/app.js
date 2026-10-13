@@ -17,6 +17,9 @@
     tickPromise: null,    // tylko jedna pętla planuje następny timer
     stopped: false,
     tab: "tasks",
+    listSigs: {},       // podpisy ostatnio narysowanych list (pomijanie renderu)
+    detailsId: null,    // zadanie aktualnie narysowane w szczegółach
+    detailsSig: null,   // podpis narysowanych szczegółów (pomijanie renderu)
     busy: {}              // id zadania -> true, gdy trwa wysyłanie decyzji
   };
 
@@ -159,10 +162,10 @@
     var cls = "task-card" + (isPending ? " is-pending" : "") +
               (task.id === state.selectedId ? " selected" : "");
     var isSkill = !task.kind || task.kind === "skill_script";
-    var titleText = "#" + task.id + "  " + (isSkill ? task.skill : (task.title || task.kind));
-    var metaText = isSkill
+    var titleText = visibleText("#" + task.id + "  " + (isSkill ? task.skill : (task.title || task.kind)));
+    var metaText = visibleText(isSkill
       ? task.script + (task.args && task.args.length ? " " + task.args.join(" ") : "")
-      : task.kind;
+      : task.kind);
     var card = el("div", { className: cls }, [
       el("div", { className: "task-head" }, [
         el("span", { className: "task-title" }, kindBadges(task).concat([document.createTextNode(titleText)])),
@@ -199,6 +202,10 @@
   }
 
   function renderList(container, tasks, isPending, emptyText) {
+    var key = isPending ? "pending" : "other";
+    var sig = JSON.stringify([tasks, state.selectedId, state.busy]);
+    if (state.listSigs[key] === sig) { return; } // bez zmian: nie zastępuj DOM
+    state.listSigs[key] = sig;
     container.textContent = "";
     if (!tasks.length) {
       container.appendChild(el("p", { className: "muted", text: emptyText }));
@@ -281,21 +288,41 @@
     refresh();
   }
 
-  function row(dl, label, value) {
-    dl.appendChild(el("dt", { text: label }));
-    dl.appendChild(el("dd", { text: value === null || value === undefined || value === "" ? "-" : value }));
+  function row(dl, label, value, wide) {
+    var item = el("div", { className: wide ? "row wide" : "row" });
+    item.appendChild(el("dt", { text: label }));
+    item.appendChild(el("dd", { text: value === null || value === undefined || value === "" ? "-" : visibleText(value, true) }));
+    if (wide) { wideRows.push(item); } else { dl.appendChild(item); }
+  }
+
+  var detailPres = []; // przewijalne <pre> bieżących szczegółów (indeks = kolejność)
+
+  function trackPre(pre) { detailPres.push(pre); return pre; }
+
+  var wideRows = []; // długie wiersze trafiają na koniec tabeli
+
+  function flushRows(dl) {
+    wideRows.forEach(function (item) { dl.appendChild(item); });
+    wideRows = [];
+  }
+
+  function detailsHead(box, task) {
+    var head = el("div", { className: "details-head" }, [
+      el("h3", { className: "details-title", text: "Zadanie #" + task.id })
+    ].concat(kindBadges(task), [statusBadge(task.status)]));
+    box.appendChild(head);
   }
 
   function block(parent, title, text) {
     if (!text) { return; }
     parent.appendChild(el("h3", { text: title }));
-    parent.appendChild(el("pre", { text: text }));
+    parent.appendChild(trackPre(el("pre", { text: text })));
   }
 
   function diffBlock(parent, text) {
     if (!text) { return; }
     parent.appendChild(el("h3", { text: "Diff" }));
-    var pre = el("pre", { className: "diff" });
+    var pre = trackPre(el("pre", { className: "diff" }));
     String(text).split("\n").forEach(function (line, index, all) {
       var cls = line.charAt(0) === "+" ? "diff-add" : (line.charAt(0) === "-" ? "diff-del" : "");
       var span = el("span", { className: cls, text: line });
@@ -309,9 +336,10 @@
   // Pełna kontrola innych rodzajów zadań pozostaje w paczce D.
   var HIDDEN_CHARS_RE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}]/gu;
 
-  function visibleText(value) {
+  function visibleText(value, keepWhitespace) {
     var text = value === null || value === undefined ? "" : String(value);
     return text.replace(HIDDEN_CHARS_RE, function (ch) {
+      if (keepWhitespace && (ch === "\n" || ch === "\r" || ch === "\t")) { return ch; }
       var hex = ch.codePointAt(0).toString(16).toUpperCase();
       while (hex.length < 4) { hex = "0" + hex; }
       return String.fromCharCode(92) + "u{" + hex + "}";
@@ -324,9 +352,7 @@
     var hasKey = selector.key !== undefined && selector.key !== null;
     var selectorText = hasKey ? "klucz: " + visibleText(selector.key)
       : "linie " + visibleText(selector.start_line) + "-" + visibleText(selector.end_line);
-    box.appendChild(el("h3", { text: "Zadanie #" + task.id }));
-    kindBadges(task).forEach(function (badge) { box.appendChild(badge); });
-    box.appendChild(statusBadge(task.status));
+    detailsHead(box, task);
     box.appendChild(el("div", { className: "secret-warning", text:
       "Po zgodzie wynik trafi wyłącznie do klienta MCP przez get_task, nie do panelu. " +
       "Retencja po stronie klienta lub modelu jest poza kontrolą sklr." }));
@@ -334,20 +360,21 @@
     row(dl, "Rodzaj", task.kind);
     row(dl, "Tytuł", visibleText(task.title));
     row(dl, "Folder (root)", visibleText(payload.root));
-    row(dl, "Plik", visibleText(payload.filepath));
+    row(dl, "Plik", visibleText(payload.filepath), true);
     row(dl, "Selektor", selectorText);
     row(dl, "Limit znaków", visibleText(payload.max_chars));
-    row(dl, "Powód pytania", visibleText(task.approval_reason));
+    row(dl, "Powód pytania", visibleText(task.approval_reason), true);
     row(dl, "Decyzja", visibleText(task.decision));
     row(dl, "Utworzone", fmtTime(task.created_at));
     row(dl, "Start", fmtTime(task.started_at));
     row(dl, "Koniec", fmtTime(task.finished_at));
-    row(dl, "Błąd", visibleText(task.error));
+    row(dl, "Błąd", visibleText(task.error), true);
+    flushRows(dl);
     box.appendChild(dl);
     if (payload.description) {
       box.appendChild(el("div", { className: "from-model" }, [
         el("div", { text: "Opis od modelu (niezweryfikowany, nie jest częścią zatwierdzanej treści):" }),
-        el("pre", { text: visibleText(payload.description) })
+        trackPre(el("pre", { text: visibleText(payload.description, true) }))
       ]));
     }
   }
@@ -355,49 +382,50 @@
   function renderDetails(task) {
     var box = $("details");
     box.textContent = "";
+    detailPres = [];
+    wideRows = [];
     if (task.kind === "secret_reveal") {
       renderSecretDetails(box, task);
       return;
     }
     var isSkill = !task.kind || task.kind === "skill_script";
-    box.appendChild(el("h3", { text: "Zadanie #" + task.id }));
-    kindBadges(task).forEach(function (badge) { box.appendChild(badge); });
-    box.appendChild(statusBadge(task.status));
+    detailsHead(box, task);
     var dl = el("dl");
     if (isSkill) {
       row(dl, "Skill", task.skill + " (" + task.source + ")");
       row(dl, "Skrypt", task.script);
-      row(dl, "Argumenty", task.args && task.args.length ? JSON.stringify(task.args) : "(brak)");
-      row(dl, "Katalog", task.skill_dir);
-      row(dl, "Hash skilla", task.skill_hash);
+      row(dl, "Argumenty", task.args && task.args.length ? JSON.stringify(task.args) : "(brak)", true);
+      row(dl, "Katalog", task.skill_dir, true);
+      row(dl, "Hash skilla", task.skill_hash, true);
     } else {
       var payload = task.payload || {};
       row(dl, "Rodzaj", task.kind);
       row(dl, "Tytuł", task.title);
       row(dl, "Folder (root)", payload.root);
-      row(dl, "Tryb folderu", payload.mode);
+      if (payload.mode !== undefined && payload.mode !== null) { row(dl, "Tryb folderu", payload.mode); }
       row(dl, "Katalog roboczy", payload.cwd);
-      row(dl, "Ścieżka", payload.path);
-      row(dl, "Ścieżki", payload.paths && payload.paths.length ? payload.paths.join(", ") : null);
+      row(dl, "Ścieżka", payload.path, true);
+      row(dl, "Ścieżki", payload.paths && payload.paths.length ? payload.paths.join(", ") : null, true);
     }
     row(dl, "Timeout", task.timeout + " s");
-    row(dl, "Komenda", task.command && task.command.length ? JSON.stringify(task.command) : "-");
-    row(dl, "Powód pytania", task.approval_reason);
+    row(dl, "Komenda", task.command && task.command.length ? JSON.stringify(task.command) : "-", true);
+    row(dl, "Powód pytania", task.approval_reason, true);
     row(dl, "Decyzja", task.decision);
     row(dl, "Utworzone", fmtTime(task.created_at));
     row(dl, "Start", fmtTime(task.started_at));
     row(dl, "Koniec", fmtTime(task.finished_at));
     row(dl, "Kod wyjścia", task.exit_code);
     row(dl, "Czas trwania", task.duration_s === null || task.duration_s === undefined ? null : task.duration_s + " s");
-    row(dl, "Błąd", task.error);
+    row(dl, "Błąd", task.error, true);
+    flushRows(dl);
     box.appendChild(dl);
     if (!isSkill) {
-      diffBlock(box, (task.payload || {}).diff);
+      // Diff jest rysowany na końcu (największy blok).
       var description = (task.payload || {}).description;
       if (description) {
         var note = el("div", { className: "from-model" }, [
           el("div", { text: "Opis od modelu (niezweryfikowany, nie jest częścią zatwierdzanej treści):" }),
-          el("pre", { text: description })
+          trackPre(el("pre", { text: visibleText(description, true) }))
         ]);
         box.appendChild(note);
       }
@@ -405,12 +433,38 @@
     block(box, "Podgląd skryptu", task.script_preview);
     block(box, "stdout" + (task.stdout_truncated ? " (obcięty)" : ""), task.stdout);
     block(box, "stderr" + (task.stderr_truncated ? " (obcięty)" : ""), task.stderr);
+    if (!isSkill) { diffBlock(box, (task.payload || {}).diff); }
+  }
+
+  function captureScroll() {
+    return {
+      page: window.pageYOffset || 0,
+      pres: detailPres.map(function (pre) { return [pre.scrollTop || 0, pre.scrollLeft || 0]; })
+    };
+  }
+
+  function restoreScroll(saved) {
+    detailPres.forEach(function (pre, i) {
+      if (saved.pres[i]) { pre.scrollTop = saved.pres[i][0]; pre.scrollLeft = saved.pres[i][1]; }
+    });
+    if (typeof window.scrollTo === "function" && (window.pageYOffset || 0) !== saved.page) {
+      window.scrollTo(window.pageXOffset || 0, saved.page);
+    }
   }
 
   function loadDetails(id) {
     return api("GET", "/api/tasks/" + encodeURIComponent(id)).then(function (res) {
       if (res.status === 401) { authFailed(); return; }
-      if (res.status === 200 && res.json.success) { renderDetails(res.json.data); }
+      if (res.status !== 200 || !res.json.success) { return; }
+      if (id !== state.selectedId) { return; } // spóźniona odpowiedź dla innego zadania
+      var sig = JSON.stringify(res.json.data);
+      var same = state.detailsId === id;
+      if (same && state.detailsSig === sig) { return; } // bez zmian: zachowaj DOM i scroll
+      var saved = same ? captureScroll() : null;
+      renderDetails(res.json.data);
+      state.detailsId = id;
+      state.detailsSig = sig;
+      if (saved) { restoreScroll(saved); }
     });
   }
 
