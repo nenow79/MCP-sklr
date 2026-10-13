@@ -208,3 +208,131 @@ def test_cancel_errors(tmp_path, make_env):
     env = make_env(_skill(tmp_path), "allow")
     assert cancel_task_impl(env.manager, 999)["success"] is False
     assert cancel_task_impl(env.manager, -1)["success"] is False
+
+
+# C3a: atrapy sekretów, bez procesów i produkcyjnej telemetrii.
+import pytest
+from tasks.approval import ApprovalService
+from tasks.manager import TaskManager
+from tasks.models import TaskStatus
+from tasks.store import TaskStore
+from tasks.volatile_results import VolatileResult, VolatileResultStore
+
+C3_PRIVATE = "SENTINEL-C3A-PRIVATE"
+
+
+@pytest.fixture
+def secret_env(tmp_path):
+    now = [100.0]
+    store = TaskStore(str(tmp_path / "secret.db"))
+    approval = ApprovalService()
+    volatile = VolatileResultStore(ttl_seconds=5, clock=lambda: now[0])
+    manager = TaskManager(store, approval, volatile_store=volatile)
+    yield manager, approval, now, store
+    manager.shutdown()
+    store.close()
+
+
+def submit_secret(manager, check=None):
+    return manager.submit(
+        dict(kind="secret_reveal", sensitive=True, offer_trust=False,
+             payload={"selector": {"key": "TOKEN"}}),
+        lambda event: VolatileResult({"content": C3_PRIVATE}, check), True)
+
+
+def approve_secret(manager, approval, task):
+    approval.resolve(task.id, "allow")
+    assert manager.wait(task.id, 5).status == TaskStatus.DONE
+
+
+def test_secret_get_only_separate_channel_and_no_task_mutation(secret_env, monkeypatch):
+    manager, approval, now, store = secret_env
+    task = submit_secret(manager)
+    assert get_task_impl(manager, task.id)["data"]["secret_result"] == {"state": "unavailable"}
+    approve_secret(manager, approval, task)
+    before = manager.get(task.id).to_dict()
+    for _ in range(2):
+        response = get_task_impl(manager, task.id)
+        assert response["data"]["secret_result"] == {
+            "state": "available", "data": {"content": C3_PRIVATE}}
+    assert manager.get(task.id).to_dict() == before
+    assert "secret_result" not in before and C3_PRIVATE not in repr(before)
+    with store._lock:
+        assert C3_PRIVATE not in "\n".join(store._conn.iterdump())
+    def forbidden(*args):
+        raise AssertionError("Other adapters must not fetch volatile results")
+    monkeypatch.setattr(manager, "get_volatile_result", forbidden)
+    for response in (list_tasks_impl(manager), wait_task_impl(manager, task.id, 0),
+                     cancel_task_impl(manager, task.id)):
+        assert response["success"]
+        assert C3_PRIVATE not in repr(response) and "secret_result" not in repr(response)
+
+
+def test_secret_get_ttl_without_extension_and_restart(secret_env):
+    manager, approval, now, store = secret_env
+    task = submit_secret(manager)
+    approve_secret(manager, approval, task)
+    for elapsed in (1, 2, 3, 4):
+        now[0] = 100.0 + elapsed
+        assert get_task_impl(manager, task.id)["data"]["secret_result"]["state"] == "available"
+    now[0] = 105.0
+    assert get_task_impl(manager, task.id)["data"]["secret_result"] == {"state": "unavailable"}
+    second = submit_secret(manager)
+    approve_secret(manager, approval, second)
+    manager.shutdown()
+    fresh = TaskManager(store, ApprovalService())
+    try:
+        response = get_task_impl(fresh, second.id)
+        assert response["data"]["status"] == "done"
+        assert response["data"]["secret_result"] == {"state": "unavailable"}
+    finally:
+        fresh.shutdown()
+
+
+@pytest.mark.parametrize("decision", ["deny", "cancel", "timeout"])
+def test_secret_get_rejected_cancelled_unavailable(secret_env, decision):
+    manager, approval, _, _ = secret_env
+    task = submit_secret(manager)
+    if decision == "cancel":
+        manager.cancel(task.id)
+    else:
+        approval.resolve(task.id, decision)
+    response = get_task_impl(manager, task.id)
+    assert response["success"]
+    assert response["data"]["secret_result"] == {"state": "unavailable"}
+    assert C3_PRIVATE not in repr(response)
+
+
+def test_secret_get_access_revocation(secret_env):
+    manager, approval, _, _ = secret_env
+    allowed = [True]
+    task = submit_secret(manager, lambda: None if allowed[0] else "denied")
+    approve_secret(manager, approval, task)
+    allowed[0] = False
+    assert get_task_impl(manager, task.id)["data"]["secret_result"] == {"state": "denied"}
+    assert get_task_impl(manager, task.id)["data"]["secret_result"] == {"state": "unavailable"}
+
+
+def test_ordinary_get_does_not_fetch_secret_channel(secret_env, monkeypatch):
+    manager, _, _, _ = secret_env
+    task = manager.submit({}, lambda event: {"exit_code": 0}, False)
+    manager.wait(task.id, 5)
+    def forbidden(*args):
+        raise AssertionError(C3_PRIVATE)
+    monkeypatch.setattr(manager, "get_volatile_result", forbidden)
+    response = get_task_impl(manager, task.id)
+    assert response == {"success": True, "data": manager.get(task.id).to_dict()}
+    assert "secret_result" not in response["data"]
+
+
+def test_secret_channel_exception_safe_no_partial_response(secret_env, monkeypatch, caplog):
+    manager, approval, _, _ = secret_env
+    task = submit_secret(manager)
+    approve_secret(manager, approval, task)
+    def fail(*args):
+        raise RuntimeError(C3_PRIVATE)
+    monkeypatch.setattr(manager, "get_volatile_result", fail)
+    response = get_task_impl(manager, task.id)
+    assert response == {"success": False,
+                        "error": "Nie można pobrać danych zadania (błąd wewnętrzny)."}
+    assert C3_PRIVATE not in repr(response) + caplog.text

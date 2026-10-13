@@ -166,6 +166,12 @@ def run_skill_script_impl(
 
 
 def get_task_impl(manager: TaskManager, task_id: int) -> Dict[str, Any]:
+    """Wyłącznie MCP: dołącza wynik RAM, nie modyfikując Task ani jego payloadu.
+
+    Panel używa manager.get bezpośrednio. List/wait/cancel nie wywołują tego
+    adaptera. Przed rejestracją secret_reveal wrapper get_task musi otrzymać
+    poufny tryb telemetrii: odpowiedzi nie wolno serializować do pomiaru.
+    """
     try:
         id_error = _check_task_id(task_id)
         if id_error:
@@ -173,9 +179,17 @@ def get_task_impl(manager: TaskManager, task_id: int) -> Dict[str, Any]:
         task = manager.get(task_id)
         if task is None:
             return _error(f"Nie znaleziono zadania {task_id}.")
-        return {"success": True, "data": task.to_dict()}
-    except Exception as e:
-        return _error(str(e))
+        data = task.to_dict()
+        if task.kind == "secret_reveal":
+            # Manager sprawdza decyzję/status/dostęp/TTL i shutdown. Pobranie
+            # nie konsumuje wyniku ani nie przedłuża TTL. Brak wyniku po
+            # restarcie nie zmienia trwałego statusu zadania.
+            data["secret_result"] = manager.get_volatile_result(task_id)
+        return {"success": True, "data": data}
+    except Exception:
+        # Błąd może powstać również po pobraniu wyniku RAM. Nigdy nie
+        # streszczamy wyjątku ani nie zwracamy częściowej odpowiedzi.
+        return _error("Nie można pobrać danych zadania (błąd wewnętrzny).")
 
 
 def list_tasks_impl(manager: TaskManager, status: Optional[str] = None,

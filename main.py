@@ -17,7 +17,9 @@ from panel.auth import PanelAuth
 from panel.server import PanelServer, build_panel_url
 from roots import MigrationResult, Root
 from roots_registry import RootsRegistry
-from server import edit_tools, file_tools, folder_tools, roots_tools, search_tools, skills_tools, task_tools
+from server import (
+    edit_tools, file_tools, folder_tools, roots_tools, search_tools, secret_tools, skills_tools, task_tools,
+)
 from server.file_transaction import FileTransaction
 from skills_engine import SkillRegistry
 from skills_engine.content import DEFAULT_READ_CHARS
@@ -153,6 +155,11 @@ def register_tool(function):
     return mcp.tool(track_mcp_tool(function, _default_root_alias))
 
 
+def register_confidential_tool(function):
+    """Rejestruje narzędzie, którego wejścia/wyniku telemetria nie może przetwarzać."""
+    return mcp.tool(track_mcp_tool(function, _default_root_alias, confidential=True))
+
+
 @register_tool
 def ping() -> Dict[str, Any]:
     """Sprawdza, czy serwer MCP działa. Zwraca nazwę serwera i port."""
@@ -219,12 +226,15 @@ def run_skill_script(
     )
 
 
-@register_tool
+@register_confidential_tool
 def get_task(task_id: int) -> Dict[str, Any]:
     """
     Zwraca pełne dane zadania z kolejki (status, skrypt, argumenty, decyzja, exit_code, stdout, stderr,
     błąd). Statusy: awaiting_approval, queued, running, done, failed, rejected, timed_out, cancelled,
-    interrupted (przerwane restartem serwera).
+    interrupted (przerwane restartem serwera). Dla zadania secret_reveal odpowiedź może zawierać
+    osobne secret_result (stan available/unavailable/denied) z treścią dostępną tylko w pamięci serwera
+    do wygaśnięcia TTL; pobranie nie konsumuje wyniku. Restart, wygaśnięcie, odmowa lub utrata
+    dostępu oznaczają brak wyniku, a nowe ujawnienie wymaga nowej zgody użytkownika.
     """
     return task_tools.get_task_impl(TASK_MANAGER, task_id)
 
@@ -379,6 +389,25 @@ def manage_folder(action: str, path: str, new_name: Optional[str] = None, root: 
     """
     return folder_tools.manage_folder_impl(
         ROOTS, TASK_MANAGER, CONFIG_STORE.lock, action, path, new_name, root, description)
+
+
+@register_confidential_tool
+def secret_reveal(filepath: str, key: Optional[str] = None, start_line: Optional[int] = None,
+                  end_line: Optional[int] = None, max_chars: int = 12000, root: Any = None,
+                  description: str = "") -> Dict[str, Any]:
+    """Prosi o ujawnienie jednej wartości albo jawnego zakresu z obsługiwanego pliku sekretów.
+    Podaj konkretny key ALBO oba końce start_line i end_line (fizyczne linie, bez przycinania);
+    brak selektora lub mieszanie selektorów to błąd, nigdy cały plik. max_chars 1-80000.
+    Zawsze tworzy zadanie sensitive do decyzji użytkownika w panelu (bez Ufaj) i od razu zwraca
+    task_id bez oczekiwania. Zatrzymaj się i poczekaj na wiadomość użytkownika; nie odpytuj
+    wait_task. Po decyzji wynik sprawdzisz wyłącznie przez get_task(task_id) w polu secret_result,
+    wielokrotnie do wygaśnięcia TTL (5 min), bez przedłużania. Wynik jest tylko w pamięci serwera,
+    nie w panelu, SQLite ani telemetrii; po restarcie nie istnieje. Po zwrocie klient/model może
+    zachować sekret poza kontrolą sklr. Po błędzie ': ping' przed ponowieniem sprawdź list_tasks.
+    """
+    return secret_tools.secret_reveal_impl(
+        ROOTS, TASK_MANAGER, CONFIG_STORE.lock, filepath, key, start_line, end_line,
+        max_chars, root, description)
 
 
 def get_middleware():

@@ -305,9 +305,60 @@
     parent.appendChild(pre);
   }
 
+  // Widoczne escapowanie znaków sterujących/kierunkowych tylko w widoku secret_reveal.
+  // Pełna kontrola innych rodzajów zadań pozostaje w paczce D.
+  var HIDDEN_CHARS_RE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}]/gu;
+
+  function visibleText(value) {
+    var text = value === null || value === undefined ? "" : String(value);
+    return text.replace(HIDDEN_CHARS_RE, function (ch) {
+      var hex = ch.codePointAt(0).toString(16).toUpperCase();
+      while (hex.length < 4) { hex = "0" + hex; }
+      return String.fromCharCode(92) + "u{" + hex + "}";
+    });
+  }
+
+  function renderSecretDetails(box, task) {
+    var payload = task.payload || {};
+    var selector = payload.selector || {};
+    var hasKey = selector.key !== undefined && selector.key !== null;
+    var selectorText = hasKey ? "klucz: " + visibleText(selector.key)
+      : "linie " + visibleText(selector.start_line) + "-" + visibleText(selector.end_line);
+    box.appendChild(el("h3", { text: "Zadanie #" + task.id }));
+    kindBadges(task).forEach(function (badge) { box.appendChild(badge); });
+    box.appendChild(statusBadge(task.status));
+    box.appendChild(el("div", { className: "secret-warning", text:
+      "Po zgodzie wynik trafi wyłącznie do klienta MCP przez get_task, nie do panelu. " +
+      "Retencja po stronie klienta lub modelu jest poza kontrolą sklr." }));
+    var dl = el("dl");
+    row(dl, "Rodzaj", task.kind);
+    row(dl, "Tytuł", visibleText(task.title));
+    row(dl, "Folder (root)", visibleText(payload.root));
+    row(dl, "Plik", visibleText(payload.filepath));
+    row(dl, "Selektor", selectorText);
+    row(dl, "Limit znaków", visibleText(payload.max_chars));
+    row(dl, "Powód pytania", visibleText(task.approval_reason));
+    row(dl, "Decyzja", visibleText(task.decision));
+    row(dl, "Utworzone", fmtTime(task.created_at));
+    row(dl, "Start", fmtTime(task.started_at));
+    row(dl, "Koniec", fmtTime(task.finished_at));
+    row(dl, "Błąd", visibleText(task.error));
+    box.appendChild(dl);
+    if (payload.description) {
+      box.appendChild(el("div", { className: "from-model" }, [
+        el("div", { text: "Opis od modelu (niezweryfikowany, nie jest częścią zatwierdzanej treści):" }),
+        el("pre", { text: visibleText(payload.description) })
+      ]));
+    }
+  }
+
   function renderDetails(task) {
     var box = $("details");
     box.textContent = "";
+    if (task.kind === "secret_reveal") {
+      renderSecretDetails(box, task);
+      return;
+    }
     var isSkill = !task.kind || task.kind === "skill_script";
     box.appendChild(el("h3", { text: "Zadanie #" + task.id }));
     kindBadges(task).forEach(function (badge) { box.appendChild(badge); });

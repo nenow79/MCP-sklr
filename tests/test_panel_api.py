@@ -307,3 +307,46 @@ def test_index_served_and_host_checked(tmp_path, env):
     r = client.get("/")
     assert r.status_code == 200 and "panel" in r.text
     assert client.get("/", headers={"Host": "evil.com"}).status_code == 403
+
+
+# C3c: panel nigdy nie ujawnia wyniku RAM secret_reveal (wyłącznie atrapa).
+from tasks.volatile_results import VolatileResult
+
+PANEL_PRIVATE = "SENTINEL-PANEL-API-PRIVATE"
+
+
+def _panel_dump(env, task_id):
+    paths = ("/api/tasks", "/api/tasks?status=awaiting_approval", "/api/tasks?status=done",
+             f"/api/tasks/{task_id}")
+    parts = []
+    for path in paths:
+        response = env.client.get(path, headers=env.read_headers)
+        assert response.status_code == 200
+        parts.append(response.text)
+    return "\n".join(parts)
+
+
+def test_secret_reveal_panel_api_never_exposes_volatile_result(env):
+    fields = dict(kind="secret_reveal", sensitive=True, offer_trust=False,
+                  title="Ujawnij wskazany sekret",
+                  payload={"root": "app", "filepath": ".env", "selector": {"key": "TOKEN"},
+                           "max_chars": 12000, "description": ""})
+    task = env.manager.submit(
+        fields, lambda event: VolatileResult({"content": PANEL_PRIVATE, "key": "TOKEN"}), True)
+    before = _panel_dump(env, task.id)
+    assert PANEL_PRIVATE not in before and "secret_result" not in before
+    detail = env.client.get(f"/api/tasks/{task.id}", headers=env.read_headers).json()["data"]
+    assert detail["kind"] == "secret_reveal" and detail["sensitive"] is True
+    assert detail["offer_trust"] is False
+    response = env.client.post(f"/api/tasks/{task.id}/decision", json={"decision": "trust"},
+                               headers=env.headers)
+    assert response.status_code == 200 and response.json()["data"]["decision"] == "allow"
+    assert env.manager.wait(task.id, 5).status.value == "done"
+    # Wynik istnieje w magazynie RAM, ale kanał panelu go nie czyta.
+    assert env.manager.get_volatile_result(task.id)["data"]["content"] == PANEL_PRIVATE
+    after = _panel_dump(env, task.id)
+    assert PANEL_PRIVATE not in after and "secret_result" not in after
+    cancel = env.client.post(f"/api/tasks/{task.id}/cancel", headers=env.headers)
+    assert cancel.status_code == 200 and cancel.json()["data"]["status"] == "done"
+    assert PANEL_PRIVATE not in cancel.text and "secret_result" not in cancel.text
+    assert env.manager.get_volatile_result(task.id)["state"] == "available"

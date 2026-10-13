@@ -149,9 +149,20 @@ def _shutdown_telemetry() -> None:
 
 
 def track_mcp_tool(
-    function: Callable[..., Any], workspace_name_getter: Callable[[], str]
+    function: Callable[..., Any], workspace_name_getter: Callable[[], str],
+    *, confidential: bool = False,
 ) -> Callable[..., Any]:
-    """Dekoruje narzędzie MCP lekkim, nieblokującym pomiarem użycia."""
+    """Dekoruje narzędzie MCP lekkim, nieblokującym pomiarem użycia.
+
+    confidential wybiera rejestrujący, nigdy analiza treści odpowiedzi.
+    W tym trybie wejście/wynik nie trafiają do serializatora, pomiaru ani
+    streszczenia błędu. Puste rozmiary CSV oznaczają niemierzone, nie zero.
+    Odczytujemy tylko zewnętrzną flagę success; wynik zwracamy bez zmiany.
+    Wyjątek propaguje jak dotychczas, ale telemetria nie zapisuje jego treści
+    ani nazwy klasy. Poufne narzędzie musi niezależnie zapewniać safe errors.
+    """
+    if type(confidential) is not bool:
+        raise ValueError("confidential musi być bool.")
     @wraps(function)
     def wrapped(*args: Any, **kwargs: Any) -> Any:
         started_at = time.perf_counter()
@@ -165,11 +176,13 @@ def track_mcp_tool(
             success = not (isinstance(result, dict) and result.get("success") is False)
             if not success:
                 error_type = "tool_error"
-                error_summary = _summarize_error(result.get("error"))
+                error_summary = ("Błąd narzędzia poufnego." if confidential
+                                 else _summarize_error(result.get("error")))
             return result
         except Exception as error:
-            error_type = type(error).__name__
-            error_summary = _summarize_error(error)
+            error_type = "confidential_exception" if confidential else type(error).__name__
+            error_summary = ("Wyjątek narzędzia poufnego." if confidential
+                             else _summarize_error(error))
             raise
         finally:
             try:
@@ -181,8 +194,9 @@ def track_mcp_tool(
                 "timestamp_utc": datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
                 "workspace": workspace_name,
                 "tool_name": function.__name__,
-                "input_bytes": _json_size_bytes({"args": args, "kwargs": kwargs}),
-                "output_bytes": _json_size_bytes(result) if error_type != type(None).__name__ else 0,
+                "input_bytes": "" if confidential else _json_size_bytes({"args": args, "kwargs": kwargs}),
+                "output_bytes": ("" if confidential else
+                                 _json_size_bytes(result) if error_type != type(None).__name__ else 0),
                 "duration_ms": round((time.perf_counter() - started_at) * 1_000, 3),
                 "success": success,
                 "error_type": error_type,

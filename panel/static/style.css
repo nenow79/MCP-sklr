@@ -121,6 +121,14 @@ select, .btn {
 
 .from-model { color: var(--muted); font-size: 12px; font-style: italic; margin-top: 8px; }
 .from-model pre { font-style: normal; }
+.secret-warning {
+  margin: 10px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--bad);
+  border-left-width: 4px;
+  border-radius: 6px;
+  color: var(--text);
+}
 .diff { white-space: pre; overflow-x: auto; }
 .diff-add { color: var(--ok); }
 .diff-del { color: var(--bad); }
