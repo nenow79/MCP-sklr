@@ -37,3 +37,8 @@
 - Brak interaktywności, timeout, limit outputu (zgodnie z obecnym 6000 znaków/strumień), strukturalny output.
 - Brak środowiska: błąd z gotową komendą `conda create`/`conda install` (lub `assets/environment.yml`) dla użytkownika; MCP niczego nie instaluje.
 - Inne języki: `bash`, `node` wg rozszerzenia skryptu.
+
+## Tworzenie skilli (skill-writer)
+- Skill `skill-writer` (katalog centralny) prowadzi przez tworzenie skilli: szablon SKILL.md, reguły zgodne z `skills_engine`, lista kontrolna, walidator `scripts/validate_skill.py` (korzysta z parsera `skills_engine` z repo sklr).
+- Nowe skille powstają w folderze deweloperskim (root `dev-skills`, zapis przez create_file z zatwierdzeniem w panelu). Sklr go jeszcze nie skanuje; wdrożenie do `~/.agents/skills` wykonuje użytkownik ręcznie.
+- Plan (krok 3): trzy poziomy zaufania: central (dopracowane, trust hash, vibecoder-confirm), dev (`skills.dev_dirs`, jak projektowe: potwierdzenie zawsze, central wygrywa przy kolizji, domyślnie wyłączone dla LLM), project. Panel pozwala włączać i wyłączać skille (`skills.disabled`).
