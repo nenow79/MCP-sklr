@@ -19,8 +19,10 @@ from roots import MigrationResult, Root
 from roots_registry import RootsRegistry
 from server import (
     edit_tools, file_tools, folder_tools, roots_tools, search_tools, secret_tools, skills_tools, task_tools,
+    tree_tools,
 )
 from server.file_transaction import FileTransaction
+from server.skills_admin import SkillsAdmin
 from skills_engine import SkillRegistry
 from skills_engine.content import DEFAULT_READ_CHARS
 from skills_engine.runner import DEFAULT_TIMEOUT
@@ -83,6 +85,8 @@ REGISTRY = SkillRegistry(
     central_dir=resolve_central_skills_dir(CONFIG),
     project_root=_default_root_path(),  # skills projektowe tylko z domyślnego roota
     disabled=CONFIG["skills"]["disabled"],
+    dev_dirs=CONFIG["skills"]["dev_dirs"],
+    dev_enabled=CONFIG["skills"]["dev_enabled"],
 )
 
 
@@ -128,7 +132,8 @@ def start_approval_ui() -> str:
         raise PanelRequiredError(
             "panel.enabled=false: zatwierdzenia działają wyłącznie przez panel web, "
             "więc serwer nie może działać bez panelu.")
-    app = create_panel_app(TASK_MANAGER, APPROVAL, PANEL_AUTH, roots=ROOTS)
+    app = create_panel_app(TASK_MANAGER, APPROVAL, PANEL_AUTH, roots=ROOTS,
+                           skills=SkillsAdmin(REGISTRY, CONFIG_STORE))
     server = PanelServer(app, PANEL_PORT)
     if not server.start():
         raise PanelRequiredError(
@@ -372,6 +377,26 @@ def create_file(filepath: str, content: str, overwrite: bool = False, root: Any 
     """
     return edit_tools.create_file_impl(
         ROOTS, TASK_MANAGER, FILE_TRANSACTION, filepath, content, overwrite, root, description)
+
+
+@register_confidential_tool
+def create_tree(directories: Optional[List[str]] = None,
+                files: Optional[List[Dict[str, Any]]] = None,
+                root: Any = None, description: str = "") -> Dict[str, Any]:
+    """Tworzy całe drzewo katalogów i plików jako jedno zadanie do akceptacji.
+    directories: lista ścieżek; files: lista obiektów filepath/content. Wspólny root.
+    Brakujące katalogi nadrzędne dodawane automatycznie; istniejące zwykłe
+    katalogi pozostają bez zmian. Istniejący plik docelowy odrzuca cały plan.
+    Limity: 200 brakujących katalogów, 100 plików, 5 MiB na plik, 20 MiB łącznie.
+    Linki/junctiony, binarne, .pfx/.p12 odrzucane. Maskowany podgląd całej
+    struktury w panelu, jedna zgoda, bez Ufaj. Nie jest to pełna atomowość
+    przy awarii procesu. Błąd rollbacku wymaga sprawdzenia struktury.
+    Zwraca task_id bez oczekiwania. Zatrzymaj się i poczekaj na wiadomość
+    użytkownika; po decyzji sprawdź get_task. Po błędzie ': ping' najpierw
+    list_tasks, nie ponawiaj w ciemno.
+    """
+    return tree_tools.create_tree_impl(
+        ROOTS, TASK_MANAGER, CONFIG_STORE.lock, directories, files, root, description)
 
 
 @register_tool

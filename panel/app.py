@@ -19,6 +19,7 @@ from starlette.staticfiles import StaticFiles
 
 from panel.auth import COOKIE_NAME, PanelAuth
 from roots import RootConflict, RootError, RootNotFound
+from server.skills_admin import SkillConflict, SkillNotFound
 from tasks.approval import ApprovalService
 from tasks.manager import TaskManager, TaskNotFoundError, TaskStateError
 from tasks.models import TaskStatus
@@ -108,7 +109,8 @@ def _opt_str(body: dict, key: str) -> Optional[str]:
 
 
 def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: PanelAuth,
-                     static_dir: Optional[Path] = None, roots: Any = None) -> Starlette:
+                     static_dir: Optional[Path] = None, roots: Any = None,
+                     skills: Any = None) -> Starlette:
     """`roots` (RootsRegistry) jest opcjonalne: bez niego endpointy /api/roots nie istnieją (404)."""
     static_path = Path(static_dir) if static_dir is not None else DEFAULT_STATIC_DIR
 
@@ -228,6 +230,51 @@ def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: Pane
             return _root_error_response(exc)
         return _ok(root.to_dict())
 
+    async def list_skills(request: Request) -> JSONResponse:
+        try:
+            data = await run_in_threadpool(skills.list)
+        except Exception:
+            return _err("Nie udało się pobrać listy skilli.", 500)
+        return _ok(data)
+
+    async def set_skill_enabled(request: Request) -> JSONResponse:
+        body = await _json_body(request)
+        if body is None or set(body) != {"enabled"} or not isinstance(body["enabled"], bool):
+            return _err("Oczekiwano obiektu z jednym polem 'enabled': true lub false.", 400)
+        try:
+            data = await run_in_threadpool(
+                skills.set_enabled, request.path_params["name"], body["enabled"])
+        except SkillNotFound:
+            return _err("Nie znaleziono skilla.", 404)
+        except ValueError as exc:
+            return _err(str(exc), 400)
+        except Exception:
+            return _err("Nie udało się zapisać dostępności skilla.", 500)
+        return _ok(data)
+
+    async def skill_trust_action(request: Request) -> JSONResponse:
+        body = await _json_body(request)
+        granting = request.url.path.endswith("/trust")
+        required = {"path", "hash"} if granting else {"path"}
+        if body is None or set(body) != required or not all(
+                isinstance(body[key], str) and body[key] for key in required):
+            return _err("Niepoprawne dane wersji skilla.", 400)
+        try:
+            name = request.path_params["name"]
+            if granting:
+                data = await run_in_threadpool(skills.trust_version, name, body["path"], body["hash"])
+            else:
+                data = await run_in_threadpool(skills.revoke_trust, name, body["path"])
+        except SkillNotFound:
+            return _err("Nie znaleziono skilla.", 404)
+        except SkillConflict as exc:
+            return _err(str(exc), 409)
+        except ValueError:
+            return _err("Niepoprawne dane lub konfiguracja zaufania.", 400)
+        except Exception:
+            return _err("Nie udało się zapisać zaufania skilla.", 500)
+        return _ok(data)
+
     async def index(request: Request):
         index_file = static_path / "index.html"
         if not index_file.is_file():
@@ -249,6 +296,13 @@ def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: Pane
             Route("/api/roots/{alias}/update", update_root, methods=["POST"]),
             Route("/api/roots/{alias}/delete", delete_root, methods=["POST"]),
             Route("/api/roots/{alias}/default", default_root, methods=["POST"]),
+        ]
+    if skills is not None:
+        routes[-1:-1] = [
+            Route("/api/skills", list_skills, methods=["GET"]),
+            Route("/api/skills/{name}/enabled", set_skill_enabled, methods=["POST"]),
+            Route("/api/skills/{name}/trust", skill_trust_action, methods=["POST"]),
+            Route("/api/skills/{name}/revoke-trust", skill_trust_action, methods=["POST"]),
         ]
     if static_path.is_dir():
         routes.append(Mount("/static", app=StaticFiles(directory=str(static_path)), name="static"))

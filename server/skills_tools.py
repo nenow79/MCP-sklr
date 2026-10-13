@@ -85,7 +85,7 @@ def list_skills_impl(registry: SkillRegistry) -> Dict[str, Any]:
                     }
                     for s in snap.active
                 ],
-                "disabled": snap.disabled,
+                "disabled_count": len(snap.disabled),
                 "shadowed_count": snap.shadowed_count,
                 "diagnostics": diagnostics,
                 "diagnostics_truncated": len(snap.diagnostics) > MAX_DIAGNOSTICS,

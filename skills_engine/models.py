@@ -6,6 +6,7 @@ from typing import Dict, List
 
 SOURCE_CENTRAL = "central"
 SOURCE_PROJECT = "project"
+SOURCE_DEV = "dev"
 
 
 @dataclass

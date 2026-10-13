@@ -53,7 +53,8 @@ def test_list_skills_reports_diagnostics_and_disabled(tmp_path):
 
     data = list_skills_impl(registry)["data"]
     assert data["count"] == 1
-    assert data["disabled"] == ["beta"]
+    assert data["disabled_count"] == 1
+    assert "disabled" not in data
     assert any(d["level"] == "error" for d in data["diagnostics"])
 
 

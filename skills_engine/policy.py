@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Mapping
 
-from skills_engine.models import SOURCE_CENTRAL
+from skills_engine.models import SOURCE_CENTRAL, SOURCE_DEV
 
 CONFIRM_KEY = "vibecoder-confirm"
 
@@ -22,9 +22,10 @@ def declares_no_confirm(metadata: Mapping[str, str]) -> bool:
 
 def decide_confirmation(source: str, metadata: Mapping[str, str], trusted: bool) -> ConfirmDecision:
     if source != SOURCE_CENTRAL:
+        label = "Skill deweloperski" if source == SOURCE_DEV else "Skill projektowy"
         return ConfirmDecision(
             True, False,
-            "Skill projektowy: potwierdzenie wymagane zawsze (flaga vibecoder-confirm jest ignorowana).",
+            f"{label}: potwierdzenie wymagane zawsze (flaga vibecoder-confirm jest ignorowana).",
         )
     if not declares_no_confirm(metadata):
         return ConfirmDecision(True, False, "Domyślnie każde uruchomienie skryptu wymaga potwierdzenia.")

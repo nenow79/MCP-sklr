@@ -2,11 +2,12 @@
 """Skaner katalogów skills (centralny + projektowy)."""
 import os
 from pathlib import Path
-from typing import List, Optional
+from typing import Iterable, List, Optional
 
 from skills_engine.models import (
     SOURCE_CENTRAL,
     SOURCE_PROJECT,
+    SOURCE_DEV,
     Diagnostic,
     ScanResult,
     SkillRecord,
@@ -71,7 +72,8 @@ def _register(result: ScanResult, records: List[SkillRecord]) -> None:
         result.shadowed.append(record)
 
 
-def scan_skills(central_dir: Optional[Path], project_root: Optional[Path] = None) -> ScanResult:
+def scan_skills(central_dir: Optional[Path], project_root: Optional[Path] = None,
+                dev_dirs: Iterable[Path] = ()) -> ScanResult:
     """Skanuje katalog centralny i projektowy. Skill projektowy przesłania centralny o tej samej nazwie."""
     result = ScanResult()
 
@@ -80,8 +82,22 @@ def scan_skills(central_dir: Optional[Path], project_root: Optional[Path] = None
     if project_root is not None:
         project_records = _scan_root(project_skills_dir(project_root), SOURCE_PROJECT, result.diagnostics)
 
-    # Najpierw centralne, potem projektowe z nadpisaniem.
-    _register(result, central_records)
+    # Dev ma najniższy priorytet; kolejność katalogów dev pochodzi z konfiguracji.
+    for directory in dev_dirs:
+        _register(result, _scan_root(Path(directory).expanduser(), SOURCE_DEV, result.diagnostics))
+    central_scope = ScanResult()
+    _register(central_scope, central_records)
+    result.diagnostics.extend(central_scope.diagnostics)
+    result.shadowed.extend(central_scope.shadowed)
+    for name, record in central_scope.skills.items():
+        previous = result.skills.get(name)
+        if previous is not None:
+            result.shadowed.append(previous)
+            result.diagnostics.append(Diagnostic(
+                "warning", str(record.location),
+                f"Skill centralny '{name}' przesłania skill dev {previous.location}.",
+            ))
+        result.skills[name] = record
     project_scope = ScanResult()
     _register(project_scope, project_records)
     result.diagnostics.extend(project_scope.diagnostics)
@@ -89,11 +105,11 @@ def scan_skills(central_dir: Optional[Path], project_root: Optional[Path] = None
 
     for name, record in project_scope.skills.items():
         previous = result.skills.get(name)
-        if previous is not None and previous.source == SOURCE_CENTRAL:
+        if previous is not None:
             result.shadowed.append(previous)
             result.diagnostics.append(Diagnostic(
                 "warning", str(record.location),
-                f"Skill projektowy '{name}' przesłania skill centralny {previous.location}.",
+                f"Skill projektowy '{name}' przesłania skill {previous.source} {previous.location}.",
             ))
         result.skills[name] = record
     return result

@@ -23,6 +23,22 @@ Serwer: `http://127.0.0.1:8101/mcp` (host, port i CORS w `config.json`).
 - Panel: lista zadań, szczegóły (podgląd skryptu, stdout/stderr), zatwierdzanie, odrzucanie, anulowanie, powiadomienia (dźwięk, licznik w tytule karty).
 - Sekcja `panel` w `config.json`: `enabled`, `port` (8102), `open_browser`. Panel jest jedynym interfejsem zatwierdzeń: gdy nie wystartuje (np. zajęty port) lub `panel.enabled` = false, serwer wypisuje błąd i kończy działanie (kod 1).
 
+## Tworzenie całej struktury jedną zgodą
+
+`create_tree(directories, files, root, description)` przygotowuje jedno zadanie
+z listą katalogów i maskowanymi diffami wszystkich plików. Wpis `files` ma
+postać `{"filepath": "nowy-skill/scripts/run.py", "content": "..."}`.
+`directories` to lista ścieżek, np. `["nowy-skill/assets"]`; wspólny `root`
+wybiera folder bazowy. Można podać same katalogi albo same pliki.
+
+Brakujące katalogi nadrzędne są tworzone automatycznie. Istniejące katalogi
+pozostają bez zmian; istniejący plik odrzuca cały plan, bez nadpisywania.
+Limity: 200 brakujących katalogów, 100 plików, 5 MiB na plik i 20 MiB łącznie.
+Linki/junctiony są niedozwolone. Całość wymaga jednej decyzji w panelu;
+po niej sprawdź `get_task`. Przy błędzie wykonywany jest rollback własnych
+zmian, nie pełna atomowość wobec awarii procesu/systemu. Niepełny rollback
+wymaga ręcznej kontroli. Dotychczasowe narzędzia pozostają bez zmian.
+
 ## Testy
 ```
 pytest

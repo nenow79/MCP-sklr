@@ -215,5 +215,21 @@ input[type="text"] {
   padding: 6px 10px;
 }
 
+.skills-view { padding: 0 20px 24px; max-width: 1000px; }
+.skill-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+.skill-card p { margin: 8px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.skill-card.is-shadowed { border-left: 4px solid var(--neutral); }
+.skill-toggle { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.skill-toggle input { accent-color: var(--accent); width: 16px; height: 16px; }
+.skill-warning { color: var(--warn); font-size: 12px; }
+.skill-source-central { background: var(--ok); }
+.skill-source-dev { background: var(--warn); }
+.skill-source-project { background: var(--accent); }
+
 .muted { color: var(--muted); }
 [hidden] { display: none !important; }

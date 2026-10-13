@@ -14,6 +14,7 @@
     <nav class="tabs">
       <button id="tab-tasks" type="button" class="tab active">Zadania</button>
       <button id="tab-roots" type="button" class="tab">Foldery</button>
+      <button id="tab-skills" type="button" class="tab">Skille</button>
     </nav>
     <div class="topbar-right">
       <span id="pending-badge" class="badge badge-pending" hidden></span>
@@ -83,6 +84,25 @@
       </label>
       <button type="submit" class="btn btn-allow">Dodaj folder</button>
     </form>
+  </main>
+  <main id="skills-view" class="skills-view" hidden>
+    <div class="section-head">
+      <h2>Skille dostępne dla LLM</h2>
+      <button id="skills-refresh" type="button" class="btn">Odśwież</button>
+    </div>
+    <p class="muted">Central: gotowe skille. Dev i project: skrypty zawsze wymagają zgody.
+      Włączenie nie nadaje zaufania. To nie jest sandbox.</p>
+    <p class="muted">Priorytet: project &gt; central &gt; dev. Wyłączenie zwycięzcy nie odsłania kopii.</p>
+    <fieldset class="task-actions">
+      <legend>Źródła widoczne w panelu (nie zmienia dostępności dla LLM)</legend>
+      <label><input id="skills-filter-central" type="checkbox" checked> Central</label>
+      <label><input id="skills-filter-dev" type="checkbox" checked> Dev</label>
+      <label><input id="skills-filter-project" type="checkbox" checked> Project</label>
+    </fieldset>
+    <p id="skills-visible-count" class="muted"></p>
+    <div id="skills-list" class="task-list"></div>
+    <h2>Katalogi deweloperskie (tylko odczyt)</h2>
+    <div id="skills-dev-dirs" class="muted"></div>
   </main>
 </body>
 </html>

@@ -11,8 +11,26 @@
   },
   "skills": {
     "central_dir": "~/.agents/skills",
-    "disabled": [],
-    "trust": {}
+    "disabled": [
+      "hello-skill"
+    ],
+    "dev_dirs": [
+      "C:\\Users\\rap1tw\\1_MyScripts\\agent-dev\\skills-dev"
+    ],
+    "dev_enabled": [
+      "cost-centers",
+      "redlake-sap"
+    ],
+    "trust": {
+      "cost-centers": {
+        "hash": "2d59f41247c5a523baa203f79d68c1f68d69c8e02bcaae4c67177fdbc95f8930",
+        "trusted_at": "2026-10-13T12:00:35+00:00"
+      },
+      "redlake-sap": {
+        "hash": "535a46c999ec01bcd8ee701a93f3c3dedcc766115a78c8e0f16a9a8a76a02afd",
+        "trusted_at": "2026-10-13T13:34:06+00:00"
+      }
+    }
   },
   "conda": {
     "base": null,
@@ -51,24 +69,17 @@
       "default": false
     },
     {
+      "alias": "dev-skills",
+      "path": "C:\\Users\\rap1tw\\1_MyScripts\\agent-dev\\skills-dev",
+      "mode": "rw",
+      "description": "tutaj zapisuj nowe developowane skille które potem wgram do docelowego folderu",
+      "default": false
+    },
+    {
       "alias": "a",
       "path": "C:\\Users\\rap1tw\\1_MyScripts\\testy\\sklr-smoke\\a",
       "mode": "rw",
-      "description": "",
-      "default": false
-    },
-    {
-      "alias": "b",
-      "path": "C:\\Users\\rap1tw\\1_MyScripts\\testy\\sklr-smoke\\b",
-      "mode": "rw",
-      "description": "",
-      "default": false
-    },
-    {
-      "alias": "ro",
-      "path": "C:\\Users\\rap1tw\\1_MyScripts\\testy\\sklr-smoke\\ro",
-      "mode": "ro",
-      "description": "",
+      "description": "tutaj możesz testowo zapisywać",
       "default": false
     }
   ]

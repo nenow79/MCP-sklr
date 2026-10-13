@@ -1,6 +1,7 @@
 from skills_engine.models import (
     SOURCE_CENTRAL,
     SOURCE_PROJECT,
+    SOURCE_DEV,
     Diagnostic,
     ParseResult,
     ScanResult,
@@ -13,6 +14,7 @@ from skills_engine.scanner import project_skills_dir, scan_skills
 __all__ = [
     "SOURCE_CENTRAL",
     "SOURCE_PROJECT",
+    "SOURCE_DEV",
     "Diagnostic",
     "ParseResult",
     "RegistrySnapshot",

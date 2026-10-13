@@ -10,6 +10,17 @@
 - Walidacja lenientna: ostrzegaj, ładuj; pomiń skill tylko przy braku description lub nieparsowalnym YAML. Fallback dla niepoprawnego YAML (np. dwukropek w wartości).
 - Referencje w skillu: ścieżki względne od katalogu skilla, maks. 1 poziom zagłębienia.
 
+## Aktualny kontrakt po P1-P3/T1-T2 (2026-10-13)
+- Źródła: project > central > dev. Project pochodzi tylko z domyślnego roota; dev z skills.dev_dirs (domyślnie []). Kolizje rozstrzygane przed filtrem dostępności; wyłączenie zwycięzcy nie odsłania kopii.
+- Dostępność zapisana w config.json: central/project przez skills.disabled (domyślnie włączone), dev przez skills.dev_enabled (domyślnie wyłączone). Flagi po nazwie; dostępność i trust są niezależne. Blokada w rejestrze dotyczy list_skills, activate_skill, read_skill_resource i run_skill_script. Nie cofa już przygotowanych zadań.
+- Panel Skille: dostępność, źródło, ostrzeżenia, kopie przesłonięte, katalogi dev tylko do odczytu. Filtry Central/Dev/Project i licznik są tylko preferencją widoku w localStorage, nie konfiguracją dostępu.
+- Panel nadaje/cofa zaufanie tylko zwycięskim central, również wyłączonym. Nadanie wymaga potwierdzenia ścieżki i bieżącego hasha; backend sprawdza wersję ponownie, konflikt 409. Zapis przez ConfigStore.update z rollbackiem. Endpointy panelu chronione sesją, Host i Origin; brak narzędzia MCP do zmiany dostępności/zaufania.
+- Central pomija zgodę tylko przy vibecoder-confirm=false i zgodnym zaufanym hashu; dev/project zawsze pytają. Hash SKILL.md + scripts/ nie obejmuje references/, assets/, środowiska ani danych wejściowych. To nie sandbox; TOCTOU i uprawnienia użytkownika pozostają ograniczeniem.
+- list_skills: aktywne nazwy/opisy/źródła/ostrzeżenia, disabled_count, shadowed_count, diagnostyka skanu (może wspominać kopie). Status trustu w panelu, nie katalogu MCP. activate_skill przyjmuje str, bez enum i deduplikacji w sesji. Skan przy każdym list_skills; aktywacja przy braku rekordu robi rescan.
+- Nowe skille powstają w dev-skills przez create_file/manage_folder z zatwierdzeniem. Po walidacji i testach użytkownik promuje folder ręcznie do ~/.agents/skills. Docelowo testy logiki skilla przy skillu, oddzielnie od testów silnika MCP; obecne testy zewnętrznych skilli w tests/ pozostają długiem do migracji.
+
+Poniższe starsze założenia obowiązują tylko tam, gdzie nie są zastąpione kontraktem powyżej.
+
 ## Katalogi skills
 - Centralny (zaufany): domyślnie `~/.agents/skills/`, ścieżka nadpisywalna w `config.json`.
 - Projektowy (opcjonalny): `<PROJECT_ROOT>/.agents/skills/`; przy kolizji nazw wygrywa projektowy; zawsze wymaga potwierdzenia.

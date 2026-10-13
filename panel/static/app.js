@@ -495,13 +495,13 @@
   // --- foldery (roots) ---
 
   function showTab(name) {
-    var isRoots = name === "roots";
     state.tab = name;
-    $("tasks-view").hidden = isRoots;
-    $("roots-view").hidden = !isRoots;
-    $("tab-tasks").className = isRoots ? "tab" : "tab active";
-    $("tab-roots").className = isRoots ? "tab active" : "tab";
-    if (isRoots) { refreshRoots(); }
+    ["tasks", "roots", "skills"].forEach(function (tab) {
+      $(tab + "-view").hidden = tab !== name;
+      $("tab-" + tab).className = tab === name ? "tab active" : "tab";
+    });
+    if (name === "roots") { refreshRoots(); }
+    if (name === "skills") { refreshSkills(); }
   }
 
   function rootsResult(res, okMessage) {
@@ -617,6 +617,182 @@
     }).then(refreshRoots);
   }
 
+  // --- skille ---
+  var skillsLoading = false;
+  var skillsSaving = false;
+
+  function skillCard(skill) {
+    var source = ["central", "dev", "project"].indexOf(skill.source) >= 0 ? skill.source : "unknown";
+    var card = el("div", { className: "skill-card" + (skill.shadowed ? " is-shadowed" : "") }, [
+      el("div", { className: "task-head" }, [
+        el("span", { className: "task-title", text: visibleText(skill.name) }),
+        el("span", { className: "badge skill-source-" + source, text: source })
+      ]),
+      el("p", { text: visibleText(skill.description, true) }),
+      el("div", { className: "root-path", text: visibleText(skill.path) })
+    ]);
+    (skill.warnings || []).forEach(function (warning) {
+      card.appendChild(el("p", { className: "skill-warning", text: visibleText(warning, true) }));
+    });
+    var trustLabels = {
+      untrusted: "Niezaufany", trusted: "Zaufany — hash zgodny",
+      changed: "Zmieniony od zaufania", not_applicable: "Zaufanie nie dotyczy tego źródła",
+      hash_error: "Błąd odczytu hasha"
+    };
+    card.appendChild(el("p", { className: "muted", text: trustLabels[skill.trust_status] || "Status zaufania niedostępny" }));
+    if (skill.current_hash) {
+      card.appendChild(el("div", { className: "root-path", text: "Hash: " + visibleText(skill.current_hash) }));
+    }
+    if (skill.trusted_at) {
+      card.appendChild(el("div", { className: "root-path", text: "Zaufanie nadano: " + visibleText(skill.trusted_at) }));
+    }
+    if (source === "central" && !skill.shadowed) {
+      var policyText = skill.can_skip_approval ? "Zaufana wersja może działać bez pytania o zgodę." :
+        (skill.declares_no_confirm ? "Brak zaufania zgodnej wersji — uruchomienie wymaga zgody." :
+          "Każde uruchomienie nadal wymaga zgody — brak vibecoder-confirm=false.");
+      card.appendChild(el("p", { className: "muted", text: policyText }));
+      var actions = el("div", { className: "task-actions" });
+      if (skill.current_hash && skill.trust_status !== "trusted") {
+        actions.appendChild(el("button", { type: "button", className: "btn btn-trust", text: "Ufaj bieżącej wersji",
+          onclick: function () { skillTrustAction(skill, "trust", actions); } }));
+      }
+      if (skill.trust_status === "trusted" || skill.trust_status === "changed") {
+        actions.appendChild(el("button", { type: "button", className: "btn btn-deny", text: "Cofnij zaufanie",
+          onclick: function () { skillTrustAction(skill, "revoke-trust", actions); } }));
+      }
+      card.appendChild(actions);
+    }
+    var checkbox = el("input", { type: "checkbox" });
+    checkbox.checked = !!skill.enabled;
+    checkbox.disabled = !!skill.shadowed;
+    card.appendChild(el("label", { className: "skill-toggle" }, [
+      checkbox, el("span", { text: "Dostępny dla LLM" })
+    ]));
+    if (skill.shadowed) {
+      card.appendChild(el("p", { className: "muted", text: "Przesłonięty — testuj kopię pod inną nazwą." }));
+    }
+    checkbox.addEventListener("change", function () {
+      if (skill.shadowed || skillsSaving || skillsLoading) { checkbox.checked = !!skill.enabled; return; }
+      var wanted = checkbox.checked;
+      skillsSaving = true;
+      checkbox.disabled = true;
+      $("skills-refresh").disabled = true;
+      api("POST", "/api/skills/" + encodeURIComponent(skill.name) + "/enabled", { enabled: wanted })
+        .then(function (res) {
+          if (res.status === 401) { authFailed(); }
+          if (res.status === 200 && res.json.success) {
+            skill.enabled = !!res.json.data.enabled;
+            showBanner("Zapisano dostępność skilla.", true);
+          } else {
+            showBanner(visibleText((res.json && res.json.error) || "Nie udało się zapisać dostępności."), false);
+          }
+        }).catch(function () { showBanner("Brak połączenia z serwerem panelu.", false); })
+        .then(function () {
+          checkbox.checked = !!skill.enabled;
+          checkbox.disabled = !!skill.shadowed;
+          skillsSaving = false;
+          $("skills-refresh").disabled = false;
+          refreshSkills();
+        });
+    });
+    return card;
+  }
+
+  function skillTrustAction(skill, action, actions) {
+    if (skillsSaving || skillsLoading || skill.source !== "central" || skill.shadowed) { return; }
+    var grant = action === "trust";
+    var question = (grant ? "Ufaj bieżącej wersji skilla?" : "Cofnąć zaufanie skillowi?") +
+      "\nNazwa: " + visibleText(skill.name) + "\nKatalog: " + visibleText(skill.path) +
+      "\nHash: " + visibleText(skill.current_hash || "niedostępny") +
+      "\nTo nie jest sandbox. Skrypty działają z uprawnieniami użytkownika." +
+      "\nHash obejmuje SKILL.md i scripts/, nie references/, assets/, środowisko ani dane wejściowe.";
+    if (!window.confirm(question)) { return; }
+    var body = { path: skill.path };
+    if (grant) { body.hash = skill.current_hash; }
+    skillsSaving = true;
+    $("skills-refresh").disabled = true;
+    var buttons = Array.prototype.slice.call(actions.childNodes);
+    buttons.forEach(function (button) { button.disabled = true; });
+    api("POST", "/api/skills/" + encodeURIComponent(skill.name) + "/" + action, body)
+      .then(function (res) {
+        if (res.status === 401) { authFailed(); }
+        if (res.status === 200 && res.json.success) {
+          showBanner(grant ? "Zapisano zaufanie wersji skilla." : "Cofnięto zaufanie skilla.", true);
+        } else {
+          showBanner(visibleText((res.json && res.json.error) || "Nie udało się zapisać zaufania."), false);
+        }
+      }).catch(function () { showBanner("Brak połączenia z serwerem panelu.", false); })
+      .then(function () {
+        skillsSaving = false;
+        buttons.forEach(function (button) { button.disabled = false; });
+        $("skills-refresh").disabled = false;
+        refreshSkills();
+      });
+  }
+
+  var skillSources = ["central", "dev", "project"];
+  var skillFilters = { central: true, dev: true, project: true };
+  var skillsViewData = null;
+  var skillsFilterKey = "sklr.skills.source-filters";
+
+  function renderFilteredSkills() {
+    if (!skillsViewData) { return; }
+    var list = $("skills-list");
+    list.textContent = "";
+    var visible = skillsViewData.skills.filter(function (skill) {
+      return skillSources.indexOf(skill.source) < 0 || skillFilters[skill.source];
+    });
+    $("skills-visible-count").textContent = "Widoczne " + visible.length + " z " + skillsViewData.skills.length;
+    if (!visible.length) {
+      list.appendChild(el("p", { className: "muted", text: skillsViewData.skills.length ?
+        "Filtry ukrywają wszystkie skille." : "Brak skilli." }));
+    }
+    visible.forEach(function (skill) { list.appendChild(skillCard(skill)); });
+  }
+
+  function initSkillFilters() {
+    try {
+      var saved = JSON.parse(window.localStorage.getItem(skillsFilterKey));
+      skillSources.forEach(function (source) {
+        if (saved && typeof saved[source] === "boolean") { skillFilters[source] = saved[source]; }
+      });
+    } catch (error) { /* Brak storage albo uszkodzony wpis: wartości domyślne. */ }
+    skillSources.forEach(function (source) {
+      var checkbox = $("skills-filter-" + source);
+      checkbox.checked = skillFilters[source];
+      checkbox.addEventListener("change", function () {
+        if (skillsSaving || skillsLoading) { checkbox.checked = skillFilters[source]; return; }
+        skillFilters[source] = checkbox.checked;
+        try { window.localStorage.setItem(skillsFilterKey, JSON.stringify(skillFilters)); }
+        catch (error) { /* Filtry nadal działają bez zapisu preferencji. */ }
+        renderFilteredSkills();
+      });
+    });
+  }
+
+  function refreshSkills() {
+    if (skillsLoading || skillsSaving) { return Promise.resolve(); }
+    skillsLoading = true;
+    $("skills-refresh").disabled = true;
+    return api("GET", "/api/skills").then(function (res) {
+      if (res.status === 401) { authFailed(); return; }
+      if (res.status !== 200 || !res.json.success) {
+        showBanner(visibleText((res.json && res.json.error) || "Nie udało się pobrać skilli."), false);
+        return;
+      }
+      var data = res.json.data;
+      skillsViewData = data;
+      renderFilteredSkills();
+      var dirs = $("skills-dev-dirs");
+      dirs.textContent = "";
+      if (!data.dev_dirs.length) { dirs.textContent = "Brak skonfigurowanych katalogów dev."; }
+      data.dev_dirs.forEach(function (directory) {
+        dirs.appendChild(el("div", { className: "root-path", text: visibleText(directory) }));
+      });
+    }).catch(function () { showBanner("Brak połączenia z serwerem panelu.", false); })
+      .then(function () { skillsLoading = false; $("skills-refresh").disabled = false; });
+  }
+
   // --- start ---
 
   function exchangeToken() {
@@ -634,11 +810,14 @@
   }
 
   function init() {
+    initSkillFilters();
     $("notify-btn").addEventListener("click", enableNotifications);
     $("status-filter").addEventListener("change", function () { refresh(); });
     $("tab-tasks").addEventListener("click", function () { showTab("tasks"); });
     $("tab-roots").addEventListener("click", function () { showTab("roots"); });
     $("root-form").addEventListener("submit", submitRoot);
+    $("tab-skills").addEventListener("click", function () { showTab("skills"); });
+    $("skills-refresh").addEventListener("click", refreshSkills);
     document.addEventListener("visibilitychange", function () {
       if (!state.stopped) { tick(); }
     });

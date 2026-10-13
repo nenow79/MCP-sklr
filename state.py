@@ -26,6 +26,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "skills": {
         "central_dir": "~/.agents/skills",
         "disabled": [],
+        "dev_dirs": [],
+        "dev_enabled": [],
         "trust": {},
     },
     "conda": {
