@@ -49,6 +49,26 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     },
     "references": {},
     "external_mcp": {},
+    # Wiedza OKF (C1b). Bez bundles i bez dostępu do dysku; wpisy dodaje administracja (C3).
+    # Limity = profil v1 z docs/specs/okf-support.md (sekcja 3.1); walidacja w okf_engine/limits.py.
+    "knowledge": {
+        "central_dir": "~/.agents/okf",
+        "bundles": [],
+        "limits": {
+            "max_bundles": 20,
+            "max_documents_per_bundle": 5000,
+            "max_depth": 20,
+            "max_document_bytes": 1048576,
+            "max_frontmatter_bytes": 65536,
+            "max_yaml_nodes": 10000,
+            "max_yaml_depth": 32,
+            "max_alias_references": 32,
+            "max_index_text_bytes": 67108864,
+            "refresh_after_s": 30,
+            "scan_budget_s": 6,
+            "search_budget_s": 2,
+        },
+    },
     # Foldery (faza 5.1). None = config sprzed 5.1 (do migracji z workspace i references),
     # [] = zmigrowane, brak folderów. Stare klucze workspace/references zostają do fazy 6.
     "roots": None,

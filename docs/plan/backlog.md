@@ -3,7 +3,7 @@
 ## OKF — bieżący kierunek
 - [x] Plan i dokumentacja C0: docs/plan/okf.md (#152), ADR 0004 i docs/specs/okf-support.md (#153) oraz domknięcie statusów/limitów/przekazania (#154): allow/done/exit0, wyniki i zapisy sprawdzone odczytem. Kierunek i kontrakt zaakceptowane w rozmowie; implementacja dopiero na nowym chat.
 - [x] C1a: modele, bezpieczny parser YAML/UTF-8, publiczny widok po maskowaniu Markdown i rewizje HMAC; samodzielne testy (145, zielone wg użytkownika). Commit 36371ae. Bez integracji serwera.
-- [ ] C1b po odbiorze C1a: rejestr centralnych bundles, ścieżki/root binding, limity/defaults i testy. Bez automatycznego dostępu do ~/.agents/.
+- [x] C1b: rejestr centralnych bundles, ścieżki/root binding, limity/defaults i testy; poprawki bezpieczeństwa #189 zapisane. Wynik użytkownika: 261 passed, 2 skipped (rzeczywista kolizja nazw i utworzenie linku niedostępne); symulacje kolizji/reparse przeszły. Bez automatycznego dostępu do ~/.agents/, bez integracji MCP. Commit w przygotowaniu; pełny pytest po C1b niewykonany.
 - [ ] C2: sekcje, indeks w pamięci, ranking, odświeżanie jako task oraz knowledge_bundles/search/get.
 - [ ] C3: knowledge_save, maskowany preview, zgody/revisions/conflicts i panel Wiedza.
 - [ ] C4: produkcyjny root/bundle wybrany z użytkownikiem, pilot i pomiar kontekstu. Odbiór centralnej wiedzy przed projektem.

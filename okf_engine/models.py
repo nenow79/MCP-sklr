@@ -13,6 +13,8 @@ ERR_SAFETY_LIMIT = "SAFETY_LIMIT"
 _BUNDLE_RE = re.compile(r"[a-z0-9][a-z0-9_-]{0,31}")
 _RESERVED_NAMES = frozenset({"index", "log"})
 _BAD_CHARS = frozenset('\\:*?"<>|')
+_WIN_DEVICE_NAMES = frozenset(
+    {"con", "prn", "aux", "nul"} | {f"com{i}" for i in range(1, 10)} | {f"lpt{i}" for i in range(1, 10)})
 MAX_CONCEPT_ID_LEN = 512
 
 
@@ -23,6 +25,17 @@ class IdentityError(ValueError):
 def validate_bundle_id(bundle_id: Any) -> None:
     if not isinstance(bundle_id, str) or _BUNDLE_RE.fullmatch(bundle_id) is None:
         raise IdentityError("bundle_id")
+
+
+def validate_path_segment(segment: str) -> None:
+    """Segment ścieżki bezpieczny na Windows: bez kropek/spacji na końcu i nazw urządzeń (CON, COM1.txt)."""
+    if not isinstance(segment, str) or any(
+            ord(ch) < 32 or ord(ch) == 127 or ch in _BAD_CHARS or ch == "/" for ch in segment):
+        raise IdentityError("path_segment_chars")
+    if segment in ("", ".", "..") or segment != segment.strip() or segment.endswith("."):
+        raise IdentityError("path_segment")
+    if segment.split(".")[0].rstrip(" ").casefold() in _WIN_DEVICE_NAMES:
+        raise IdentityError("path_segment_reserved")
 
 
 def validate_concept_id(concept_id: Any) -> None:
@@ -38,8 +51,7 @@ def validate_concept_id(concept_id: Any) -> None:
     if concept_id.lower().endswith(".md"):
         raise IdentityError("concept_id_suffix_md")
     for segment in concept_id.split("/"):
-        if segment in ("", ".", "..") or segment != segment.strip() or segment.endswith("."):
-            raise IdentityError("concept_id_segment")
+        validate_path_segment(segment)
         if segment.casefold() in _RESERVED_NAMES:
             raise IdentityError("concept_id_reserved")
 
