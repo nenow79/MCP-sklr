@@ -47,7 +47,8 @@ Poniższe starsze założenia obowiązują tylko tam, gdzie nie są zastąpione 
 - cwd = katalog skilla; ścieżka ograniczona do `scripts/` tego skilla.
 - Brak interaktywności, timeout, limit outputu (zgodnie z obecnym 6000 znaków/strumień), strukturalny output.
 - Brak środowiska: błąd z gotową komendą `conda create`/`conda install` (lub `assets/environment.yml`) dla użytkownika; MCP niczego nie instaluje.
-- Inne języki: `bash`, `node` wg rozszerzenia skryptu.
+- Inne języki wg rozszerzenia skryptu: `.js` (`node`), `.sh` (`bash`), `.ps1` (`pwsh`, a gdy brak: `powershell`).
+- PowerShell: `<exe> -NoProfile -NonInteractive -ExecutionPolicy Bypass -File <skrypt> <args>`, bez shella. Runner dekoduje output jako UTF-8; Windows PowerShell 5.1 domyślnie pisze w kodowaniu konsoli, więc skrypt `.ps1` powinien zaczynać się od `[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()`. Kod wyjścia ustawiaj przez `exit N`. Na Windows preferuj `.ps1` dla prostych skryptów systemowych, `.py` gdy potrzebna jest logika.
 
 ## Tworzenie skilli (skill-writer)
 - Skill `skill-writer` (katalog centralny) prowadzi przez tworzenie skilli: szablon SKILL.md, reguły zgodne z `skills_engine`, lista kontrolna, walidator `scripts/validate_skill.py` (korzysta z parsera `skills_engine` z repo sklr).

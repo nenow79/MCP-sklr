@@ -217,7 +217,7 @@ def run_skill_script(
     """
     Uruchamia skrypt z katalogu scripts/ skilla (np. script="scripts/run.py") jako ZADANIE w kolejce.
     Argumenty podaj jako listę napisów (bez shella). Obsługiwane: .py (interpreter ze środowiska conda
-    z metadata.conda-env albo domyślny), .js (node), .sh (bash). Timeout skryptu: 1-300 s (domyślnie 60);
+    z metadata.conda-env albo domyślny), .js (node), .sh (bash), .ps1 (pwsh lub powershell). Timeout skryptu: 1-300 s (domyślnie 60);
     po jego przekroczeniu proces jest ubijany. Skrypt działa bez interakcji, w katalogu skilla.
     Czeka maks. `wait` s (domyślnie 8, limit 8). Szybki skrypt: od razu wynik (exit_code, stdout, stderr,
     po 6000 znaków) wraz z task_id i status. Wolny: success=true z task_id i status (queued/running) -

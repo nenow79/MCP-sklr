@@ -114,6 +114,32 @@ def test_build_command_uses_which_for_node(tmp_path, monkeypatch):
     assert build_command(script, ["x"], "PYEXE")[0] == "/bin/node"
 
 
+def test_build_command_powershell_prefers_pwsh(tmp_path, monkeypatch):
+    base = _skill_dir(tmp_path)
+    script = _script(base, "run.ps1", "")
+    monkeypatch.setattr(runner.shutil, "which", lambda name: f"/bin/{name}")
+    command = build_command(script, ["-A", "b c"], "PYEXE")
+    assert command == [
+        "/bin/pwsh", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
+        str(script), "-A", "b c",
+    ]
+
+
+def test_build_command_powershell_fallback_to_windows_powershell(tmp_path, monkeypatch):
+    base = _skill_dir(tmp_path)
+    script = _script(base, "run.ps1", "")
+    monkeypatch.setattr(runner.shutil, "which", lambda name: "/bin/powershell" if name == "powershell" else None)
+    assert build_command(script, [], "PYEXE")[0] == "/bin/powershell"
+
+
+def test_build_command_powershell_missing(tmp_path, monkeypatch):
+    base = _skill_dir(tmp_path)
+    script = _script(base, "run.ps1", "")
+    monkeypatch.setattr(runner.shutil, "which", lambda _name: None)
+    with pytest.raises(FileNotFoundError):
+        build_command(script, [], "PYEXE")
+
+
 # --- clean_env ---
 def test_clean_env_drops_secrets():
     env = clean_env({"PATH": "p", "SYSTEMROOT": "s", "API_TOKEN": "secret", "BEARER": "x", "path": "lower"})

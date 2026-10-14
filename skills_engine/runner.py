@@ -17,7 +17,9 @@ SCRIPTS_DIR = "scripts"
 KILL_GRACE_SECONDS = 5
 CANCEL_POLL_SECONDS = 0.5
 
-INTERPRETERS = {".py": None, ".js": "node", ".sh": "bash"}  # None = interpreter przekazany z zewnątrz
+INTERPRETERS = {".py": None, ".js": "node", ".sh": "bash", ".ps1": "pwsh"}  # None = interpreter przekazany z zewnątrz
+POWERSHELL_CANDIDATES = ("pwsh", "powershell")  # preferowany PowerShell 7, fallback Windows PowerShell 5.1
+POWERSHELL_ARGS = ("-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File")
 
 _ENV_ALLOWLIST = {
     "PATH", "PATHEXT", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC",
@@ -62,6 +64,13 @@ def build_command(script_path: Path, args: List[str], python_exe: str) -> List[s
         raise ValueError(
             f"Nieobsługiwane rozszerzenie '{suffix}'. Dozwolone: {sorted(INTERPRETERS)}."
         )
+    if suffix == ".ps1":
+        executable = next((found for name in POWERSHELL_CANDIDATES if (found := shutil.which(name))), None)
+        if not executable:
+            raise FileNotFoundError(
+                f"Nie znaleziono interpretera PowerShell ({' / '.join(POWERSHELL_CANDIDATES)}) w PATH."
+            )
+        return [executable, *POWERSHELL_ARGS, str(script_path), *args]
     interpreter = INTERPRETERS[suffix]
     if interpreter is None:
         executable = python_exe
