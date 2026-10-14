@@ -1,5 +1,16 @@
 # Backlog (krok 6: development nowego MCP)
 
+## OKF — bieżący kierunek
+- [x] Plan i dokumentacja C0: docs/plan/okf.md (#152), ADR 0004 i docs/specs/okf-support.md (#153) oraz domknięcie statusów/limitów/przekazania (#154): allow/done/exit0, wyniki i zapisy sprawdzone odczytem. Kierunek i kontrakt zaakceptowane w rozmowie; implementacja dopiero na nowym chat.
+- [ ] C1a (nowy chat): modele, bezpieczny parser YAML/UTF-8, publiczny widok po maskowaniu Markdown i rewizje HMAC; samodzielne testy. Bez integracji serwera. Najpierw akceptacja konkretnej paczki.
+- [ ] C1b po odbiorze C1a: rejestr centralnych bundles, ścieżki/root binding, limity/defaults i testy. Bez automatycznego dostępu do ~/.agents/.
+- [ ] C2: sekcje, indeks w pamięci, ranking, odświeżanie jako task oraz knowledge_bundles/search/get.
+- [ ] C3: knowledge_save, maskowany preview, zgody/revisions/conflicts i panel Wiedza.
+- [ ] C4: produkcyjny root/bundle wybrany z użytkownikiem, pilot i pomiar kontekstu. Odbiór centralnej wiedzy przed projektem.
+- [ ] P1-P4: projektowe docs, tryb migracyjny, audit/convert, skill okf-curator i pilot dokumentacji sklr; szczegóły osobno przed etapem projektowym.
+- [x] Użytkownik potwierdził commit create_tree i zielony pełny pytest; brak logu/liczby testów. Testy sklr we własnym venv, bez conda; agent testów nie uruchamiał.
+- [ ] Przed C1 potwierdzić commit dokumentacji C0 i aktualność baseline po ewentualnych kolejnych zmianach. Wybór rzeczywistych danych C4 nie blokuje C1.
+
 ## Aktualne uwagi po obsłudze skilli (2026-10-13)
 - [x] Zbiorcze tworzenie struktury katalogów i plików: create_tree, jedno zadanie tree_create, lista ścieżek i maskowane diffy, jedna decyzja. Implementacja #147-#149, testy tree_tools/folder_tools zielone wg użytkownika; smoke #150 done/exit0 (4 katalogi, 2 pliki), odczyty sprawdzone. Bez zmian manage_folder/create_file. Limity i ograniczenia rollbacku: README.md oraz CURRENT.md.
 - [ ] Oddzielić testy logiki skilli od testów MCP: tests/ przy każdym skillu, własna instrukcja i środowisko; migracja test_cost_centers_skill.py i test_skill_validator.py po osobnym planie. Bez repo conftest i dokładania zależności serwera do środowisk skilli. Obecnie zewnętrzne ścieżki i skip przy braku skilla.
