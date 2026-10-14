@@ -107,6 +107,18 @@ Nie dodajemy ogólnego narzędzia knowledge(action=...) ani osobnego API dla ka�
 - Zachowujemy reserved index.md/log.md oraz ich specjalne zasady. Outline jest widokiem serwera, nie automatycznie zapisanym index.md.
 - Rozbieżności w SPEC (minor z breaking changes, fence vs blok wcięty w przykładach obliczeń) dokumentujemy; nie przeszkadzają w zwykłym odczycie, nie budujemy na nich runtime.
 
+### 5.1 Konwencja kuracji i kontrola rozrostu typów
+
+Uzgodniona polityka opracowywania wiedzy przez LLM: typy są otwarte, ale nowe lokalne typy wprowadzamy wyłącznie za jawną zgodą użytkownika. To konwencja kuracji, nie zamknięta lista wartości w parserze OKF ani nowy mechanizm API. Nieznane typy istniejących/importowanych dokumentów pozostają poprawne; nie zmieniamy ich automatycznie.
+
+- type określa rodzaj i cel dokumentu, a tags oraz ścieżka jego temat. SAP, RedLake, Oracle, M-BO, fabryka i Bosch IT są tematami, nie powodem do tworzenia osobnych wariantów każdego typu.
+- Mały słownik startowy: Reference (opis/fakty), Process Description (jak działa proces), Procedure (wykonanie zadania krok po kroku), Data Dictionary (znaczenie i relacje danych), Specification (wymagania/kontrakty), Troubleshooting Guide (diagnostyka i rozwiązania), Link Collection (kuratorowana lista odnośników). Typy projektowe, np. Architecture Decision, Implementation Plan, Project State i Playbook, pozostają dostępne obok nich.
+- LLM najpierw sprawdza istniejące typy według znaczenia, unikając synonimów i typów tworzonych tylko dla nowej dziedziny. Przy niepewności proponuje szeroki Reference, jeśli pasuje; gdy nie pasuje, pozostawia klasyfikację do decyzji zamiast wymuszać wybór.
+- Gdy żaden istniejący typ nie pasuje, LLM wnioskuje do użytkownika: proponowana nazwa i definicja, dlaczego istniejące typy są niewystarczające, przykłady dokumentów oraz korzyść dla struktury lub wyszukiwania. Nie ustanawia typu samodzielnie.
+- Dopiero jawna zgoda użytkownika pozwala dodać nowy typ do lokalnej konwencji i proponować jego użycie w nowych dokumentach. Brak zgody oznacza brak wprowadzenia/użycia proponowanego typu. Zgoda na sam zapis dokumentu nie zastępuje zgody na nowy typ, jeśli wniosek nie został jawnie przedstawiony.
+- Zmiany typów istniejących dokumentów i konsolidacja synonimów wymagają osobnego uzgodnienia oraz standardowej zgody na zapis; bez automatycznego przeklasyfikowania.
+- Konwencję sprawdzamy na małej próbce rzeczywistych dokumentów, nie projektujemy pełnej taksonomii z góry. W przyszłym skillu kuracji należy stosować tę politykę; nie dodajemy klasyfikatora do C2 i nie tworzymy teraz produkcyjnych bundles/danych.
+
 ## 6. Indeks, wydajność i poufność
 
 Pierwszy indeks w pamięci: metadane i fragmenty sekcji z tekstu po maskowaniu. Nie przechowujemy surowej treści w SQLite ani tasks.db. Prywatne bajty planu zapisu żyją jak obecnie w pamięci, a payload/history zawiera maskowany podgląd i bezpieczne metadane.
@@ -151,6 +163,17 @@ Pliki orientacyjne: okf_engine/sections.py, scanner.py, index.py, search.py; ser
 - Wszystkie wyniki maskowane, źródło jawne, brak auto-fetch i execute.
 
 Odbiór: trafne wyniki na małym bundle, pobranie wybranej sekcji bez pełnego dokumentu, brak dopasowania po zamaskowanym sekrecie, zgodny get po ręcznej zmianie.
+
+#### Wynik C2a — odebrane testowo, commit oczekuje
+
+- Baseline C1b 22a3cd1 / przekazanie 342a5d9 potwierdzony przez użytkownika przed kodowaniem; brak niezależnej weryfikacji git przez agenta.
+- Zakres: okf_engine/sections.py i tests/test_okf_sections.py. Zapis #204 allow/done/exit0, oba pliki sprawdzone odczytem.
+- build_outline przyjmuje wyłącznie publiczne zamaskowane body i body_start_line. ATX, jednoliniowy Setext, pomijanie fenced/indented code; ids s0/s1/... i hierarchia parent_id; fizyczne zakresy start_line/end_line/subtree_end_line oraz get_section direct/subtree z zachowaniem EOL.
+- Stały limit 2000 sekcji obejmuje s0 (tylko niepusty zakres przed pierwszym heading). Nadmiar daje partial=true i warning sections_limit; zakresy kończą się przed pierwszym pominiętym nagłówkiem, również Setext.
+- Wynik użytkownika dla python -m pytest tests/test_okf_sections.py tests/test_okf_public_view.py -q: 101 passed in 0.39s. Agent nie uruchamiał testów; pełny pytest po C2a niewykonany.
+- Nie obiecujemy pełnego CommonMark: brak wieloliniowego Setext, interpretacji kontenerów list/blockquote i inline Markdown. Kontrolę revision/expected_revision wdraża C2c.
+- Bez I/O, indeksu, MCP, konfiguracji i danych wiedzy. config.json nietknięty przez agenta. OKF nadal nieoperacyjne. C2b/C2c nierozpoczęte.
+- Następny krok: osobny commit C2a po poleceniu użytkownika (propozycja feat: add OKF sections); commit/push niewykonane. Przed C2b przegląd zależności i akceptacja konkretnej paczki, bez automatycznego rozpoczęcia.
 
 ### C3. Zapis i panel Wiedza
 
@@ -205,7 +228,7 @@ Robocza nazwa: okf-curator. Tworzony dopiero po stabilnym kontrakcie P2, z użyc
 
 - Develop w dev-skills, własne tests/ przy skillu, walidacja formatu. Promocja do centralnych skills ręcznie przez użytkownika.
 - Instrukcja: audit -> odczyt wybranych dokumentów -> propozycja type/title/description/tags i lokalnych rozszerzeń sklr -> convert -> decyzja w panelu -> kontrola wyniku -> audit.
-- Zalecane typy: Specification, Architecture Decision, Implementation Plan, Project State, Playbook, Reference. To lokalna konwencja, nie zamknięta lista typów OKF.
+- Typy i ich rozwój zgodnie z sekcją 5.1: mały słownik preferowany, otwarty format OKF, nowy lokalny typ wyłącznie po wniosku LLM i jawnej zgodzie użytkownika. Skill nie tworzy typów ani nie przeklasyfikowuje dokumentów samodzielnie.
 - Rozszerzenie sklr może opisywać role, stan decyzji i sekcję bieżącą. Status ADR accepted nie jest automatycznie OKF stable, a stable nie jest verified.
 - Skill nie uruchamia zapisującego skryptu, który omija panel. Ewentualne skrypty są odczytowe; właściwa konwersja używa knowledge_convert.
 - Konwersja dużego docs w małych paczkach, bez ładowania całego zbioru do jednej rozmowy i bez background auto-kuracji.
