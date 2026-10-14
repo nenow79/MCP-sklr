@@ -3,8 +3,10 @@
 ## OKF — bieżący kierunek
 - [x] Plan i dokumentacja C0: docs/plan/okf.md (#152), ADR 0004 i docs/specs/okf-support.md (#153) oraz domknięcie statusów/limitów/przekazania (#154): allow/done/exit0, wyniki i zapisy sprawdzone odczytem. Kierunek i kontrakt zaakceptowane w rozmowie; implementacja dopiero na nowym chat.
 - [x] C1a: modele, bezpieczny parser YAML/UTF-8, publiczny widok po maskowaniu Markdown i rewizje HMAC; samodzielne testy (145, zielone wg użytkownika). Commit 36371ae. Bez integracji serwera.
-- [x] C1b: rejestr centralnych bundles, ścieżki/root binding, limity/defaults i testy; poprawki bezpieczeństwa #189 zapisane. Wynik użytkownika: 261 passed, 2 skipped (rzeczywista kolizja nazw i utworzenie linku niedostępne); symulacje kolizji/reparse przeszły. Bez automatycznego dostępu do ~/.agents/, bez integracji MCP. Commit w przygotowaniu; pełny pytest po C1b niewykonany.
-- [ ] C2: sekcje, indeks w pamięci, ranking, odświeżanie jako task oraz knowledge_bundles/search/get.
+- [x] C1b: rejestr centralnych bundles, ścieżki/root binding, limity/defaults i testy; poprawki bezpieczeństwa #189 zapisane. Wynik użytkownika: 261 passed, 2 skipped (rzeczywista kolizja nazw i utworzenie linku niedostępne); symulacje kolizji/reparse przeszły. Bez automatycznego dostępu do ~/.agents/, bez integracji MCP. Commit 22a3cd1; pełny pytest po C1b niewykonany.
+- [ ] C2a (następny krok, nowy chat; zakres zaakceptowany): sections.py i test_okf_sections.py; publiczne body -> ATX/Setext, pomijanie kodu, s0/s1..., hierarchia, direct/subtree, fizyczne linie i limit 2000. Bez dysku/MCP/indeksu.
+- [ ] C2b po odbiorze C2a: świeży odczyt, scanner/index/search na publicznej treści, limity/ranking/partial i atomowe generacje; pliki orientacyjne documents.py, scanner.py, index.py, search.py + testy. Szczegóły przed kodowaniem.
+- [ ] C2c po odbiorze C2b: service, knowledge_bundles/search/get, refresh przez TaskManager, main.py i testy integracji; kontrole dostępności, rewizje, confidential i budżety JSON. Szczegóły przed kodowaniem. Podział zaakceptowany, instrukcja przekazania w CURRENT.md.
 - [ ] C3: knowledge_save, maskowany preview, zgody/revisions/conflicts i panel Wiedza.
 - [ ] C4: produkcyjny root/bundle wybrany z użytkownikiem, pilot i pomiar kontekstu. Odbiór centralnej wiedzy przed projektem.
 - [ ] P1-P4: projektowe docs, tryb migracyjny, audit/convert, skill okf-curator i pilot dokumentacji sklr; szczegóły osobno przed etapem projektowym.
