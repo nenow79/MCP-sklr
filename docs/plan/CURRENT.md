@@ -2,7 +2,7 @@
 
 ## Stan 2026-10-14: obsługa .ps1 w runnerze skilli (najnowszy)
 - #159 (allow): skills_engine/runner.py dodaje .ps1 (pwsh, fallback powershell; `-NoProfile -NonInteractive -ExecutionPolicy Bypass -File`, bez shella), tests/test_skills_runner.py (3 nowe testy: pwsh, fallback, brak PowerShella), opis run_skill_script w main.py, docs/specs/skills-support.md.
-- Użytkownik potwierdził, że cały zestaw tests/test_skills_runner.py przeszedł (bez logu i liczby testów); agent nie uruchamiał pytest. Restart serwera i test ręczny prawdziwego skryptu .ps1 niewykonane. Commit niepotwierdzony.
+- Użytkownik potwierdził, że cały zestaw tests/test_skills_runner.py przeszedł (bez logu i liczby testów); agent nie uruchamiał pytest. Restart serwera i test ręczny prawdziwego skryptu .ps1 niewykonane. Skomitowane lokalnie przez skill git-ops: fe24023 feat: add .ps1 skill scripts oraz 51818d8 docs: plan OKF support (dokumentacja OKF z C0 też już w git). Brak repo zdalnego, push niewykonany.
 - Do zrobienia po stronie użytkownika: dopisać .ps1 do SCRIPT_SUFFIXES w skill-writer/scripts/validate_skill.py i do references/rules.md (centralny skill, poza roots agenta). .bat/.cmd świadomie pominięte (ryzyko cytowania argumentów).
 - Skill git-ops utworzony w dev-skills (SKILL.md, scripts/git_run.py, references/), walidator: 0 błędów, 0 ostrzeżeń; wdrożenie do katalogu centralnego robi użytkownik.
 
