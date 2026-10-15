@@ -57,6 +57,57 @@ def assert_failed(result, rollback=True):
     assert result["data"]["rollback_complete"] is rollback
 
 
+def test_domain_guard_runs_under_both_locks_in_verify_and_execute(env):
+    path = put(env.app)
+    plan = edit(env)
+    calls = []
+
+    def guard():
+        assert ft.WRITE_LOCK._is_owned() and env.store.lock._is_owned()
+        calls.append(True)
+
+    assert env.tx.verify(plan, guard=guard) is None
+    assert len(calls) == 1
+    assert env.tx.execute(plan, guard=guard)["success"]
+    assert len(calls) == 3  # verify, początek execute, przed publikacją
+    assert path.read_bytes() == b"new"
+
+
+def test_domain_guard_failure_is_safe_and_prevents_staging(env):
+    path = put(env.app)
+    plan = edit(env)
+
+    def guard():
+        raise RuntimeError("SECRET_SENTINEL")
+
+    error = env.tx.verify(plan, guard=guard)
+    assert error and "SECRET_SENTINEL" not in error
+    result = env.tx.execute(plan, guard=guard)
+    assert_failed(result)
+    assert "SECRET_SENTINEL" not in json.dumps(result)
+    assert path.read_bytes() == b"old"
+    no_temps(env)
+
+
+def test_staging_uses_relative_path_and_explicit_root_with_write_guard(env, monkeypatch):
+    put(env.app)
+    plan = edit(env)
+    original = ft.resolve_path
+    staged_checks = []
+
+    def guarded(registry, filepath, root=None, **kwargs):
+        if Path(filepath).name.startswith(".sklr-"):
+            assert not Path(filepath).is_absolute()
+            assert root == "app" and kwargs.get("write") is True
+            staged_checks.append(filepath)
+        return original(registry, filepath, root, **kwargs)
+
+    monkeypatch.setattr(ft, "resolve_path", guarded)
+    assert env.tx.execute(plan)["success"]
+    assert staged_checks
+    no_temps(env)
+
+
 @pytest.mark.parametrize("raw", [b"old\r\n", codecs.BOM_UTF8 + b"old\n",
                                   "old żółć\r\n".encode("cp1250")])
 def test_publish_preserves_prepared_bytes(env, raw):

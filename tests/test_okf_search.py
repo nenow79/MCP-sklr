@@ -377,7 +377,7 @@ def test_hit_dict_is_json_safe_and_repr_is_safe(env):
     assert list(data) == [
         'bundle_id', 'scope', 'concept_id', 'title', 'description', 'type', 'tags', 'status', 'trust_tier',
         'stale', 'warnings', 'section_id', 'heading', 'start_line', 'end_line', 'excerpt', 'revision',
-        'masked', 'content_truncated']
+        'masked', 'content_truncated', 'format']
     json.dumps(data, ensure_ascii=False)
     assert data['tags'] == ['x'] and data['warnings'] == []
     for text in (repr(hit), repr(result)):

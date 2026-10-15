@@ -1,6 +1,58 @@
 # Obsługa OKF w sklr — kontrakt C0
 
-Status: kontrakt C0 zaakceptowany w rozmowie po zapisie #153 i sprawdzeniu odczytem. Uzupełnienia domykające C0 wymagają zatwierdzenia ich diffu. Implementacja dopiero na nowym chat, po przedstawieniu konkretnej paczki do akceptacji. Ten dokument opisuje planowane zachowanie, nie istniejące narzędzia.
+## Aktualizacja kontraktu: kandydat do odbioru Windows
+
+Na polecenie użytkownika, aby domknąć przepływ przed przeniesieniem na Windows,
+wdrożono także panel i minimalną ścieżkę projektową/migracyjną. Poniższe reguły
+są aktualne i zastępują wcześniejsze ograniczenia „central-only/P1 zarezerwowane”.
+Starsze sekcje zachowują kontrakt parsera, rewizji, poufności i zapisów.
+
+- knowledge_bundles pokazuje dostępne scope=central oraz project. Search all
+  wybiera centralne zbiory plus projekt domyślnego roota; scope=project tylko
+  ten projekt. Jawny bundle_id może wskazywać inny włączony projekt; niezgodność
+  jawnego scope daje SCOPE_MISMATCH. Get/save działają na obu scope.
+- Bundle project ma profile=docs/legacy/mixed. Docs wymaga niepustego subpath
+  (zwykle docs). Legacy/mixed wymagają subpath="" i obejmują dokładnie dwa pliki
+  .vibecoder_context.md/.vibecoder_checkpoints.md; mixed dodatkowo docs/.
+  Katalogi ukryte, archiwum i AGENTS są poza indeksem projektu. Nadal obowiązuje
+  fizyczna kontrola overlap bundles/skills oraz przypięte root_path.
+- Projektowy Markdown bez frontmattera jest czytelny/wyszukiwalny z format=markdown,
+  type=unknown, metadata={}, status=null i warning unconverted. Brak automatycznego
+  zapisu metadanych. Błędny istniejący YAML pozostaje błędem, nie jest ignorowany.
+- Panel /api/knowledge używa dotychczasowej sesji/Host/Origin. Operacje konfiguracji
+  wymagają aktualnej opaque revision konfiguracji; root_path jest przypinane przez
+  serwer, nie nadawane przez LLM. Remove usuwa tylko wpis, nie pliki. Refresh jest
+  zadaniem odczytowym istniejącej kolejki. Domyślnie nadal brak nowych bundles/roots.
+- prepare_project(root=null, subpath="", max_chars=12000, create_agents=false)
+  dostarcza root/nested AGENTS, rewizje, audyt, kandydatów stanu i propozycję
+  brakującego AGENTS. Nie zgaduje aktualnego checkpointu. Flagi truncated i
+  instructions_complete wymagają doczytania brakującej treści. create_agents=true
+  przygotowuje tylko brakujący plik z szablonu, zawsze jako task do zgody.
+- knowledge_audit(root=null, include_archive=true, max_files=500,
+  max_total_chars=12000) bada docs/ i dwa root legacy pliki. Zwraca metadane stanu,
+  revision, convertible i propozycję type: Reference dla dokumentów bez type.
+  Nie zwraca surowych treści. Reserved index/log i AGENTS nie są konwertowane.
+- knowledge_convert(changes, root=null, description="") przyjmuje do 10 rekordów
+  filepath/expected_revision/metadata_yaml. Rewizja pochodzi z audytu, jest związana
+  z root/path i kluczem ProjectTools w pamięci procesu. Samego body nie zmieniamy.
+  Dopisujemy brakujące top-level pola frontmattera, zachowując oryginalny YAML,
+  komentarze, BOM i EOL. Podana istniejąca wartość musi być równa starej; zmiana
+  wymaga osobnego knowledge_save/edycji, nie ukrytej konwersji. Błędny YAML,
+  mixed EOL, CP1250 i kolizje wymagają osobnej decyzji. Brak automatycznego autorstwa,
+  generated, verified, dat, reorganizacji historii i transkodowania.
+- Zapis setup/convert: sensitive, bez Ufaj, jedna zgoda, natychmiastowy task_id,
+  prywatne PreparedChanges, guard pod WRITE_LOCK -> ConfigStore.lock i publiczny
+  maskowany podgląd. Payload/stdout nie zawierają raw/body/YAML/hashów/rewizji.
+  Committed, rollback i cleanup mają oddzielne znaczenie; indeks jest unieważniany
+  i odświeżany po zapisie. Restart nie odtwarza prywatnego planu.
+- Polityka przygotowania i migracji to advisory: instructions inicjalizacyjne,
+  opisy narzędzi i prepare_project prowadzą LLM, ale nie blokują istniejących
+  narzędzi przy braku AGENTS/OKF. Hard guard gotowości projektu nie jest wdrożony.
+  Nie deklarujemy dowodu przeczytania instrukcji lub zgodności całego repo.
+
+Wyniki i pozostałe testy Windows: docs/plan/CURRENT.md, docs/windows-okf.md.
+
+Historyczny status C0: kontrakt zaakceptowany w rozmowie po zapisie #153 i sprawdzeniu odczytem. Bieżący stan implementacji określa aktualizacja kontraktu powyżej i CURRENT.md; poniższy tekst zachowuje szczegóły oryginalnych ustaleń.
 
 Źródła: docs/specs/okf/SPEC.md (OKF 0.2), docs/plan/okf.md, ADR 0004. Specyfikacja standardu pozostaje niemodyfikowana. Wymagania lokalne dla bezpiecznego zapisu nie są dodatkowymi warunkami zgodności samego OKF.
 
@@ -92,7 +144,7 @@ Wszystkie wartości powyżej są int, bez bool. max_sections_per_document=2000 p
 
 root_path jest przypiętą kanoniczną ścieżką roota zapisywaną przez administrację po walidacji. Zapobiega cichej zmianie przeznaczenia bundle po usunięciu/reutworzeniu aliasu roota pod inną ścieżką. UI przyjmuje root alias, nie dowolne root_path od modelu; serwer wylicza root_path. subpath jest względny POSIX; puste oznacza katalog roota. Id/label/description muszą być ograniczone (32/200/1000 znaków) i bez sterujących/bidi w polach jednoliniowych. Nowy wpis jest domyślnie wyłączony, użytkownik może jawnie włączyć go w panelu.
 
-C1-C4 aktywnie obsługują scope=central. scope=project jest zarezerwowane i do P1 zgłasza unavailable, nie skanuje automatycznie projektu. Rejestr ma globalnie unikalne ids, bez reguły project > central.
+Scope central i project są aktywne w kandydacie Windows zgodnie z aktualizacją powyżej. Nie skanujemy automatycznie wszystkich projektów; rejestr ma globalnie unikalne ids, bez reguły project > central.
 
 ### 3.3 Administracja
 
@@ -214,7 +266,7 @@ knowledge_search(
 )
 ```
 
-- scope: all/central/project; w C project niedostępne, all oznacza centralne. Jawny bundle musi być zgodny ze scope.
+- scope: all/central/project; all obejmuje centralne zbiory i bieżący projekt. Jawny bundle musi być zgodny ze scope i może wskazywać inny włączony projekt.
 - query do 1000 znaków. terms: Unicode NFC + casefold, słowa alfanumeryczne, wszystkie niepuste terms muszą wystąpić w publicznym dokumencie (metadata lub body); brak AND/OR/SQL interpretowanych jako język zapytań. phrase: dosłowne dopasowanie całego query po NFC/casefold w danym polu/sekcji; nie scala granic pól w sztuczną frazę. Bez stemmingu, usuwania polskich diakrytyków i synonimów w v1.
 - browse=true dopuszcza puste query; query niepuste z browse=true jest błędem. Browse działa tylko z jawnym bundle_id lub co najmniej jednym filtrem type/tags/status i zawsze ma limit.
 - type/status/tags: dopasowanie dokładne po normalizacji/casefold; wszystkie podane tags wymagane. Tags max 20, tag do 100 znaków. Nieznany type jest dozwolony.
@@ -310,7 +362,7 @@ Po restart wszystkie indeksy są empty. Nie odtwarzamy ich z tasks.db. Nie zapis
 
 ## 8. Etap projektowy — zarezerwowany zakres P1-P4
 
-Nie implementujemy teraz scope=project, audit, convert ani skilla. Ich detale są osobnym kontraktem przed P1/P2; pola centralnego API mają umożliwić rozszerzenie bez nowych reguł uprawnień.
+Minimalne scope=project, audit i convert opisuje aktualizacja kontraktu na początku dokumentu. Osobny skill oraz semantyczna kuracja pozostają dalszym etapem. Zachowujemy wspólne reguły uprawnień i zapisu.
 
 Uzgodnione kierunki:
 - bundle projektu wskazuje docs/ zatwierdzonego roota, bez konkurencyjnych kopii;

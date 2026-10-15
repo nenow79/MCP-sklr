@@ -55,6 +55,16 @@ def test_index_has_skills_tab_and_view():
     assert "To nie jest sandbox" in html
 
 
+def test_knowledge_tab_and_configuration_controls():
+    html, js = read("index.html"), read("app.js")
+    for element_id in ("tab-knowledge", "knowledge-view", "knowledge-list", "knowledge-form",
+                       "knowledge-id", "knowledge-root", "knowledge-scope", "knowledge-profile",
+                       "knowledge-subpath", "knowledge-enabled", "knowledge-add"):
+        assert f'id="{element_id}"' in html
+    assert "/api/knowledge" in js and "body.revision = knowledgeData.revision" in js
+    assert "Konwersja Markdown do OKF jest opcjonalna" in html
+
+
 def test_js_uses_roots_api_and_ids_exist_in_html():
     js = read("app.js")
     html = read("index.html")

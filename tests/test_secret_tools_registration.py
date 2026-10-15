@@ -6,7 +6,9 @@ from typing import Any, Dict, List, Optional
 
 import pytest
 
-CONFIDENTIAL = {"get_task", "secret_reveal"}
+CONFIDENTIAL = {"get_task", "secret_reveal", "create_tree",
+                "knowledge_bundles", "knowledge_search", "knowledge_get", "knowledge_save",
+                "prepare_project", "knowledge_audit", "knowledge_convert"}
 
 
 def main_tree():
@@ -25,7 +27,7 @@ def decorator_name(function):
     return decorator.id
 
 
-def test_only_get_task_and_secret_reveal_use_confidential_decorator():
+def test_confidential_tools_use_confidential_decorator():
     _, tree = main_tree()
     functions = functions_by_name(tree)
     assert {"register_tool", "register_confidential_tool", "get_task", "secret_reveal"} <= set(functions)
@@ -37,8 +39,8 @@ def test_only_get_task_and_secret_reveal_use_confidential_decorator():
     confidential = {name for name, value in decorators.items() if value == "register_confidential_tool"}
     assert confidential == CONFIDENTIAL
     assert all(value == "register_tool" for name, value in decorators.items() if name not in CONFIDENTIAL)
-    # 18 dotychczasowych narzędzi + nowe secret_reveal.
-    assert len(decorators) == 19
+    # 19 wcześniejszych narzędzi + create_tree + cztery OKF + trzy projektowe.
+    assert len(decorators) == 27
 
 
 def test_confidential_registration_enables_confidential_telemetry():

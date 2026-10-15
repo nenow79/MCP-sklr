@@ -204,3 +204,49 @@ def resolve_concept_file(bundle_dir: Path, concept_id: str) -> Tuple[Path, str]:
     if not _within(resolved, resolved_base):
         raise PathSecurityError("outside")
     return resolved, "/".join(canonical)
+
+
+def resolve_new_concept_file(bundle_dir: Path, concept_id: str) -> Tuple[Path, str]:
+    """Cel create w istniejącym rodzicu; każdy istniejący wariant nazwy to kolizja.
+
+    Nie tworzy katalogów. Wszystkie dopasowania używają NFC/casefold jak get.
+    Wynik musi być sprawdzony ponownie pod lockiem tuż przed zapisem.
+    """
+    try:
+        validate_concept_id(concept_id)
+    except IdentityError:
+        raise PathSecurityError("invalid_id") from None
+    base = Path(bundle_dir)
+    check_directory_chain(base)
+    current, canonical = base, []
+    segments = concept_id.split("/")
+    for segment in segments[:-1]:
+        name = _match_entry(current, segment)
+        current = current / name
+        check_directory_chain(current)
+        canonical.append(name)
+    wanted = segments[-1] + ".md"
+    try:
+        _match_entry(current, wanted)
+    except PathSecurityError as exc:
+        if exc.code != "not_found":
+            raise
+        # _match_entry zgłasza ten sam kod dla błędu scandir. Powtarzamy
+        # sprawdzenie z odmową przy błędzie, zamiast uznać brak dostępu za brak celu.
+        try:
+            with os.scandir(current) as entries:
+                if any(_fold(entry.name) == _fold(wanted) for entry in entries):
+                    raise PathSecurityError("already_exists")
+        except OSError:
+            raise PathSecurityError("not_found") from None
+    else:
+        raise PathSecurityError("already_exists")
+    check_directory_chain(current)
+    target = current / wanted
+    try:
+        resolved = target.resolve()
+        if resolved != target or not _within(resolved, base.resolve()):
+            raise PathSecurityError("outside")
+    except (OSError, RuntimeError, ValueError):
+        raise PathSecurityError("outside") from None
+    return target, "/".join(canonical + [segments[-1]])

@@ -15,7 +15,7 @@ import tempfile
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from roots_registry import RootsRegistry
 from server.file_changes import PreparedChanges, PreparedFile, read_snapshot
@@ -108,11 +108,13 @@ class FileTransaction:
         if published is None and snapshot.mode != item.before.mode:
             raise TransactionError("Konflikt: zmieniły się uprawnienia pliku.")
 
-    def verify(self, plan: PreparedChanges) -> Optional[str]:
+    def verify(self, plan: PreparedChanges, *, guard: Optional[Callable[[], None]] = None) -> Optional[str]:
         """Callback kolejki po decyzji; execute i tak powtarza walidację pod lockiem."""
         try:
             with WRITE_LOCK:
                 with self.config_lock:
+                    if guard is not None:
+                        guard()
                     for item in plan.files:
                         self._validate(item)
             return None
@@ -130,7 +132,11 @@ class FileTransaction:
     def _check_temp(self, temp: _Temp, item: PreparedFile) -> None:
         self._temp_path(temp)
         binding = item.bindings[0]
-        resolved = resolve_path(self.registry, str(temp.path), binding.root.alias, write=True)
+        # Guard używa reguł Windows i celowo odrzuca /foo jako niejednoznaczne.
+        # Wewnętrzny staging przekazujemy względem przypiętego roota: działa
+        # zarówno na docelowym Windows, jak i w środowisku developerskim POSIX.
+        relative = temp.path.relative_to(Path(binding.root.path)).as_posix()
+        resolved = resolve_path(self.registry, relative, binding.root.alias, write=True)
         if resolved.path != temp.path:
             raise TransactionError("Konflikt: zmieniono ścieżkę stagingu.")
         snapshot = read_snapshot(temp.path)
@@ -196,7 +202,8 @@ class FileTransaction:
                 complete = False
         return complete
 
-    def execute(self, plan: PreparedChanges, cancel_event: Optional[threading.Event] = None) -> Dict[str, Any]:
+    def execute(self, plan: PreparedChanges, cancel_event: Optional[threading.Event] = None,
+                *, guard: Optional[Callable[[], None]] = None) -> Dict[str, Any]:
         """Bezpieczny wynik operacji, do adaptacji przez executor z paczki B.
 
         Bez stdout, hashy, bajtów, nazw temp i surowych wyjątków. Przy cleanup
@@ -214,6 +221,8 @@ class FileTransaction:
             self._acquire(self.config_lock, event)
             config_locked = True
             self._cancel(event)
+            if guard is not None:
+                guard()
             for item in plan.files:
                 self._validate(item)
             staging = []
@@ -231,6 +240,8 @@ class FileTransaction:
                 self._validate(item)
             for staged in staging:
                 self._cancel(event)
+                if guard is not None:
+                    guard()
                 self._publish(staged)
                 published.append(staged)
                 self._cancel(event)

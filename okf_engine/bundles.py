@@ -1,4 +1,7 @@
-"""Rejestr bundles OKF (central-only): walidacja wpisów configu i ocena dostępności.
+"""Rejestr bundles OKF: walidacja wpisów configu i ocena dostępności.
+
+Projektowe profile wymagają allow_project=True; serwis produkcyjny jawnie je
+włącza. Domyślna funkcja pozostaje ograniczona do centralnych bundles.
 
 Nic tu nie zapisuje configu ani nie nadaje dostępu: wpis jest tylko powiązaniem z zatwierdzonym rootem
 (root_path przypięte przy dodaniu). Roots przekazujemy jako obiekty z polami alias/path/mode (np. roots.Root).
@@ -46,6 +49,7 @@ class BundleEntry:
     root_path: str
     description: str = ""
     enabled: bool = False
+    profile: str = "all"
 
 
 @dataclass(frozen=True)
@@ -105,6 +109,11 @@ def parse_entry(raw: Any) -> BundleEntry:
     enabled = raw.get("enabled", False)
     if not isinstance(enabled, bool):
         raise BundleError("enabled")
+    profile = raw.get("profile", "docs" if scope == SCOPE_PROJECT else "all")
+    if profile not in (("docs", "legacy", "mixed") if scope == SCOPE_PROJECT else ("all",)):
+        raise BundleError("profile")
+    if profile in ("legacy", "mixed") and raw.get("subpath", ""):
+        raise BundleError("subpath")
     return BundleEntry(
         id=raw["id"],
         label=_text(raw.get("label"), "label", MAX_LABEL, False),
@@ -113,7 +122,7 @@ def parse_entry(raw: Any) -> BundleEntry:
         subpath=_subpath(raw.get("subpath", "")),
         root_path=root_path,
         description=_text(raw.get("description", ""), "description", MAX_DESCRIPTION, True),
-        enabled=enabled)
+        enabled=enabled, profile=profile)
 
 
 def _key(path: Any) -> Path:
@@ -156,7 +165,8 @@ def _safe_id(raw: Any) -> Optional[str]:
     return candidate
 
 
-def evaluate_bundles(knowledge: Any, roots: Sequence[Any], skills_dir: Any = None) -> List[BundleState]:
+def evaluate_bundles(knowledge: Any, roots: Sequence[Any], skills_dir: Any = None,
+                     *, allow_project: bool = False) -> List[BundleState]:
     """Ocenia wpisy sekcji knowledge względem bieżących roots. Kolejność wyników = kolejność w configu.
 
     Dostępny (available) = poprawny wpis, enabled, root istnieje z tą samą ścieżką, katalog bez linków
@@ -195,8 +205,11 @@ def evaluate_bundles(knowledge: Any, roots: Sequence[Any], skills_dir: Any = Non
         if work.entry is None or work.reason:
             continue
         entry = work.entry
-        if entry.scope != SCOPE_CENTRAL:
+        if entry.scope != SCOPE_CENTRAL and not allow_project:
             work.reason = "scope_project_unsupported"
+            continue
+        if entry.scope == SCOPE_PROJECT and entry.profile == "docs" and not entry.subpath:
+            work.reason = "profile_requires_subpath"
             continue
         root = by_alias.get(entry.root.lower())
         if root is None:

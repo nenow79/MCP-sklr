@@ -1,13 +1,22 @@
 # Backlog (krok 6: development nowego MCP)
 
 ## OKF — bieżący kierunek
+
+- [x] Implementacja kandydata Windows: C3c panel Wiedza, project docs/legacy/mixed, plain Markdown read/search, prepare_project i szablon AGENTS do zgody, audyt/konwersja obu układów. Autoryzacja użytkownika: domknąć wersję bez blokowania na konwersji. Polityka advisory; szczegóły CURRENT i docs/windows-okf.md. Odbiór nowych testów nadal otwarty.
+- [ ] Publikacja C2c-C3/projekty (agent ma .git tylko do odczytu), końcowe testy Windows, junctiony i ręczny odbiór panelu/MCP/migracji. Manifest przekazania i instrukcja w docs/windows-okf.md.
+- [ ] Dalsze ulepszenia po odbiorze Windows: semantyczna kuracja historii/selector bieżącej sekcji, opcjonalny okf-curator, opcjonalny hard guard projektu dopiero po osobnym kontrakcie. Nie blokują pracy ani konwersji.
 - [x] Plan i dokumentacja C0: docs/plan/okf.md (#152), ADR 0004 i docs/specs/okf-support.md (#153) oraz domknięcie statusów/limitów/przekazania (#154): allow/done/exit0, wyniki i zapisy sprawdzone odczytem. Kierunek i kontrakt zaakceptowane w rozmowie; implementacja dopiero na nowym chat.
 - [x] C1a: modele, bezpieczny parser YAML/UTF-8, publiczny widok po maskowaniu Markdown i rewizje HMAC; samodzielne testy (145, zielone wg użytkownika). Commit 36371ae. Bez integracji serwera.
 - [x] C1b: rejestr centralnych bundles, ścieżki/root binding, limity/defaults i testy; poprawki bezpieczeństwa #189 zapisane. Wynik użytkownika: 261 passed, 2 skipped (rzeczywista kolizja nazw i utworzenie linku niedostępne); symulacje kolizji/reparse przeszły. Bez automatycznego dostępu do ~/.agents/, bez integracji MCP. Commit 22a3cd1; pełny pytest po C1b niewykonany.
-- [ ] C2a (następny krok, nowy chat; zakres zaakceptowany): sections.py i test_okf_sections.py; publiczne body -> ATX/Setext, pomijanie kodu, s0/s1..., hierarchia, direct/subtree, fizyczne linie i limit 2000. Bez dysku/MCP/indeksu.
-- [ ] C2b po odbiorze C2a: świeży odczyt, scanner/index/search na publicznej treści, limity/ranking/partial i atomowe generacje; pliki orientacyjne documents.py, scanner.py, index.py, search.py + testy. Szczegóły przed kodowaniem.
-- [ ] C2c po odbiorze C2b: service, knowledge_bundles/search/get, refresh przez TaskManager, main.py i testy integracji; kontrole dostępności, rewizje, confidential i budżety JSON. Szczegóły przed kodowaniem. Podział zaakceptowany, instrukcja przekazania w CURRENT.md.
+- [x] C2a: sections.py i test_okf_sections.py; publiczne body -> ATX/Setext, pomijanie kodu, s0/s1..., hierarchia, direct/subtree, fizyczne linie i limit 2000. Odbiór użytkownika: 101 passed dla sections/public_view; commit 1395a06.
+- [x] C2b: documents/scanner/index/search na publicznej treści, limity/ranking/partial i atomowe generacje. Wyniki użytkownika: 118 passed; pozostała paczka silnika 377 passed, 2 skipped. Commit 4462aab potwierdzony w Git.
+- [x] C2c: service, knowledge_bundles/search/get, TaskManager refresh, main.py, testy integracji; dostępność, rewizje, confidential i budżety JSON. Odbiór użytkownika: 79 passed in 1.36s. Commit oczekuje; pełny pytest i ręczny test po restarcie niepotwierdzone. Szczegóły w CURRENT.md.
 - [ ] C3: knowledge_save, maskowany preview, zgody/revisions/conflicts i panel Wiedza.
+- [x] C3a: writer/preview i testy. Wynik użytkownika: 1 failed, 208 passed in 2.03s; po poprawce wyłącznie testu ponowienie preview: 21 passed in 0.22s. Odebrane testowo, commit oczekuje. Bez nowego pełnego przebiegu paczki/repo; szczegóły w CURRENT.md.
+- [x] C3b: knowledge_save z kolejką/transakcjami, guard, dokładny snapshot i odświeżanie indeksu. Pierwszy wynik 26 failed, 294 passed, 1 skipped; po poprawce stagingu na Linuksie transakcje/zapisy: 86 passed, 1 skipped in 2.17s (junction Windows). Odebrane na Linuksie; testy docelowego Windows i commit oczekują. Szczegóły w CURRENT.md.
+- [x] C3c: panel Wiedza — administracja bundles i indeksu zaimplementowana po szerokiej autoryzacji domknięcia wersji. Odbiór API/UI na Windows otwarty.
+- [x] P0 advisory: prepare_project, root/nested AGENTS, szablon brakującego pliku do zgody, audyt i wskazówki startowe. Brak hard guarda i dowodu przeczytania zasad przez LLM.
+- [x] P1/P2 minimalne: profile docs/legacy/mixed, plain Markdown read/search oraz audyt/konwersja frontmatter obu układów. Body/komentarze/BOM/EOL zachowane; reorganizacja historii osobno. Nowe testy oczekują na wykonanie na Windows.
 - [ ] C4: produkcyjny root/bundle wybrany z użytkownikiem, pilot i pomiar kontekstu. Odbiór centralnej wiedzy przed projektem.
 - [ ] P1-P4: projektowe docs, tryb migracyjny, audit/convert, skill okf-curator i pilot dokumentacji sklr; szczegóły osobno przed etapem projektowym.
 - [x] Użytkownik potwierdził commit create_tree i zielony pełny pytest; brak logu/liczby testów. Testy sklr we własnym venv, bez conda; agent testów nie uruchamiał.

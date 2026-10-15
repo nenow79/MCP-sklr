@@ -12,6 +12,7 @@ odbywa się poza blokadą. Planowanie odświeżeń i backoff należą do serwisu
 """
 import json
 import threading
+from contextlib import nullcontext
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -118,10 +119,14 @@ class KnowledgeIndex:
             return True
 
     def publish(self, ticket: int, reader: DocumentReader, bundle_id: str, scan: ScanResult,
-                limits: KnowledgeLimits) -> bool:
+                limits: KnowledgeLimits, *, commit_lock=None,
+                validate_commit: Optional[Callable[[], bool]] = None) -> bool:
         """Publikuje zweryfikowaną generację; False, gdy ticket jest nieaktualny.
 
         DocumentError(BUNDLE_UNAVAILABLE) oznacza utratę dostępu: indeks bundle jest usunięty.
+        C2c: opcjonalny commit_lock i validate_commit chronią wyłącznie końcową
+        podmianę generacji; kosztowna walidacja dokumentów nie blokuje konfiguracji.
+        Kolejność locków: zewnętrzny config -> wewnętrzny index, nigdy odwrotnie.
         """
         with self._lock:
             if self._slot(bundle_id).ticket != ticket:
@@ -160,14 +165,17 @@ class KnowledgeIndex:
             used += size
         generation = IndexGeneration(tuple(entries), bool(reasons), tuple(sorted(reasons)),
                                      self._now(), excluded, used)
-        with self._lock:
-            slot = self._slot(bundle_id)
-            if slot.ticket != ticket:
+        with commit_lock if commit_lock is not None else nullcontext():
+            if validate_commit is not None and not validate_commit():
                 return False
-            slot.generation = generation
-            slot.refreshing = False
-            slot.error = None
-            return True
+            with self._lock:
+                slot = self._slot(bundle_id)
+                if slot.ticket != ticket:
+                    return False
+                slot.generation = generation
+                slot.refreshing = False
+                slot.error = None
+                return True
 
     def snapshot(self, bundle_id: str) -> Optional[IndexGeneration]:
         """Niezmienna migawka bieżącej generacji albo None."""

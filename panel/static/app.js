@@ -496,12 +496,13 @@
 
   function showTab(name) {
     state.tab = name;
-    ["tasks", "roots", "skills"].forEach(function (tab) {
-      $(tab + "-view").hidden = tab !== name;
-      $("tab-" + tab).className = tab === name ? "tab active" : "tab";
+    ["tasks", "roots", "skills", "knowledge"].forEach(function (tab) {
+      if ($(tab + "-view")) { $(tab + "-view").hidden = tab !== name; }
+      if ($("tab-" + tab)) { $("tab-" + tab).className = tab === name ? "tab active" : "tab"; }
     });
     if (name === "roots") { refreshRoots(); }
     if (name === "skills") { refreshSkills(); }
+    if (name === "knowledge") { refreshKnowledge(); }
   }
 
   function rootsResult(res, okMessage) {
@@ -809,6 +810,95 @@
     });
   }
 
+  // --- wiedza: konfiguracja po świadomej akcji w uwierzytelnionym panelu ---
+  var knowledgeData = null;
+  var knowledgeBusy = false;
+
+  function renderKnowledge(data) {
+    knowledgeData = data;
+    var list = $("knowledge-list");
+    list.textContent = "";
+    if (!data.bundles.length) { list.appendChild(el("p", {text: "Brak skonfigurowanych zbiorów."})); }
+    data.bundles.forEach(function (bundle) {
+      var card = el("article", {className: "task-card"});
+      card.appendChild(el("h3", {text: visibleText(bundle.label + " (" + (bundle.id || "niepoprawny wpis") + ")")}));
+      card.appendChild(el("p", {text: visibleText(bundle.description)}));
+      card.appendChild(el("p", {text: visibleText((bundle.scope || "?") + " / " + (bundle.profile || "?") +
+        " / " + (bundle.root || "?") + ":" + (bundle.subpath || "."))}));
+      card.appendChild(el("p", {text: bundle.available ?
+        "Dostępny, " + (bundle.writable ? "zapis możliwy" : "tylko odczyt") :
+        "Niedostępny: " + visibleText(bundle.reason + (bundle.detail ? " / " + bundle.detail : ""))}));
+      card.appendChild(el("p", {text: "Indeks: " + bundle.index_state + ", dokumenty: " + bundle.indexed_documents}));
+      var toggle = el("button", {type: "button", className: "btn", text: bundle.enabled ? "Wyłącz" : "Włącz",
+        onclick: function () { changeKnowledge(bundle.key, "enabled", {enabled: !bundle.enabled}); }});
+      var remove = el("button", {type: "button", className: "btn", text: "Usuń konfigurację",
+        onclick: function () { changeKnowledge(bundle.key, "remove", {}); }});
+      var scan = el("button", {type: "button", className: "btn", text: "Odśwież indeks",
+        onclick: function () { changeKnowledge(bundle.key, "refresh", {}); }});
+      scan.disabled = !bundle.available;
+      card.appendChild(toggle); card.appendChild(scan); card.appendChild(remove); list.appendChild(card);
+    });
+    var select = $("knowledge-root");
+    var selected = select.value;
+    select.textContent = "";
+    data.roots.forEach(function (root) {
+      var option = el("option", {text: root.alias + " (" + root.mode + ")"});
+      option.value = root.alias; select.appendChild(option);
+    });
+    if (data.roots.some(function (root) { return root.alias === selected; })) { select.value = selected; }
+  }
+
+  function refreshKnowledge() {
+    if (knowledgeBusy) { return Promise.resolve(); }
+    knowledgeBusy = true;
+    return api("GET", "/api/knowledge").then(function (res) {
+      if (res.status === 401) { authFailed(); return; }
+      if (!res.json.success) { showBanner(res.json.error || "Nie można odczytać wiedzy.", false); return; }
+      renderKnowledge(res.json.data);
+    }).catch(function () { showBanner("Brak połączenia z panelem Wiedza.", false); })
+      .then(function () { knowledgeBusy = false; });
+  }
+
+  function changeKnowledge(key, action, body) {
+    if (knowledgeBusy || !knowledgeData) { return; }
+    knowledgeBusy = true;
+    body.revision = knowledgeData.revision;
+    return api("POST", "/api/knowledge/" + encodeURIComponent(key) + "/" + action, body).then(function (res) {
+      if (res.status === 401) { authFailed(); return; }
+      if (!res.json.success) { showBanner(res.json.error || "Nie udało się zmienić zbioru.", false); return; }
+      renderKnowledge(res.json.data); hideBanner();
+    }).catch(function () { showBanner("Nie udało się zmienić konfiguracji wiedzy.", false); })
+      .then(function () { knowledgeBusy = false; return refreshKnowledge(); });
+  }
+
+  function knowledgeProfileChanged(scopeChanged) {
+    var project = $("knowledge-scope").value === "project";
+    var profile = $("knowledge-profile");
+    if (scopeChanged) { profile.value = project ? "docs" : "all"; }
+    Array.prototype.forEach.call(profile.options, function (option) { option.disabled = project === (option.value === "all"); });
+    if (project && profile.value !== "docs") { $("knowledge-subpath").value = ""; }
+    else if (project && !$("knowledge-subpath").value) { $("knowledge-subpath").value = "docs"; }
+  }
+
+  function submitKnowledge(event) {
+    event.preventDefault();
+    if (knowledgeBusy || !knowledgeData) { return; }
+    var bundle = {};
+    ["id", "label", "description", "scope", "root", "profile", "subpath"].forEach(function (key) {
+      bundle[key] = $("knowledge-" + key).value;
+    });
+    bundle.enabled = $("knowledge-enabled").checked;
+    knowledgeBusy = true;
+    $("knowledge-add").disabled = true;
+    api("POST", "/api/knowledge", {bundle: bundle, revision: knowledgeData.revision}).then(function (res) {
+      if (res.status === 401) { authFailed(); return; }
+      if (!res.json.success) { showBanner(res.json.error || "Nie udało się dodać zbioru.", false); return; }
+      renderKnowledge(res.json.data); hideBanner();
+      $("knowledge-id").value = ""; $("knowledge-label").value = "";
+    }).catch(function () { showBanner("Nie udało się zapisać zbioru wiedzy.", false); })
+      .then(function () { knowledgeBusy = false; $("knowledge-add").disabled = false; });
+  }
+
   function init() {
     initSkillFilters();
     $("notify-btn").addEventListener("click", enableNotifications);
@@ -818,6 +908,14 @@
     $("root-form").addEventListener("submit", submitRoot);
     $("tab-skills").addEventListener("click", function () { showTab("skills"); });
     $("skills-refresh").addEventListener("click", refreshSkills);
+    if ($("tab-knowledge")) {
+      $("tab-knowledge").addEventListener("click", function () { showTab("knowledge"); });
+      $("knowledge-refresh").addEventListener("click", refreshKnowledge);
+      $("knowledge-form").addEventListener("submit", submitKnowledge);
+      $("knowledge-scope").addEventListener("change", function () { knowledgeProfileChanged(true); });
+      $("knowledge-profile").addEventListener("change", function () { knowledgeProfileChanged(false); });
+      if ($("knowledge-profile").options) { knowledgeProfileChanged(true); }
+    }
     document.addEventListener("visibilitychange", function () {
       if (!state.stopped) { tick(); }
     });

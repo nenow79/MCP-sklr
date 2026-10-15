@@ -6,7 +6,7 @@ Kontrole przed/po odczycie ograniczają wyścigi, nie gwarantują pełnego TOCTO
 """
 import os
 import stat
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
@@ -17,6 +17,7 @@ from .models import DocumentIdentity, IdentityError
 from .paths import PathSecurityError, resolve_concept_file
 from .parser import parse_document
 from .public_view import PublicDocumentView, PublicViewError, build_public_view
+from .project_scope import allowed_path
 from .revisions import RevisionBinding, RevisionSigner
 from .sections import SectionOutline, build_outline
 
@@ -36,11 +37,12 @@ class PublicDocument:
     revision: str = field(repr=False)
     binding: RevisionBinding = field(repr=False)
     _bundle: BundleState = field(repr=False)  # wiązanie dostępu, nie serializować
+    format: str = "okf"
 
 
 def require_bundle(state: BundleState) -> BundleState:
     if (not isinstance(state, BundleState) or not state.available or state.entry is None
-            or not state.entry.enabled or state.entry.scope != "central" or state.path is None):
+            or not state.entry.enabled or state.entry.scope not in ("central", "project") or state.path is None):
         raise DocumentError("BUNDLE_UNAVAILABLE")
     return state
 
@@ -48,8 +50,8 @@ def require_bundle(state: BundleState) -> BundleState:
 def same_binding(first: BundleState, second: BundleState) -> bool:
     """Opis/label nie zmieniają tożsamości; ścieżki, root i scope ją zmieniają."""
     a, b = require_bundle(first), require_bundle(second)
-    return (a.id, a.entry.root, a.entry.root_path, a.entry.subpath, a.entry.scope, a.path) == (
-        b.id, b.entry.root, b.entry.root_path, b.entry.subpath, b.entry.scope, b.path)
+    return (a.id, a.entry.root, a.entry.root_path, a.entry.subpath, a.entry.scope, a.entry.profile, a.path) == (
+        b.id, b.entry.root, b.entry.root_path, b.entry.subpath, b.entry.scope, b.entry.profile, b.path)
 
 
 _WINDOWS = os.name == "nt"
@@ -99,6 +101,8 @@ class DocumentReader:
         current = self.current_bundle(initial.id)
         if not same_binding(initial, current):
             raise DocumentError("BUNDLE_UNAVAILABLE")
+        if not allowed_path(current, path.relative_to(current.path).as_posix()):
+            raise DocumentError("DOCUMENT_UNAVAILABLE")
         try:
             allowed = self.authorize(current, path)
         except Exception:
@@ -159,16 +163,24 @@ class DocumentReader:
             raise DocumentError("DOCUMENT_UNAVAILABLE") from None
         self.check_access(state, path)
         parsed = parse_document(raw, identity, self.limits.to_parse_limits())
+        document_format = "okf"
+        if (not parsed.ok and state.entry.scope == "project" and
+                parsed.errors[0].reason == "missing_frontmatter"):
+            parsed = replace(parsed, errors=(), metadata={"type": "unknown"},
+                             warnings=parsed.warnings + ("unconverted",))
+            document_format = "markdown"
         if not parsed.ok:
             raise DocumentError(parsed.errors[0].kind)
         try:
             view = build_public_view(parsed, self.now())
         except PublicViewError as exc:
             raise DocumentError(exc.code) from None
+        if document_format == "markdown":
+            view = replace(view, metadata={}, type="unknown", status=None, trust_tier="unverified")
         outline = build_outline(view.body, view.body_start_line)
         binding = RevisionBinding(bundle_id, state.entry.root_path, str(state.path), str(path))
         revision = self.signer.sign(binding, raw)
-        document = PublicDocument(view, outline, revision, binding, state)
+        document = PublicDocument(view, outline, revision, binding, state, document_format)
         self.check_document(document)
         try:
             final = path.lstat()

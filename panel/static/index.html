@@ -15,6 +15,7 @@
       <button id="tab-tasks" type="button" class="tab active">Zadania</button>
       <button id="tab-roots" type="button" class="tab">Foldery</button>
       <button id="tab-skills" type="button" class="tab">Skille</button>
+      <button id="tab-knowledge" type="button" class="tab">Wiedza</button>
     </nav>
     <div class="topbar-right">
       <span id="pending-badge" class="badge badge-pending" hidden></span>
@@ -103,6 +104,27 @@
     <div id="skills-list" class="task-list"></div>
     <h2>Katalogi deweloperskie (tylko odczyt)</h2>
     <div id="skills-dev-dirs" class="muted"></div>
+  </main>
+  <main id="knowledge-view" class="skills-view" hidden>
+    <div class="section-head"><h2>Wiedza</h2>
+      <button id="knowledge-refresh" type="button" class="btn">Odśwież widok</button></div>
+    <p class="muted">Bundle to zbiór dokumentów. Wybierz istniejący folder z zakładki Foldery.
+      Usunięcie konfiguracji zachowuje pliki. Konwersja Markdown do OKF jest opcjonalna.</p>
+    <div id="knowledge-list" class="task-list"></div>
+    <h2>Dodaj zbiór wiedzy</h2>
+    <form id="knowledge-form" class="root-form">
+      <label>Identyfikator <input type="text" id="knowledge-id" required maxlength="32" pattern="[a-z0-9][a-z0-9_-]{0,31}" placeholder="wiedza-ogolna"></label>
+      <label>Nazwa <input type="text" id="knowledge-label" required maxlength="200"></label>
+      <label>Opis <input type="text" id="knowledge-description" maxlength="1000"></label>
+      <label>Zakres <select id="knowledge-scope"><option value="central">Centralny</option><option value="project">Projektowy</option></select></label>
+      <label>Folder (root) <select id="knowledge-root" required></select></label>
+      <label>Profil <select id="knowledge-profile"><option value="all">Wszystkie dokumenty zbioru</option><option value="docs">Dokumentacja w podkatalogu</option><option value="legacy">Dwa pliki .vibecoder_* w korzeniu</option><option value="mixed">docs/ i dwa pliki .vibecoder_*</option></select></label>
+      <label>Podkatalog względem roota <input type="text" id="knowledge-subpath" placeholder="np. general albo docs"></label>
+      <p class="muted">Profil legacy lub mieszany używa korzenia projektu; podkatalog pozostaw pusty.
+        Archiwum projektu pozostaje poza domyślnym wyszukiwaniem.</p>
+      <label><input id="knowledge-enabled" type="checkbox" checked> Włącz dostęp przez narzędzia wiedzy</label>
+      <button id="knowledge-add" type="submit" class="btn">Dodaj zbiór</button>
+    </form>
   </main>
 </body>
 </html>

@@ -27,7 +27,8 @@ TERMINAL_STATUSES = frozenset(set(TaskStatus) - set(ACTIVE_STATUSES))
 KIND_SKILL_SCRIPT = "skill_script"
 TASK_KINDS = (
     KIND_SKILL_SCRIPT, "file_edit", "file_write", "folder",
-    "command", "root_change", "secret_reveal",
+    "command", "root_change", "secret_reveal", "knowledge_refresh", "knowledge_write",
+    "project_setup", "knowledge_convert",
 )
 
 _SUMMARY_EXCLUDED = ("stdout", "stderr", "command", "payload")

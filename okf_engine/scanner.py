@@ -18,6 +18,7 @@ from .documents import DocumentError, DocumentReader, PublicDocument
 from .limits import KnowledgeLimits
 from .models import DocumentIdentity, IdentityError, validate_path_segment
 from .paths import find_case_collisions, is_link
+from .project_scope import allowed_path
 
 REASON_DOCUMENT_LIMIT = "document_limit"
 REASON_DEPTH_LIMIT = "depth_limit"
@@ -38,7 +39,7 @@ class ScanResult:
 
 
 def _inventory(root: Path, bundle_id: str, limits: KnowledgeLimits, clock: Callable[[], float],
-               deadline: float, reasons: set, skipped: Counter) -> List[str]:
+               deadline: float, reasons: set, skipped: Counter, state=None) -> List[str]:
     found: List[str] = []
     stack: List[Tuple[Path, Tuple[str, ...]]] = [(root, ())]
     while stack:
@@ -60,6 +61,9 @@ def _inventory(root: Path, bundle_id: str, limits: KnowledgeLimits, clock: Calla
             reasons.add(REASON_IO_ERROR)
             continue
         for name, link, is_dir, is_file in sorted(items, key=lambda item: (item[0].casefold(), item[0])):
+            if state is not None and not allowed_path(state, "/".join(segments + (name,)), directory=is_dir):
+                skipped["outside_profile"] += 1
+                continue
             if link:
                 skipped["links"] += 1
                 continue
@@ -103,7 +107,7 @@ def scan_bundle(reader: DocumentReader, bundle_id: str, limits: KnowledgeLimits,
     reasons: set = set()
     skipped: Counter = Counter()
     errors: Counter = Counter()
-    candidates = _inventory(state.path, bundle_id, limits, clock, deadline, reasons, skipped)
+    candidates = _inventory(state.path, bundle_id, limits, clock, deadline, reasons, skipped, state)
     collided = {concept_id for group in find_case_collisions(candidates) for concept_id in group}
     if collided:
         skipped["case_collision"] += len(collided)

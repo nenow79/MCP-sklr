@@ -20,6 +20,7 @@ from starlette.staticfiles import StaticFiles
 from panel.auth import COOKIE_NAME, PanelAuth
 from roots import RootConflict, RootError, RootNotFound
 from server.skills_admin import SkillConflict, SkillNotFound
+from server.knowledge_admin import KnowledgeConflict
 from tasks.approval import ApprovalService
 from tasks.manager import TaskManager, TaskNotFoundError, TaskStateError
 from tasks.models import TaskStatus
@@ -110,9 +111,33 @@ def _opt_str(body: dict, key: str) -> Optional[str]:
 
 def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: PanelAuth,
                      static_dir: Optional[Path] = None, roots: Any = None,
-                     skills: Any = None) -> Starlette:
+                     skills: Any = None, knowledge: Any = None) -> Starlette:
     """`roots` (RootsRegistry) jest opcjonalne: bez niego endpointy /api/roots nie istnieją (404)."""
     static_path = Path(static_dir) if static_dir is not None else DEFAULT_STATIC_DIR
+
+    async def knowledge_list(request):
+        try:
+            return _ok(await run_in_threadpool(knowledge.list))
+        except Exception:
+            return _err("Nie można odczytać konfiguracji wiedzy.", 500)
+
+    async def knowledge_change(request):
+        body = await _json_body(request)
+        if body is None:
+            return _err("Oczekiwano obiektu JSON.", 400)
+        try:
+            if "key" not in request.path_params:
+                result = await run_in_threadpool(knowledge.add, body.get("bundle"), body.get("revision"))
+            else:
+                result = await run_in_threadpool(knowledge.change, request.path_params["key"],
+                                                request.path_params["action"], body.get("enabled"), body.get("revision"))
+            return _ok(result)
+        except KnowledgeConflict as exc:
+            return _err(str(exc), 409)
+        except ValueError as exc:
+            return _err(str(exc), 400)
+        except Exception:
+            return _err("Nie udało się zapisać konfiguracji wiedzy.", 500)
 
     async def create_session(request: Request) -> JSONResponse:
         body = await _json_body(request)
@@ -304,6 +329,10 @@ def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: Pane
             Route("/api/skills/{name}/trust", skill_trust_action, methods=["POST"]),
             Route("/api/skills/{name}/revoke-trust", skill_trust_action, methods=["POST"]),
         ]
+    if knowledge is not None:
+        routes.extend([Route("/api/knowledge", knowledge_list, methods=["GET"]),
+                       Route("/api/knowledge", knowledge_change, methods=["POST"]),
+                       Route("/api/knowledge/{key}/{action}", knowledge_change, methods=["POST"])])
     if static_path.is_dir():
         routes.append(Mount("/static", app=StaticFiles(directory=str(static_path)), name="static"))
 

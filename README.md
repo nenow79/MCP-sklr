@@ -2,6 +2,12 @@
 
 Nowy lokalny serwer MCP oparty na standardzie Agent Skills. Szczegóły: `AGENTS.md`, `docs/`.
 
+Wersja OKF: panel **Wiedza**, centralne i projektowe bundles, search/get/save,
+`prepare_project`, audyt i opcjonalna konwersja `docs/` oraz plików `.vibecoder_*`.
+Zwykły Markdown projektu można wyszukiwać i czytać przed konwersją. Brak AGENTS
+lub konwersji nie blokuje narzędzi; przygotowanie projektu podaje instrukcje i propozycje.
+Aktualizacja i końcowe testy na Windows: [docs/windows-okf.md](docs/windows-okf.md).
+
 ## Uruchomienie (faza 0)
 ```
 python -m venv venv

@@ -45,6 +45,14 @@ class ChangeError(ValueError):
     """Bezpieczny komunikat: nigdy nie zawiera surowej treści żądania/pliku."""
 
 
+class SnapshotError(ChangeError):
+    """Stały kod błędu dla adaptera dokładnych zapisów UTF-8."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
 def _key(path: Path) -> str:
     return os.path.normcase(str(path))
 
@@ -218,8 +226,12 @@ def _diff(before: str, after: str) -> Tuple[str, bool]:
     return "".join(output), False
 
 
-def read_snapshot(path: Path) -> FileSnapshot:
+def read_snapshot(path: Path, *, max_bytes: Optional[int] = None,
+                  utf8_only: bool = False) -> FileSnapshot:
     """Odczyt bajtowy z zachowaniem formatu. Żadnych zapisów ani surowych błędów I/O."""
+    max_bytes = MAX_FILE_BYTES if max_bytes is None else max_bytes
+    if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or not 1 <= max_bytes <= MAX_FILE_BYTES:
+        raise ChangeError("Nieprawidłowy limit snapshotu.")
     if is_blocked_secret(path.name):
         raise ChangeError("Pliki .pfx i .p12 są zablokowane.")
     try:
@@ -227,9 +239,11 @@ def read_snapshot(path: Path) -> FileSnapshot:
             info = os.fstat(stream.fileno())
             if not stat.S_ISREG(info.st_mode):
                 raise ChangeError("Ścieżka nie wskazuje zwykłego pliku.")
-            if info.st_size > MAX_FILE_BYTES:
+            if info.st_size > max_bytes:
+                if utf8_only:
+                    raise SnapshotError("SAFETY_LIMIT")
                 raise ChangeError("Plik przekracza limit 5 MiB.")
-            raw = stream.read(MAX_FILE_BYTES + 1)
+            raw = stream.read(max_bytes + 1)
             end = os.fstat(stream.fileno())
         if (info.st_size, info.st_mtime_ns, info.st_ctime_ns) != (
                 end.st_size, end.st_mtime_ns, end.st_ctime_ns):
@@ -238,8 +252,12 @@ def read_snapshot(path: Path) -> FileSnapshot:
         if isinstance(exc, ChangeError):
             raise
         raise ChangeError("Nie można odczytać zwykłego pliku.") from None
-    if len(raw) > MAX_FILE_BYTES:
+    if len(raw) > max_bytes:
+        if utf8_only:
+            raise SnapshotError("SAFETY_LIMIT")
         raise ChangeError("Plik przekracza limit 5 MiB.")
+    if utf8_only and len(raw) != end.st_size:
+        raise ChangeError("Plik zmienił się podczas odczytu.")
     if any(byte < 32 and byte not in (9, 10, 12, 13) for byte in raw):
         raise ChangeError("Plik binarny lub nieobsługiwane kodowanie.")
     bom = codecs.BOM_UTF8 if raw.startswith(codecs.BOM_UTF8) else b""
@@ -248,6 +266,8 @@ def read_snapshot(path: Path) -> FileSnapshot:
     try:
         text = body.decode(encoding)
     except UnicodeDecodeError:
+        if utf8_only:
+            raise SnapshotError("INVALID_UTF8") from None
         if bom:
             raise ChangeError("Nieprawidłowy UTF-8 z BOM.") from None
         encoding = "cp1250"
@@ -257,6 +277,43 @@ def read_snapshot(path: Path) -> FileSnapshot:
             raise ChangeError("Nieobsługiwane kodowanie (UTF-8/cp1250).") from None
     return FileSnapshot(raw, text, encoding, bom, _eol(text), hashlib.sha256(raw).hexdigest(),
                         (info.st_dev, info.st_ino), stat.S_IMODE(info.st_mode))
+
+
+def prepare_exact_write(registry: RootsRegistry, filepath: str, content: bytes, *,
+                        before: Optional[FileSnapshot], root: Any = None,
+                        max_bytes: Optional[int] = None) -> PreparedChanges:
+    """Przygotowuje dokładne bajty UTF-8, bez normalizacji tekstu i bez preview.
+
+    Snapshot musi być tym samym, na którym adapter zweryfikował rewizję.
+    Powtórny odczyt wykrywa zmianę między walidacją treści a budową transakcji.
+    Kontrola braku linków oraz reguł domeny należy również do adaptera.
+    """
+    max_bytes = MAX_FILE_BYTES if max_bytes is None else max_bytes
+    if (not isinstance(content, bytes) or isinstance(max_bytes, bool)
+            or not isinstance(max_bytes, int) or not 1 <= max_bytes <= MAX_FILE_BYTES
+            or len(content) > max_bytes):
+        raise ChangeError("Nieprawidłowe bajty lub limit zapisu.")
+    bom = codecs.BOM_UTF8 if content.startswith(codecs.BOM_UTF8) else b""
+    try:
+        text = content[len(bom):].decode("utf-8")
+    except UnicodeDecodeError:
+        raise ChangeError("Nieprawidłowy UTF-8.") from None
+    resolved, binding = _binding(registry, filepath, root)
+    if not resolved.path.parent.is_dir():
+        raise ChangeError("Katalog rodzica nie istnieje.")
+    if before is None:
+        if os.path.lexists(resolved.path):
+            raise ChangeError("Cel tworzenia już istnieje.")
+    else:
+        if not isinstance(before, FileSnapshot) or before.encoding != "utf-8":
+            raise ChangeError("Nieprawidłowy snapshot UTF-8.")
+        current = read_snapshot(resolved.path, max_bytes=max_bytes, utf8_only=True)
+        if (current.raw, current.identity, current.mode) != (before.raw, before.identity, before.mode):
+            raise SnapshotError("SNAPSHOT_CONFLICT")
+    item = PreparedFile((binding,), before, content, text, "utf-8", bom,
+                        hashlib.sha256(content).hexdigest(), False,
+                        SensitivePolicy().reasons(resolved))
+    return PreparedChanges((item,))
 
 
 def _text(value: Any, label: str) -> str:

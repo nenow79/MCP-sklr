@@ -41,6 +41,52 @@ def change(old="old", new="new", filepath="a.txt", **extra):
     return dict(filepath=filepath, old_text=old, new_text=new, **extra)
 
 
+def test_exact_write_keeps_bom_eol_and_bytes(env):
+    registry, app, _ = env
+    before = codecs.BOM_UTF8 + b"---\r\ntype: Reference\r\n---\r\nold\r\n"
+    path = put(app, "note.md", before)
+    snapshot = fc.read_snapshot(path, utf8_only=True, max_bytes=1024)
+    after = before[:-5] + b"new\r\n"
+    plan = fc.prepare_exact_write(registry, "note.md", after, before=snapshot, max_bytes=1024)
+    assert plan.files[0].after == after and plan.files[0].before is snapshot
+    assert path.read_bytes() == before
+
+
+def test_exact_write_refuses_snapshot_change(env):
+    registry, app, _ = env
+    path = put(app, "note.md", b"old")
+    snapshot = fc.read_snapshot(path, utf8_only=True)
+    path.write_bytes(b"external")
+    with pytest.raises(fc.SnapshotError, match="SNAPSHOT_CONFLICT"):
+        fc.prepare_exact_write(registry, "note.md", b"new", before=snapshot)
+    assert path.read_bytes() == b"external"
+
+
+def test_exact_create_rejects_existing_target_and_missing_parent(env):
+    registry, app, _ = env
+    put(app, "note.md", b"old")
+    with pytest.raises(ChangeError):
+        fc.prepare_exact_write(registry, "note.md", b"new", before=None)
+    with pytest.raises(ChangeError):
+        fc.prepare_exact_write(registry, "missing/note.md", b"new", before=None)
+    assert not (app / "missing").exists()
+
+
+def test_strict_snapshot_rejects_cp1250_without_changing_old_default(env):
+    _, app, _ = env
+    path = put(app, "note.md", "zł".encode("cp1250"))
+    assert fc.read_snapshot(path).encoding == "cp1250"
+    with pytest.raises(fc.SnapshotError, match="INVALID_UTF8"):
+        fc.read_snapshot(path, utf8_only=True)
+
+
+def test_snapshot_custom_byte_limit(env):
+    _, app, _ = env
+    path = put(app, "note.md", b"x" * 1025)
+    with pytest.raises(fc.SnapshotError, match="SAFETY_LIMIT"):
+        fc.read_snapshot(path, max_bytes=1024, utf8_only=True)
+
+
 def test_prepare_is_read_only_and_hashes_raw_bytes(env):
     registry, app, _ = env
     path = put(app, "a.txt", b"old\r\n")

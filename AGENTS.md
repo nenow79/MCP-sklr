@@ -6,8 +6,11 @@ Nowy lokalny serwer MCP ("vibecoder") oparty na standardzie Agent Skills (agents
 ## Stack
 Python, FastMCP + Uvicorn (port 8100), panel webowy (127.0.0.1:8102: zatwierdzenia i konfiguracja folderów), Miniforge/conda (środowiska skryptów skills).
 
+## Platformy
+Development odbywa się na Linuksie; docelowy system MCP to Windows. Zachowujemy reguły ścieżek Windows i testy junctionów. Kod wewnętrzny podaje ścieżki względem przypiętego roota, aby działał także podczas developmentu POSIX. Venv, lokalne config.json, bazy zadań i dane wiedzy nie są przenoszone pomiędzy systemami przez Git.
+
 ## Status
-Faza projektowa. Aktualny stan: `docs/plan/CURRENT.md`. Zadania: `docs/plan/backlog.md`.
+Implementacja i odbiór testowy. Aktualny stan: `docs/plan/CURRENT.md`. Zadania: `docs/plan/backlog.md`. Przeniesienie wersji OKF i scenariusze Windows: `docs/windows-okf.md`.
 
 ## Dokumentacja
 - `docs/specs/skills-support.md` – obsługa skills (spec + nasze rozszerzenia)

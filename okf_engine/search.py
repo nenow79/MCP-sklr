@@ -328,6 +328,7 @@ class SearchHit:
     revision: str = field(repr=False)
     masked: bool
     content_truncated: bool
+    format: str = "okf"
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -337,7 +338,7 @@ class SearchHit:
             "stale": self.stale, "warnings": list(self.warnings), "section_id": self.section_id,
             "heading": self.heading, "start_line": self.start_line, "end_line": self.end_line,
             "excerpt": self.excerpt, "revision": self.revision, "masked": self.masked,
-            "content_truncated": self.content_truncated}
+            "content_truncated": self.content_truncated, "format": self.format}
 
 
 @dataclass(frozen=True, eq=False)
@@ -416,9 +417,9 @@ def _make_hit(document: PublicDocument, best: Optional[PreparedSection],
     warnings = tuple(view.warnings) + tuple(w for w in document.outline.warnings
                                             if w not in view.warnings)
     return SearchHit(
-        view.identity.bundle_id, SCOPE_CENTRAL, view.identity.concept_id, title, description,
+        view.identity.bundle_id, document._bundle.entry.scope, view.identity.concept_id, title, description,
         view.type, tuple(tags), view.status, view.trust_tier, view.stale, warnings,
-        section_id, heading, start_line, end_line, excerpt, document.revision, view.masked, cut)
+        section_id, heading, start_line, end_line, excerpt, document.revision, view.masked, cut, document.format)
 
 
 def _json_size(hit: SearchHit) -> int:

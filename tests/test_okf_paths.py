@@ -8,7 +8,7 @@ import pytest
 from okf_engine.models import DocumentIdentity, IdentityError
 from okf_engine.paths import (
     PathSecurityError, find_case_collisions, is_link, locate_bundle_dir, normalize_link, relative_file,
-    resolve_concept_file)
+    resolve_concept_file, resolve_new_concept_file)
 
 
 def make_link(link: Path, target: Path, directory: bool = True) -> None:
@@ -247,3 +247,41 @@ def test_reparse_attribute_without_windows(bundle, monkeypatch):
 
     monkeypatch.setattr(Path, "lstat", fake)
     assert code_of(resolve_concept_file, bundle, "top") == "link"
+
+
+def test_new_concept_resolves_existing_parent_case_and_does_not_write(bundle):
+    path, canonical = resolve_new_concept_file(bundle, "TABLES/new")
+    assert path == bundle / "tables" / "new.md" and canonical == "tables/new"
+    assert not path.exists()
+
+
+@pytest.mark.parametrize("concept", ["top", "TOP", "tables/orders", "folder"])
+def test_new_concept_rejects_existing_file_or_directory(bundle, concept):
+    assert code_of(resolve_new_concept_file, bundle, concept) == "already_exists"
+
+
+@pytest.mark.parametrize("concept", ["../new", "/new", "index", "log", "new.md"])
+def test_new_concept_rejects_invalid_identity(bundle, concept):
+    assert code_of(resolve_new_concept_file, bundle, concept) == "invalid_id"
+
+
+def test_new_concept_missing_parent_is_not_created(bundle):
+    assert code_of(resolve_new_concept_file, bundle, "missing/new") == "not_found"
+    assert not (bundle / "missing").exists()
+
+
+def test_new_concept_parent_link_is_refused(bundle, tmp_path):
+    target = tmp_path / "outside"
+    target.mkdir()
+    make_link(bundle / "link", target)
+    assert code_of(resolve_new_concept_file, bundle, "link/new") == "link"
+    assert not (target / "new.md").exists()
+
+
+def test_new_concept_unreadable_directory_is_not_assumed_empty(bundle, monkeypatch):
+    def denied(path):
+        raise PermissionError("SECRET_SENTINEL")
+
+    from okf_engine import paths
+    monkeypatch.setattr(paths.os, "scandir", denied)
+    assert code_of(resolve_new_concept_file, bundle, "new") == "not_found"
