@@ -10,6 +10,7 @@ import unicodedata
 from pathlib import Path
 
 from okf_engine.conversion import prepare_conversion
+from okf_engine.write_policy import policy_view
 from okf_engine.models import DocumentIdentity, IdentityError, validate_path_segment
 from okf_engine.limits import parse_limits
 from okf_engine.parser import parse_document
@@ -248,8 +249,9 @@ class ProjectTools:
                   "state_candidates": [name for name in ("docs/plan/CURRENT.md", "docs/CURRENT.md", ".vibecoder_context.md")
                                        if (Path(selected.path) / name).is_file()],
                   "audit": audit, "actions": actions, "migration_policy": "advisory", "truncated": False,
+                  "write_policy": policy_view(self.store.snapshot().get("knowledge", {}), selected.path),
                   "current_state": "Wskaż obowiązujący dokument/sekcję stanu; historia nie jest automatycznym selektorem.",
-                  "setup_hint": "Projektowy bundle można dodać w panelu Wiedza: docs, legacy lub mixed. Nie jest włączany automatycznie."}
+                  "setup_hint": "docs/ jest podpinane automatycznie; wyjątki i tryb zapisu ustawisz w panelu Wiedza. Zgodność dopuszcza Markdown; istniejącego poprawnego OKF nie wolno degradować."}
         if len(json.dumps(result, ensure_ascii=False)) > max_chars:
             result["truncated"] = True
             # Ograniczamy treść, nigdy identyfikator lub rewizję. Jawne oznaczenie

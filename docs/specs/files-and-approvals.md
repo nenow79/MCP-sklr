@@ -16,6 +16,8 @@ list_roots/list_directory/read_file/read_files_batch/search_code ograniczają od
 
 edit_file przygotowuje listę dokładnych zmian i wspólny maskowany diff; niejednoznaczne old_text jest błędem. create_file z overwrite wymaga jawnej propozycji; manage_folder obsługuje create/rename. create_tree tworzy strukturę jedną zgodą, bez nadpisywania istniejących plików; limity i ograniczenia: [README](../../README.md).
 
+Dokumentację obejmuje [polityka zapisu OKF](okf-integration/write-policy.md): domyślna zgodność zachowuje obsługę starego Markdown, ale zabrania uszkodzenia już poprawnego OKF. Jawny require_okf wymaga formatu w wybranych podkatalogach również przy zwykłym create/edit i create_tree; rename katalogów przecinających chroniony zakres jest blokowany. Kontrola jest powtarzana po zgodzie i przed wykonaniem.
+
 Zapis ma natychmiastowy task_id, kontrolę snapshotu po decyzji i staging przez FileTransaction. Zachowuje BOM/EOL tam, gdzie kontrakt to przewiduje. Rollback jest best-effort, nie pełną atomowością wieloplikową przy awarii procesu/systemu. committed, rollback_complete i cleanup_complete trzeba rozróżniać; zgoda Allow nie dowodzi sukcesu operacji.
 
 ## Panel i kolejka

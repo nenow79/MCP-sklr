@@ -108,9 +108,27 @@
   <main id="knowledge-view" class="skills-view" hidden>
     <div class="section-head"><h2>Wiedza</h2>
       <button id="knowledge-refresh" type="button" class="btn">Odśwież widok</button></div>
-    <p class="muted">Bundle to zbiór dokumentów. Wybierz istniejący folder z zakładki Foldery.
+    <p class="muted">Dokumentacja docs/ w folderach z zakładki Foldery jest podpinana automatycznie.
+      Możesz ją wyłączyć poniżej. Wiedzę centralną i inne lokalizacje dodaj ręcznie.
       Usunięcie konfiguracji zachowuje pliki. Konwersja Markdown do OKF jest opcjonalna.</p>
     <div id="knowledge-list" class="task-list"></div>
+    <h2>Format dokumentacji projektu</h2>
+    <p class="muted">Starsze projekty domyślnie dopuszczają Markdown. Istniejące poprawne dokumenty OKF
+      są chronione przed utratą formatu w obu trybach. Przed włączeniem wymogu OKF wykonaj audyt
+      i konwersję wybranego zakresu. Zmiana trybu nie konwertuje plików.</p>
+    <form id="knowledge-policy-form" class="root-form">
+      <label>Projekt (root) <select id="knowledge-policy-root" required></select></label>
+      <label>Tryb <select id="knowledge-policy-mode"><option value="compatible">Zgodność: Markdown i OKF</option><option value="require_okf">Wymagaj OKF</option></select></label>
+      <label>Chronione podkatalogi, po jednym w wierszu
+        <textarea id="knowledge-policy-subpaths" rows="3" required>docs</textarea></label>
+      <label>Wyjątki względem roota, po jednym w wierszu
+        <textarea id="knowledge-policy-exclusions" rows="3">docs/archive/
+docs/archives/</textarea></label>
+      <p class="muted">Używaj ścieżek względnych, np. docs/specs/OKF/. Końcowy / oznacza cały katalog.
+        AGENTS.md, index.md i log.md są wyjątkami od wymogu OKF. Wyjątki nie pozwalają uszkodzić już poprawnego OKF.</p>
+      <p id="knowledge-policy-error" class="muted"></p>
+      <button id="knowledge-policy-save" type="submit" class="btn">Zapisz politykę projektu</button>
+    </form>
     <h2>Dodaj zbiór wiedzy</h2>
     <form id="knowledge-form" class="root-form">
       <label>Identyfikator <input type="text" id="knowledge-id" required maxlength="32" pattern="[a-z0-9][a-z0-9_-]{0,31}" placeholder="wiedza-ogolna"></label>

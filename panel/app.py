@@ -139,6 +139,20 @@ def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: Pane
         except Exception:
             return _err("Nie udało się zapisać konfiguracji wiedzy.", 500)
 
+    async def knowledge_policy_change(request):
+        body = await _json_body(request)
+        if body is None:
+            return _err("Oczekiwano obiektu JSON.", 400)
+        try:
+            return _ok(await run_in_threadpool(knowledge.set_project_policy,
+                                               body.get("policy"), body.get("revision")))
+        except KnowledgeConflict as exc:
+            return _err(str(exc), 409)
+        except ValueError as exc:
+            return _err(str(exc), 400)
+        except Exception:
+            return _err("Nie udało się zapisać polityki projektu.", 500)
+
     async def create_session(request: Request) -> JSONResponse:
         body = await _json_body(request)
         token = body.get("token") if body else None
@@ -332,6 +346,7 @@ def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: Pane
     if knowledge is not None:
         routes.extend([Route("/api/knowledge", knowledge_list, methods=["GET"]),
                        Route("/api/knowledge", knowledge_change, methods=["POST"]),
+                       Route("/api/knowledge/policy", knowledge_policy_change, methods=["POST"]),
                        Route("/api/knowledge/{key}/{action}", knowledge_change, methods=["POST"])])
     if static_path.is_dir():
         routes.append(Mount("/static", app=StaticFiles(directory=str(static_path)), name="static"))

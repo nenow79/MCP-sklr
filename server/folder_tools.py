@@ -26,6 +26,7 @@ from server.file_transaction import WRITE_LOCK
 from server.path_guard import PathError, ResolvedPath, resolve_path
 from tasks.manager import QueueFullError, TaskManager, TaskStateError
 from tasks.models import TaskStatus
+from okf_engine.write_policy import validate_directory_rename, WritePolicyError
 
 KIND_FOLDER = "folder"
 ACTIONS = ("create", "rename")
@@ -173,11 +174,16 @@ def _build_rename(registry: RootsRegistry, path: Any, new_name: Any, root: Any,
     destination = src.parent / name
     if _norm(destination) == _norm(src):
         raise FolderError("Nowa nazwa jest taka sama (zmiana samej wielkości liter nie jest obsługiwana).")
-    target = resolve_path(registry, str(destination), source.root.alias, write=True)
+    relative_target = destination.relative_to(Path(source.root.path)).as_posix()
+    target = resolve_path(registry, relative_target, source.root.alias, write=True)
     if target.path != destination:
         raise FolderError("Nowa nazwa nie wskazuje bezpośrednio w ten sam katalog nadrzędny.")
     if os.path.lexists(destination):
         raise FolderError("Cel już istnieje; rename nie nadpisuje.")
+    try:
+        validate_directory_rename(registry.config_snapshot().get("knowledge", {}), registry.list(), src, destination)
+    except WritePolicyError as exc:
+        raise FolderError(str(exc)) from None
     return FolderPlan("rename", src, destination, (info.st_dev, info.st_ino), source.root, source.owner,
                       target.owner, f"{source.root.alias}:{source.relative}",
                       f"{target.root.alias}:{target.relative}",

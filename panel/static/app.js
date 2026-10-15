@@ -810,7 +810,7 @@
     });
   }
 
-  // --- wiedza: konfiguracja po świadomej akcji w uwierzytelnionym panelu ---
+  // --- wiedza: automatyczne docs i ręczna konfiguracja w uwierzytelnionym panelu ---
   var knowledgeData = null;
   var knowledgeBusy = false;
 
@@ -823,20 +823,24 @@
       var card = el("article", {className: "task-card"});
       card.appendChild(el("h3", {text: visibleText(bundle.label + " (" + (bundle.id || "niepoprawny wpis") + ")")}));
       card.appendChild(el("p", {text: visibleText(bundle.description)}));
+      if (bundle.automatic) { card.appendChild(el("p", {text: "Wykryto automatycznie z folderu projektu."})); }
       card.appendChild(el("p", {text: visibleText((bundle.scope || "?") + " / " + (bundle.profile || "?") +
         " / " + (bundle.root || "?") + ":" + (bundle.subpath || "."))}));
       card.appendChild(el("p", {text: bundle.available ?
         "Dostępny, " + (bundle.writable ? "zapis możliwy" : "tylko odczyt") :
         "Niedostępny: " + visibleText(bundle.reason + (bundle.detail ? " / " + bundle.detail : ""))}));
       card.appendChild(el("p", {text: "Indeks: " + bundle.index_state + ", dokumenty: " + bundle.indexed_documents}));
-      var toggle = el("button", {type: "button", className: "btn", text: bundle.enabled ? "Wyłącz" : "Włącz",
+      var toggle = el("button", {type: "button", className: "btn", text: bundle.automatic ?
+        (bundle.enabled ? "Wyłącz automatyczne docs" : "Włącz automatyczne docs") : (bundle.enabled ? "Wyłącz" : "Włącz"),
         onclick: function () { changeKnowledge(bundle.key, "enabled", {enabled: !bundle.enabled}); }});
       var remove = el("button", {type: "button", className: "btn", text: "Usuń konfigurację",
         onclick: function () { changeKnowledge(bundle.key, "remove", {}); }});
       var scan = el("button", {type: "button", className: "btn", text: "Odśwież indeks",
         onclick: function () { changeKnowledge(bundle.key, "refresh", {}); }});
       scan.disabled = !bundle.available;
-      card.appendChild(toggle); card.appendChild(scan); card.appendChild(remove); list.appendChild(card);
+      card.appendChild(toggle); card.appendChild(scan);
+      if (!bundle.automatic) { card.appendChild(remove); }
+      list.appendChild(card);
     });
     var select = $("knowledge-root");
     var selected = select.value;
@@ -846,6 +850,44 @@
       option.value = root.alias; select.appendChild(option);
     });
     if (data.roots.some(function (root) { return root.alias === selected; })) { select.value = selected; }
+    var policyRoot = $("knowledge-policy-root");
+    var previous = policyRoot.value;
+    policyRoot.textContent = "";
+    data.roots.forEach(function (root) {
+      var option = el("option", {text: root.alias});
+      option.value = root.alias; policyRoot.appendChild(option);
+    });
+    if (data.roots.some(function (root) { return root.alias === previous; })) { policyRoot.value = previous; }
+    renderKnowledgePolicy();
+  }
+
+  function renderKnowledgePolicy() {
+    if (!knowledgeData) { return; }
+    var root = knowledgeData.roots.filter(function (item) { return item.alias === $("knowledge-policy-root").value; })[0];
+    var policy = root && root.write_policy;
+    $("knowledge-policy-save").disabled = !root;
+    $("knowledge-policy-mode").value = policy && policy.mode === "require_okf" ? "require_okf" : "compatible";
+    $("knowledge-policy-subpaths").value = (policy ? policy.subpaths : ["docs"]).join("\n");
+    $("knowledge-policy-exclusions").value = (policy ? policy.exclusions : ["docs/archive/", "docs/archives/"]).join("\n");
+    $("knowledge-policy-error").textContent = policy && policy.error ? policy.error : "";
+  }
+
+  function submitKnowledgePolicy(event) {
+    event.preventDefault();
+    if (knowledgeBusy || !knowledgeData) { return; }
+    function lines(id) {
+      return $(id).value.split(/\r?\n/).map(function (line) { return line.trim(); }).filter(Boolean);
+    }
+    var proposal = {root: $("knowledge-policy-root").value, mode: $("knowledge-policy-mode").value,
+      subpaths: lines("knowledge-policy-subpaths"), exclusions: lines("knowledge-policy-exclusions")};
+    knowledgeBusy = true;
+    $("knowledge-policy-save").disabled = true;
+    return api("POST", "/api/knowledge/policy", {policy: proposal, revision: knowledgeData.revision}).then(function (res) {
+      if (res.status === 401) { authFailed(); return; }
+      if (!res.json.success) { showBanner(res.json.error || "Nie udało się zapisać polityki.", false); return; }
+      renderKnowledge(res.json.data); hideBanner();
+    }).catch(function () { showBanner("Nie udało się zapisać polityki projektu.", false); })
+      .then(function () { knowledgeBusy = false; $("knowledge-policy-save").disabled = !knowledgeData.roots.length; });
   }
 
   function refreshKnowledge() {
@@ -912,6 +954,8 @@
       $("tab-knowledge").addEventListener("click", function () { showTab("knowledge"); });
       $("knowledge-refresh").addEventListener("click", refreshKnowledge);
       $("knowledge-form").addEventListener("submit", submitKnowledge);
+      $("knowledge-policy-form").addEventListener("submit", submitKnowledgePolicy);
+      $("knowledge-policy-root").addEventListener("change", renderKnowledgePolicy);
       $("knowledge-scope").addEventListener("change", function () { knowledgeProfileChanged(true); });
       $("knowledge-profile").addEventListener("change", function () { knowledgeProfileChanged(false); });
       if ($("knowledge-profile").options) { knowledgeProfileChanged(true); }

@@ -7,7 +7,7 @@ Mapa i pozostałe kontrakty: [obsługa OKF](../okf-support.md). Standard formatu
 
 Indeks powstaje tylko z enabled/dostępnych bundles, wyłącznie z publicznego widoku. Skany pomijają symlinki/junctions i kontrolują wszystkie przodki katalogu oraz finalne ścieżki, nie tylko wynik scandir. HMAC/private digest może służyć wyłącznie kontroli rewizji, nie rankingowi. Snapshot/parse raw nie jest trwałym cache wiedzy.
 
-C2 uruchamia pełne odświeżanie asynchronicznie przez TaskManager, kind=knowledge_refresh, needs_approval=false: użytkownik wcześniej włączył odczyt bundle. Zadanie nie uruchamia skryptu ani sieci. Do payload/stdout trafiają wyłącznie bezpieczne metadane stanu/liczniki. Query i znalezione treści nie są przechowywane w zadaniu. Wyniki wyszukiwania pobieramy ponownym knowledge_search po zakończeniu skanu, nie z trwałego stdout.
+C2 uruchamia pełne odświeżanie asynchronicznie przez TaskManager, kind=knowledge_refresh, needs_approval=false: użytkownik włączył odczyt bundle lub zatwierdził root z automatycznie podpinanym docs. Zadanie nie uruchamia skryptu ani sieci. Do payload/stdout trafiają wyłącznie bezpieczne metadane stanu/liczniki. Query i znalezione treści nie są przechowywane w zadaniu. Wyniki wyszukiwania pobieramy ponownym knowledge_search po zakończeniu skanu, nie z trwałego stdout.
 
 Reguły refresh w search:
 - auto: dla empty lub skanu starszego niż refresh_after_s planuje odświeżanie (najwyżej jedno na bundle). Może zwrócić poprzedni publiczny indeks z indexed_at/refreshing. Jeśli brak indeksu, results=[], partial=true i task_id; agent czeka przez istniejące get_task/wait_task i ponawia search.

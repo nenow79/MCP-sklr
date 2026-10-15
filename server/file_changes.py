@@ -22,6 +22,7 @@ from roots_registry import RootsRegistry
 from server.file_tools import _eol
 from server.path_guard import ResolvedPath, resolve_path
 from server.secrets_mask import is_blocked_secret, is_secret_file, mask_text
+from okf_engine.write_policy import WritePolicyError, validate_document
 
 MAX_CHANGES = 50
 MAX_FILES = 10
@@ -51,6 +52,22 @@ class SnapshotError(ChangeError):
     def __init__(self, code: str):
         super().__init__(code)
         self.code = code
+
+
+def validate_document_changes(registry, files):
+    """Wspólna kontrola przygotowania i wykonania, bez zapisu i bez preview treści."""
+    knowledge = registry.config_snapshot().get("knowledge", {})
+    roots = registry.list()
+    try:
+        for item in files:
+            paths = {item.path}
+            for binding in item.bindings:
+                paths.add(Path(os.path.normpath(str(Path(binding.root.path) / binding.filepath))))
+            for path in paths:
+                validate_document(knowledge, roots, path,
+                                  item.before.raw if item.before else None, item.after)
+    except WritePolicyError as exc:
+        raise ChangeError(str(exc)) from None
 
 
 def _key(path: Path) -> str:
@@ -313,6 +330,7 @@ def prepare_exact_write(registry: RootsRegistry, filepath: str, content: bytes, 
     item = PreparedFile((binding,), before, content, text, "utf-8", bom,
                         hashlib.sha256(content).hexdigest(), False,
                         SensitivePolicy().reasons(resolved))
+    validate_document_changes(registry, (item,))
     return PreparedChanges((item,))
 
 
@@ -468,6 +486,7 @@ def prepare_edit(registry: RootsRegistry, changes: Any, root: Any = None, *,
         groups[key] = _file(bindings, before, text, adjusted or changed_eol,
                             reasons + policy.reasons(resolved))
         _totals(tuple(groups.values()))
+    validate_document_changes(registry, tuple(groups.values()))
     return PreparedChanges(tuple(groups.values()))
 
 
@@ -492,4 +511,5 @@ def prepare_write(registry: RootsRegistry, filepath: Any, content: Any,
     text, adjusted = _insert(text, before.eol) if before else (text, False)
     item = _file((binding,), before, text, adjusted, policy.reasons(resolved))
     _totals((item,))
+    validate_document_changes(registry, (item,))
     return PreparedChanges((item,))

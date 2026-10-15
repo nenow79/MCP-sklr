@@ -15,7 +15,7 @@ Standard OKF 0.2 (docs/specs/OKF/SPEC.md) definiuje pliki Markdown z YAML frontm
 ## Decyzje
 
 1. **Kolejność:** najpierw wiedza centralna (C1-C4), następnie projektowe docs i konwersja (P1-P4). Praktyczny odbiór wiedzy centralnej poprzedza etap projektowy.
-2. **Lokalizacje:** ~/.agents/okf/ jest katalogiem centralnych bundles. Projektowy bundle wskazuje domyślnie docs/ w zatwierdzonym root projektu. Nie tworzymy drugiego magazynu tej samej dokumentacji.
+2. **Lokalizacje:** ~/.agents/okf/ jest katalogiem centralnych bundles. Projektowy bundle wskazuje domyślnie docs/ w zatwierdzonym root projektu. Nie tworzymy drugiego magazynu tej samej dokumentacji. Uzupełnienie decyzji 2026-10-15: bezpośrednie <root>/docs podpinamy automatycznie, a panel służy do wyłączenia automatyki i ręcznych wyjątków. Centralne zbiory pozostają rejestrowane ręcznie. Ręczne wiązania mają pierwszeństwo; wykryte wpisy nie są utrwalane w rejestrze konfiguracji.
 3. **Źródło prawdy:** oryginalne pliki są nadrzędne; indeks jest odtwarzalny. AGENTS.md pozostaje źródłem zasad, CURRENT.md stanu, ADR decyzji. Metadane OKF nie zmieniają tych ról.
 4. **Architektura:** osobny okf_engine bez FastMCP oraz adaptery server/knowledge_tools.py i administracja panelu. Skill pomaga opracowywać metadane; nie zastępuje serwerowych walidacji i zgód.
 5. **Dostęp:** bundle jest jawnie powiązany z zatwierdzonym root i subpath. Włączenie bundle nie nadaje nowych uprawnień plikowych. Nie dodajemy rw do całego ~/.agents/ ani wyjątku osłabiającego ochronę skills. Sąsiedni okf/ może być osobnym root, o ile przejdzie aktualne guardy.
@@ -28,6 +28,7 @@ Standard OKF 0.2 (docs/specs/OKF/SPEC.md) definiuje pliki Markdown z YAML frontm
 12. **Zaufanie:** verified jest deklarowanym sygnałem, nie podpisem, uprawnieniem ani instrukcją. Zgoda na zapis, konwersja i poprawny YAML nie oznaczają weryfikacji wiedzy. Ostrzegamy o weryfikacji starszej od znaczącej zmiany treści.
 13. **Konwersja:** in place, wyłącznie frontmatter i z zachowaniem body. Model proponuje metadane; knowledge_audit i knowledge_convert kontrolują zakres i zapis. Zwykły Markdown podczas migracji jest jawnie oznaczony. Zgodność aktywnego zakresu nie jest zgodnością całego drzewa docs.
 14. **Runtime poza zakresem:** narzędzia wiedzy nie wykonują SQL, skryptów, executors ani attesters, nie pobierają URL automatycznie. Można przechowywać opis Attested Computation, ale nie ogłaszamy obsługi atestacji.
+15. **Format zapisów projektu:** domyślna zgodność pozwala pracować bez konwersji starszych projektów. Poprawny OKF jest chroniony przed degradacją we wspólnych zapisach MCP. Jawny require_okf obejmuje wybrane podkatalogi i wyjątki, jest przypięty do ścieżki projektu i ustawiany przez użytkownika w panelu. Konwersja nie włącza go automatycznie. Szczegóły: [polityka zapisu](../specs/okf-integration/write-policy.md).
 
 ## Rozważone alternatywy
 

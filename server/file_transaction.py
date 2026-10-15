@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from roots_registry import RootsRegistry
-from server.file_changes import PreparedChanges, PreparedFile, read_snapshot
+from server.file_changes import PreparedChanges, PreparedFile, read_snapshot, validate_document_changes
 from server.path_guard import resolve_path
 
 WRITE_LOCK = threading.RLock()  # wspólny dla wszystkich instancji w procesie
@@ -89,6 +89,8 @@ class FileTransaction:
 
     def _validate(self, item: PreparedFile, published: Optional[_Temp] = None) -> None:
         self._paths(item)
+        if published is None:  # rollback musi móc przywrócić poprzednie bajty
+            validate_document_changes(self.registry, (item,))
         try:
             info = item.path.lstat()
         except FileNotFoundError:

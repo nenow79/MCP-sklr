@@ -12,7 +12,7 @@ from pathlib import Path
 from server.edit_tools import (check_description, _diff_text, _file_meta, WAIT_HINT,
                                PANEL_DOWN_ERROR, INTERNAL_ERROR, TASK_TIMEOUT)
 from server.file_changes import (ChangeError, PreparedChanges, SensitivePolicy,
-                                 _binding, _file, _text, _totals)
+                                 _binding, _file, _text, _totals, validate_document_changes)
 from server.folder_tools import _lexical, _is_link, _roots_guard
 from server.file_transaction import WRITE_LOCK
 from server.path_guard import resolve_path
@@ -73,7 +73,8 @@ def prepare_tree(registry, directories, files, root=None, policy=None):
 
     def directory(path, alias):
         while True:
-            item = _guard(registry, str(path), alias)
+            relative = path.relative_to(Path(registry.resolve(alias).path)).as_posix()
+            item = _guard(registry, relative, alias)
             if os.path.lexists(path):
                 info = path.lstat()
                 if not stat.S_ISDIR(info.st_mode):
@@ -107,6 +108,7 @@ def prepare_tree(registry, directories, files, root=None, policy=None):
         raise ChangeError("Ta sama ścieżka jest plikiem i katalogiem.")
     if not missing and not prepared:
         raise ChangeError("Brak zmian: wszystkie katalogi już istnieją.")
+    validate_document_changes(registry, prepared)
     return TreePlan(tuple((p, *missing[p]) for p in sorted(missing, key=lambda p: (len(p.parts), str(p)))),
                     tuple(sorted(anchors.items(), key=lambda x: str(x[0]))), tuple(bindings),
                     PreparedChanges(tuple(prepared)), tuple(sorted(set(reasons))))
@@ -139,7 +141,8 @@ def _executor(registry, config_lock, args, plan):
             def check(path, alias):
                 if cancel_event.is_set():
                     raise InterruptedError()
-                if _guard(registry, str(path), alias).path != path:
+                relative = path.relative_to(Path(registry.resolve(alias).path)).as_posix()
+                if _guard(registry, relative, alias).path != path:
                     raise ChangeError("Ścieżka zmieniła się podczas zapisu.")
                 expected = dict(plan.anchors)
                 expected.update(created_dirs)

@@ -1,6 +1,6 @@
 # OKF: bundles, konfiguracja i panel
 
-Kontrakt lokalny sklr dla implementacji w `e6cee29`; odbiór i ograniczenia testów: [CURRENT](../../plan/CURRENT.md).
+Kontrakt lokalny sklr (baza `e6cee29`, rozszerzona o automatyczne docs); odbiór i ograniczenia testów: [CURRENT](../../plan/CURRENT.md).
 Mapa i pozostałe kontrakty: [obsługa OKF](../okf-support.md). Standard formatu: [OKF 0.2](../OKF/SPEC.md).
 
 ## 1. Zakres i architektura
@@ -38,6 +38,7 @@ Domyślny profil sekcji knowledge (przykład, nie polecenie zmiany lokalnej konf
   "knowledge": {
     "central_dir": "~/.agents/okf",
     "bundles": [],
+    "project_docs_disabled": [],
     "limits": {
       "max_bundles": 20,
       "max_documents_per_bundle": 5000,
@@ -91,7 +92,17 @@ Wszystkie wartości powyżej są int, bez bool. max_sections_per_document=2000 p
 
 root_path jest przypiętą kanoniczną ścieżką roota zapisywaną przez administrację po walidacji. Zapobiega cichej zmianie przeznaczenia bundle po usunięciu/reutworzeniu aliasu roota pod inną ścieżką. UI przyjmuje root alias, nie dowolne root_path od modelu; serwer wylicza root_path. subpath jest względny POSIX; puste oznacza katalog roota. Id/label/description muszą być ograniczone (32/200/1000 znaków) i bez sterujących/bidi w polach jednoliniowych. Nowy wpis jest domyślnie wyłączony, użytkownik może jawnie włączyć go w panelu.
 
-Scope central i project są aktywne w kandydacie Windows zgodnie z [kontraktem projektu](project-and-conversion.md). Nie skanujemy automatycznie wszystkich projektów; rejestr ma globalnie unikalne ids, bez reguły project > central.
+Scope central i project są aktywne zgodnie z [kontraktem projektu](project-and-conversion.md). Dla zatwierdzonych roots wykrywamy wyłącznie bezpośredni `<root>/docs`; nie szukamy rekurencyjnie projektów ani innych katalogów docs. Rejestr ma globalnie unikalne ids, bez reguły project > central.
+
+### Automatyczna dokumentacja projektu
+
+Przy utworzeniu serwisu oraz przed operacjami wiedzy i odczytem panelu powstaje efektywny rejestr: wpisy ręczne z konfiguracji, a następnie wykryte projektowe docs. Wykrywanie sprawdza istnienie ścieżki, bez czytania dokumentów. Automatyczny wpis ma scope=project, profile=docs, subpath=docs i domyślnie enabled=true. Nie zapisujemy go do `knowledge.bundles`, nie tworzymy katalogów i nie konwertujemy plików. Indeksowanie pozostaje odczytowym zadaniem na żądanie.
+
+Id jest wyliczane z przypiętej ścieżki roota; zmiana aliasu zachowuje tożsamość projektu. Kolizja z ręcznym id dostaje deterministyczny alternatywny identyfikator. Ręczne wiązanie z aktualnym root_path ma pierwszeństwo w całym nakładającym się zakresie, również gdy jest wyłączone. Usunięcie ręcznego wpisu może ponownie odsłonić automatyczne docs.
+
+Panel oznacza takie źródła jako automatic i używa klucza `auto:<bundle_id>`. Dostępne operacje to enabled i refresh; nie ma remove automatycznego wpisu. Przełącznik utrwala jedynie listę ścieżek projektów w `knowledge.project_docs_disabled`. Wyłączenie przeżywa restart, zmianę aliasu i czasowe zniknięcie docs. Inny katalog pod dawnym aliasem nie dziedziczy wyłączenia. Niepoprawny typ listy/elementu wstrzymuje automatyczne wykrywanie, zachowując obsługę wpisów ręcznych.
+
+Usunięcie roota lub docs usuwa automatyczny wpis i jego indeks przy następnej operacji wiedzy; przed nią nie ma gwarancji wykrycia zmiany. Ponowne pojawienie się docs przywraca wpis z pustym indeksem. Nadal obowiązują limity, ochrona skills, zakaz symlinków/junctionów, maskowanie, tryby roots i osobna zgoda na zapis. Nie ma watcherów. Przy braku docs zachowana preferencja wyłączenia nie jest wyświetlana jako osobne źródło.
 
 ### 3.3 Administracja
 

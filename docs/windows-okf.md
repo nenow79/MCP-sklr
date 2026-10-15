@@ -7,6 +7,9 @@ nie deklaracja zweryfikowanego wdrożenia na Windows.
 
 - Panel Wiedza: dodanie konfiguracji bundle, wyłączenie/włączenie, usunięcie
   konfiguracji bez usuwania plików, diagnostyka i odświeżenie indeksu.
+- Bezpośrednie <root>/docs podpina się automatycznie przy starcie i przed użyciem
+  wiedzy. Panel umożliwia wyłączenie przypięte do ścieżki projektu. Ręczne wpisy
+  zachowują pierwszeństwo; nie tworzymy dokumentów ani metadanych.
 - knowledge_bundles/search/get/save: centralne oraz projektowe zbiory. Odczyt
   outline/sekcji/dokumentu, maskowanie, rewizje i zapis po zgodzie w panelu.
 - Profile project: docs (jawny podkatalog, zwykle docs), legacy (dokładnie dwa
@@ -17,6 +20,10 @@ nie deklaracja zweryfikowanego wdrożenia na Windows.
   Inny projekt wybieramy jawnie przez bundle_id. Nie ma przesłaniania wyników.
 - Projektowy Markdown bez frontmattera ma format=markdown, type=unknown,
   metadata={} i warning unconverted. Można go czytać i wyszukiwać od razu.
+- Polityka zapisu: domyślny compatible zachowuje obsługę starszych projektów.
+  W obu trybach poprawny OKF jest chroniony przed degradacją. W panelu można
+  jawnie włączyć require_okf dla wybranych podkatalogów z wyjątkami; konwersja
+  nie włącza tego trybu. [Kontrakt i granice](specs/okf-integration/write-policy.md).
 - prepare_project zwraca root/nested AGENTS, rewizje, jawne oznaczenie skróconych
   instrukcji, kandydatów pliku stanu, audyt i szablon brakującego AGENTS.
   create_agents=true tworzy zadanie do zgody; nie nadpisuje istniejących zasad.
@@ -25,7 +32,7 @@ nie deklaracja zweryfikowanego wdrożenia na Windows.
   10 plików, każdy ograniczony limitem dokumentu. Body zachowane byte-for-byte,
   BOM i EOL zachowane. Istniejący YAML/komentarze nie są zastępowane dumpem.
 
-Polityka przygotowania i migracji jest **advisory**. Serwer przypomina o AGENTS,
+Polityka przygotowania i migracji jest **advisory**. Domyślny tryb zgodności nie wymaga konwersji; jawny require_okf kontroluje wyniki zapisu wskazanego zakresu. Serwer przypomina o AGENTS,
 lecz nie blokuje zwykłych odczytów, zapisów i skryptów z powodu braku pliku lub
 konwersji. Stare projekty można dalej obsługiwać dotychczasowymi narzędziami.
 Brak MCP-harnessowej gwarancji, że LLM przeczyta lub zrozumie instrukcje.
@@ -59,7 +66,8 @@ git pull --ff-only
 .\venv\Scripts\Activate.ps1
 python --version
 python -m pip check
-python -m pytest tests/test_project_knowledge.py tests/test_project_tools_registration.py tests/test_panel_static.py tests/test_panel_api.py tests/test_panel_roots.py tests/test_panel_skills.py -q -rs
+python -m pytest tests/test_okf_discovery.py tests/test_project_knowledge.py tests/test_project_tools_registration.py tests/test_panel_static.py tests/test_panel_api.py tests/test_panel_roots.py tests/test_panel_skills.py -q -rs
+python -m pytest tests/test_okf_write_policy.py tests/test_file_changes.py tests/test_file_transaction.py tests/test_edit_tools.py tests/test_tree_tools.py tests/test_folder_tools.py tests/test_roots_registry.py -q -rs
 python -m pytest tests/test_okf_bundles.py tests/test_okf_documents.py tests/test_okf_scanner.py tests/test_okf_search.py tests/test_okf_service.py tests/test_knowledge_tools.py tests/test_knowledge_tools_registration.py tests/test_knowledge_write_tools.py tests/test_knowledge_write_registration.py tests/test_secret_tools_registration.py -q -rs
 python -m pytest tests/test_file_transaction.py tests/test_file_changes.py tests/test_okf_paths.py tests/test_okf_writer.py tests/test_okf_preview.py tests/test_okf_parser.py tests/test_okf_public_view.py -q -rs
 ```
@@ -87,8 +95,11 @@ Agent nie uruchamiał pytest, Node ani serwera.
 1. Panel Foldery: upewnij się, że Windows roots i ich tryby są aktualne.
    Dodaj wąski root dla istniejącego katalogu ~/.agents/okf, jeśli chcesz wiedzę
    centralną. Nie nadawaj dostępu rw do całego ~/.agents.
-2. Panel Wiedza: dodaj centralny bundle w istniejącym podkatalogu oraz testowy
-   projektowy bundle. Dla docs wybierz subpath=docs; dla legacy/mixed pusty.
+2. Panel Wiedza: dodaj centralny bundle w istniejącym podkatalogu. Projekt z docs/
+   ma pojawić się automatycznie. Wyłącz/włącz go, zmień alias i zrestartuj serwer:
+   preferencja ma pozostać. Usuń root: źródło i wyniki mają zniknąć przy następnym
+   użyciu wiedzy. Sprawdź też zniknięcie/powrót docs oraz docs utworzone po starcie.
+   Dla ręcznego projektowego bundle docs wybierz subpath=docs; dla legacy/mixed pusty.
    Sprawdź odrzucenie duplikatu, overlap i brakującego roota oraz diagnostykę.
 3. knowledge_save create -> task_id -> Allow -> get_task. Następnie search
    (odczekaj task odświeżenia) -> get outline -> get section z expected_revision.
@@ -98,7 +109,7 @@ Agent nie uruchamiał pytest, Node ani serwera.
 5. W testowym projekcie z docs albo dwoma .vibecoder_* wywołaj prepare_project.
    Sprawdź root/nested AGENTS i warningi skrócenia. Brak AGENTS ma dać propozycję,
    bez automatycznego zapisu; create_agents=true wymaga Allow w panelu.
-6. Dodaj bundle project z właściwym profilem. Wyszukaj zwykły Markdown przed
+6. Użyj automatycznego docs lub ręcznego bundle project z właściwym profilem. Wyszukaj zwykły Markdown przed
    konwersją: ma być format=markdown, bez zmyślonego typu lub weryfikacji.
 7. knowledge_audit: wybierz convertible=true, zaproponuj metadata_yaml, przekaż
    filepath i expected_revision do knowledge_convert. Sprawdź diff, najpierw
@@ -108,5 +119,16 @@ Agent nie uruchamiał pytest, Node ani serwera.
    Jawny bundle_id pozwala wrócić do innego włączonego projektu.
 9. Zrestartuj MCP: nowe rewizje, pusty indeks odbudowany przez task; stare plany
    nie są wznawiane z bazy. Po cleanup failure sprawdź committed i plik przed retry.
+10. W starym projekcie pozostaw compatible: zwykły Markdown ma dać się czytać,
+    tworzyć i edytować. Przekonwertuj jeden dokument: usunięcie frontmattera przez
+    edit_file/create_file ma być odrzucone, a tworzenie kolejnego zwykłego Markdown
+    nadal dozwolone. Konwersja nie może zmienić trybu.
+11. W panelu ustaw require_okf, wybierz podkatalogi i wyjątki. Zwykły create/edit/tree
+    w zakresie ma być odrzucony; poprawny OKF i zwykły Markdown w wyjątkach mają
+    działać. Wyjątek nie pozwala degradować już poprawnego OKF. Odczyt starego
+    Markdown działa także w require_okf. Sprawdź trwałość po restarcie i zmianie aliasu.
+12. Przygotuj zapis Markdown w compatible, następnie przed Allow włącz require_okf:
+    zapis ma zostać odrzucony. Powrót do compatible przywraca zwykły zapis Markdown,
+    lecz nadal chroni już poprawny OKF. Rename przecinający zakres require_okf jest blokowany.
 
 Używaj sztucznych plików. Prawdziwy bundle i zakres danych wybierasz sam w panelu.

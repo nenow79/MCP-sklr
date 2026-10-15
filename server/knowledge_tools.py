@@ -6,6 +6,7 @@ przechwytuje także nieoczekiwane wyjątki przed ogólnym loggerem kolejki.
 import json
 
 from okf_engine.bundles import evaluate_bundles
+from okf_engine.discovery import effective_knowledge
 from okf_engine.documents import DocumentError
 from okf_engine.limits import parse_limits
 from okf_engine.search import SearchError
@@ -55,12 +56,13 @@ class RefreshQueue:
 
 
 def create_service(config_store, roots, manager, panel_available, **kwargs):
-    """Jeden serwis/signer na proces; fabryka nie skanuje i nie zapisuje configu."""
+    """Jeden serwis/signer na proces; wykrywa docs bez skanu treści i zapisu configu."""
     def source():
         with config_store.lock:
             config = config_store.snapshot()
             knowledge = config.get("knowledge", {})
             root_list = roots.list()
+            knowledge = effective_knowledge(knowledge, root_list)
             skills = resolve_central_skills_dir(config)
             limits, _ = parse_limits(knowledge.get("limits", {}) if isinstance(knowledge, dict) else None)
             states = evaluate_bundles(knowledge, root_list, skills, allow_project=True)
@@ -76,9 +78,11 @@ def create_service(config_store, roots, manager, panel_available, **kwargs):
             return resolved.path == path and str(resolved.root.path) == state.entry.root_path
 
     queue = RefreshQueue(manager, panel_available)
-    return KnowledgeService(source, authorize, queue.submit, queue.status,
-                            lock=config_store.lock,
-                            active_project=lambda: roots.default().alias if roots.default() else None, **kwargs)
+    service = KnowledgeService(source, authorize, queue.submit, queue.status,
+                               lock=config_store.lock,
+                               active_project=lambda: roots.default().alias if roots.default() else None, **kwargs)
+    service.bundles()  # wykrycie przy starcie; indeks dopiero na żądanie
+    return service
 
 
 def _call(operation, *args, **kwargs):

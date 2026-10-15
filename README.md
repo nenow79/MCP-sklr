@@ -5,7 +5,9 @@ Nowy lokalny serwer MCP oparty na standardzie Agent Skills. Zasady: [AGENTS.md](
 Wersja OKF: panel **Wiedza**, centralne i projektowe bundles, search/get/save,
 `prepare_project`, audyt i opcjonalna konwersja `docs/` oraz plików `.vibecoder_*`.
 Zwykły Markdown projektu można wyszukiwać i czytać przed konwersją. Brak AGENTS
-lub konwersji nie blokuje narzędzi; przygotowanie projektu podaje instrukcje i propozycje.
+lub konwersji nie blokuje narzędzi w domyślnym trybie zgodności. Panel pozwala jawnie
+wymagać OKF w wybranym zakresie; poprawne dokumenty OKF są chronione przed utratą formatu.
+Szczegóły: [polityka zapisu](docs/specs/okf-integration/write-policy.md).
 Aktualizacja i końcowe testy na Windows: [docs/windows-okf.md](docs/windows-okf.md).
 
 ## Uruchomienie

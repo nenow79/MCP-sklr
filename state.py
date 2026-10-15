@@ -49,11 +49,13 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     },
     "references": {},
     "external_mcp": {},
-    # Wiedza OKF (C1b). Bez bundles i bez dostępu do dysku; wpisy dodaje administracja (C3).
+    # Ręczne bundles plus automatyczne <root>/docs; wyłączenia przypięte do ścieżki projektu.
     # Limity = profil v1 z docs/specs/okf-support.md (sekcja 3.1); walidacja w okf_engine/limits.py.
     "knowledge": {
         "central_dir": "~/.agents/okf",
         "bundles": [],
+        "project_docs_disabled": [],
+        "project_write_policies": [],
         "limits": {
             "max_bundles": 20,
             "max_documents_per_bundle": 5000,

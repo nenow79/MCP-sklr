@@ -6,6 +6,7 @@ Zacznij od [AGENTS](../AGENTS.md) i krótkiego [CURRENT](plan/CURRENT.md). Otwar
 |---|---|
 | Uruchomienie i narzędzia bazowe | [README projektu](../README.md) |
 | Aktualizacja i odbiór Windows | [Windows OKF](windows-okf.md) |
+| Migracja starego projektu z plików .vibecoder do docs/ i OKF | [Instrukcja migracji](migracja-projektu-legacy-do-okf.md) |
 | API wiedzy, panel, parser, bezpieczeństwo, konwersja | [Mapa lokalnych kontraktów OKF](specs/okf-support.md), potem jeden wybrany temat |
 | Format OKF 0.2 | [Mapa standardu](specs/OKF/SPEC.md), potem wybrany rozdział |
 | Skills i zaufanie | [Obsługa skills](specs/skills-support.md) |

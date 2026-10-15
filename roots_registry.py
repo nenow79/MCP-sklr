@@ -125,6 +125,10 @@ class RootsRegistry:
             logger.exception("Słuchacz zmiany domyślnego folderu zgłosił błąd")
 
     # --- odczyt ---
+    def config_snapshot(self) -> Dict[str, Any]:
+        """Prywatna dla serwera kopia konfiguracji dla wspólnych polityk zapisów."""
+        return self._store.snapshot()
+
     def _parsed(self) -> List[Tuple[int, Root]]:
         with self._store.lock:
             return _parse(list(_peek(self._store.data)))

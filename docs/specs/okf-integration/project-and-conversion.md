@@ -1,6 +1,6 @@
 # OKF: projekt, przygotowanie i konwersja
 
-Kontrakt lokalny sklr dla implementacji w `e6cee29`; odbiór i ograniczenia testów: [CURRENT](../../plan/CURRENT.md).
+Kontrakt lokalny sklr (baza `e6cee29`, rozszerzona o automatyczne docs); odbiór i ograniczenia testów: [CURRENT](../../plan/CURRENT.md).
 Mapa i pozostałe kontrakty: [obsługa OKF](../okf-support.md). Standard formatu: [OKF 0.2](../OKF/SPEC.md).
 
 
@@ -19,7 +19,11 @@ Mapa i pozostałe kontrakty: [obsługa OKF](../okf-support.md). Standard formatu
 - Panel /api/knowledge używa dotychczasowej sesji/Host/Origin. Operacje konfiguracji
   wymagają aktualnej opaque revision konfiguracji; root_path jest przypinane przez
   serwer, nie nadawane przez LLM. Remove usuwa tylko wpis, nie pliki. Refresh jest
-  zadaniem odczytowym istniejącej kolejki. Domyślnie nadal brak nowych bundles/roots.
+  zadaniem odczytowym istniejącej kolejki. Nie tworzymy roots ani trwałych bundles.
+  Bezpośrednie <root>/docs jest automatycznym źródłem projektowym, bez konwersji
+  i dodatkowej rejestracji. Ręczne wpisy zachowują pierwszeństwo; wyłączenie
+  automatyki w panelu jest przypięte do ścieżki projektu. Szczegóły:
+  [bundles i panel](bundles-and-panel.md#automatyczna-dokumentacja-projektu).
 - prepare_project(root=null, subpath="", max_chars=12000, create_agents=false)
   dostarcza root/nested AGENTS, rewizje, audyt, kandydatów stanu i propozycję
   brakującego AGENTS. Nie zgaduje aktualnego checkpointu. Flagi truncated i
@@ -46,6 +50,9 @@ Mapa i pozostałe kontrakty: [obsługa OKF](../okf-support.md). Standard formatu
   opisy narzędzi i prepare_project prowadzą LLM, ale nie blokują istniejących
   narzędzi przy braku AGENTS/OKF. Hard guard gotowości projektu nie jest wdrożony.
   Nie deklarujemy dowodu przeczytania instrukcji lub zgodności całego repo.
+  Niezależnie działa [polityka zapisu](write-policy.md): domyślny compatible
+  pozwala na stary Markdown, a użytkownik może jawnie wymagać OKF w wybranym
+  zakresie. prepare_project zwraca write_policy; konwersja nie zmienia trybu.
 
 Wyniki i pozostałe testy Windows: docs/plan/CURRENT.md, docs/windows-okf.md.
 
