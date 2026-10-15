@@ -164,7 +164,7 @@ Pliki orientacyjne: okf_engine/sections.py, scanner.py, index.py, search.py; ser
 
 Odbiór: trafne wyniki na małym bundle, pobranie wybranej sekcji bez pełnego dokumentu, brak dopasowania po zamaskowanym sekrecie, zgodny get po ręcznej zmianie.
 
-#### Wynik C2a — odebrane testowo, commit oczekuje
+#### Wynik C2a — odebrane testowo i zacommitowane
 
 - Baseline C1b 22a3cd1 / przekazanie 342a5d9 potwierdzony przez użytkownika przed kodowaniem; brak niezależnej weryfikacji git przez agenta.
 - Zakres: okf_engine/sections.py i tests/test_okf_sections.py. Zapis #204 allow/done/exit0, oba pliki sprawdzone odczytem.
@@ -173,7 +173,26 @@ Odbiór: trafne wyniki na małym bundle, pobranie wybranej sekcji bez pełnego d
 - Wynik użytkownika dla python -m pytest tests/test_okf_sections.py tests/test_okf_public_view.py -q: 101 passed in 0.39s. Agent nie uruchamiał testów; pełny pytest po C2a niewykonany.
 - Nie obiecujemy pełnego CommonMark: brak wieloliniowego Setext, interpretacji kontenerów list/blockquote i inline Markdown. Kontrolę revision/expected_revision wdraża C2c.
 - Bez I/O, indeksu, MCP, konfiguracji i danych wiedzy. config.json nietknięty przez agenta. OKF nadal nieoperacyjne. C2b/C2c nierozpoczęte.
-- Następny krok: osobny commit C2a po poleceniu użytkownika (propozycja feat: add OKF sections); commit/push niewykonane. Przed C2b przegląd zależności i akceptacja konkretnej paczki, bez automatycznego rozpoczęcia.
+- Commit wykonany przez git-ops na polecenie użytkownika: 1395a06 feat: add OKF sections (kod/testy C2a i dokumentacja, 4 pliki). Po commicie na main tylko lokalna zmiana config.json; nie dodano jej do commita. Push niewykonany.
+- Użytkownik zaakceptował C2b: okf_engine/documents.py, scanner.py, index.py, search.py oraz cztery odpowiadające pliki tests/test_okf_*.py (documents/scanner/index/search). Zależności odczytane; kod jeszcze nie zapisany. Bez MCP, TaskManager, panelu, main.py i konfiguracji, z wstrzykiwanym dostępem/zegarem/signerem i bez trwałego surowego cache. Następny krok: przygotowanie tej paczki do standardowej zgody w panelu. Testów nie uruchamiać bez wyraźnego polecenia.
+
+#### Wynik częściowego C2b — documents, pauza na polecenie użytkownika
+
+- Zakres wykonany częściowo: okf_engine/documents.py i tests/test_okf_documents.py. Istniały już przy próbie create_tree; odmowa bez nadpisania. Pierwotnego pochodzenia zapisu nie ustalono; przegląd i punktowe poprawki zaakceptowane przez użytkownika. Scanner/index/search i ich testy pozostają do wykonania, C2c nierozpoczęte.
+- #216/#217 allow/done/exit0, sprawdzone odczytem: świeży ograniczony odczyt, kontrola długości i snapshotów/ścieżki również po maskowaniu, publiczny wynik i sekcje, wstrzykiwane bieżące bundle/autoryzacja/zegar/signer. check_document kontroluje dostęp i wiązanie publicznego cache przed publikacją/zwrotem, ale nie odświeża treści. Wewnętrznych binding/_bundle i rewizji nie serializować do logów/payloadów; repr wyniku nie zawiera pól.
+- Pierwszy wynik użytkownika dla python -m pytest tests/test_okf_documents.py tests/test_okf_paths.py tests/test_okf_public_view.py tests/test_okf_sections.py -q -rs: 3 failed, 213 passed, 2 skipped in 1.75s. Diagnostyka na pliku tymczasowym wykazała 998/1000 różnic lstat/fstat, pierwszy przykład tylko st_ctime_ns. Skips dotyczyły rzeczywistej kolizji case i niedostępnego tworzenia linku.
+- #217 usuwa ctime ze snapshotu wyłącznie na Windows; dev/ino/size/mtime i inne kontrole pozostają, inne systemy sprawdzają również ctime. Dodano deterministyczne testy platformowe i odczytu z różnicą ctime. Bez retry i pełnej gwarancji TOCTOU.
+- Po poprawce użytkownik potwierdził zielone ponowienie tej paczki bez logu/liczby/czasu; agent nie uruchamiał testów/diagnostyki, pełny pytest niewykonany. Nie deklarować wyliczonej liczby jako potwierdzonej.
+- Praca nad OKF wstrzymana na polecenie użytkownika. C2b nie zamknięte i nie zacommitowane; ostatni potwierdzony commit C2a 1395a06, brak push. Aktualnego git status po #214/#216/#217 nie sprawdzano; config.json nietknięty przez agenta i wyłączony z przyszłych commitów.
+- Przy wznowieniu odczytać nadrzędną sekcję CURRENT, kontrakt i bieżące moduły/testy, potwierdzić baseline/równoległe zmiany. Dokończyć zaakceptowane scanner/index/search i ich testy, bez MCP/TaskManager/panelu/main.py/config. Testy tylko po wyraźnym poleceniu; odbiór i osobny commit po domknięciu C2b. OKF nadal nieoperacyjne.
+
+#### Wynik C2b — kompletne i odebrane testowo, commit oczekuje
+
+- Pliki: documents.py, scanner.py, index.py, search.py i cztery pliki testów. Zapisy #216/#217 (documents), #268 (scanner), #269 (index), #270 (search), wszystkie allow/done/exit0. Bez MCP, TaskManager, panelu, main.py i konfiguracji; OKF nadal nieoperacyjne.
+- Wyniki użytkownika: paczka C2b 118 passed in 2.90s; pozostałe testy silnika 377 passed, 2 skipped in 3.09s (kolizja wielkości liter i tworzenie linku niedostępne w środowisku). Agent testów nie uruchamiał; pełny pytest niewykonany.
+- Zrealizowane według kontraktu: świeży odczyt z kontrolą dostępu przed/po I/O i po maskowaniu; skan z limitami, bez linków i z osobnym raportem reserved; indeks publicznych dokumentów z generacjami, ticketem, budzetem tekstu i partial; wyszukiwanie terms/phrase/browse z rankingiem, filtrami, polityką deprecated, budżetem odpowiedzi i ponowną kontrolą dostępu.
+- Decyzja: katalogi ukryte (kropka na początku) nie są skanowane. Search nie potwierdza świeżości treści; robi to get w C2c. Pozostałe metadane nie dodają punktów rankingu. Brak stemmingu, synonimów i usuwania polskich diakrytyków.
+- Następne kroki: commit C2b na polecenie użytkownika, potem C2c (service, adapter knowledge_tools, integracja main.py, TaskManager knowledge_refresh, auto/cached/force, backoff, expected_revision dla sekcji, confidential tools) z osobną akceptacją paczki.
 
 ### C3. Zapis i panel Wiedza
 
