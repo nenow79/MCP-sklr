@@ -1,6 +1,6 @@
 # MCP-my-codex-sklr
 
-Nowy lokalny serwer MCP oparty na standardzie Agent Skills. Szczegóły: `AGENTS.md`, `docs/`.
+Nowy lokalny serwer MCP oparty na standardzie Agent Skills. Zasady: [AGENTS.md](AGENTS.md). Dokumentacja: [krótka mapa](docs/README.md), [aktualny stan](docs/plan/CURRENT.md), [backlog](docs/plan/backlog.md).
 
 Wersja OKF: panel **Wiedza**, centralne i projektowe bundles, search/get/save,
 `prepare_project`, audyt i opcjonalna konwersja `docs/` oraz plików `.vibecoder_*`.
@@ -8,7 +8,7 @@ Zwykły Markdown projektu można wyszukiwać i czytać przed konwersją. Brak AG
 lub konwersji nie blokuje narzędzi; przygotowanie projektu podaje instrukcje i propozycje.
 Aktualizacja i końcowe testy na Windows: [docs/windows-okf.md](docs/windows-okf.md).
 
-## Uruchomienie (faza 0)
+## Uruchomienie
 ```
 python -m venv venv
 venv\Scripts\activate
@@ -46,6 +46,9 @@ zmian, nie pełna atomowość wobec awarii procesu/systemu. Niepełny rollback
 wymaga ręcznej kontroli. Dotychczasowe narzędzia pozostają bez zmian.
 
 ## Testy
+
+Uruchamia użytkownik po świadomym wyborze zakresu; komendy odbioru i ograniczenia wyników są w [instrukcji Windows](docs/windows-okf.md).
+
 ```
 pytest
 ```

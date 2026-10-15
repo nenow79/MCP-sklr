@@ -1,7 +1,9 @@
+> **Archiwum sprzed porządków 2026-10-15.** To historia, nie bieżący stan, instrukcje ani backlog. [Mapa archiwum](../../README.md). Treść źródłowa poniżej; poprawiono wyłącznie ścieżki odnośników.
+
 # Faza 5: narzędzia podstawowe (plan szczegółowy, wersja 2)
 
 Status: PLAN ZAAKCEPTOWANY. Podfaza 5.0 ZREALIZOWANA (testy automatyczne i ręczne zaliczone, patrz "Wyniki 5.0" na końcu). Następna: 5.1 (`roots`), najpierw plan szczegółowy do akceptacji. Wersja 2 uwzględnia statystyki użycia starego MCP i ustalenia z rozmowy.
-Podstawa: ADR 0001 (pkt 2, 3, 7), ADR 0002 (model zagrożeń panelu), `docs/plan/implementation.md`.
+Podstawa: ADR 0001 (pkt 2, 3, 7), ADR 0002 (model zagrożeń panelu), `docs/archive/pre-okf-2026-10-15/plan/implementation.md`.
 Cel: przenieść ze starego MCP tylko te narzędzia, które realnie się przydają, w nowej architekturze (moduły, kolejka zadań, zatwierdzanie bez limitu czasu przez panel, trwała konfiguracja). Reszta trafia do skills lub późniejszych faz.
 
 ## 0. Wnioski ze statystyk starego MCP (telemetria, 605 wywołań)

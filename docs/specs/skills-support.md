@@ -1,13 +1,13 @@
 # Obsługa Agent Skills
 
-Źródło: https://agentskills.io (specification, using-scripts, adding-skills-support).
+Kontrakt lokalnej implementacji sklr; źródło standardu wskazane w poprzedniej wersji: https://agentskills.io. Starsze, zastąpione założenia (enum/deduplikacja activate_skill, brak skanowania dev, okno zaufania) zachowano w [archiwum](../archive/pre-okf-2026-10-15/specs/skills-support.md), nie są aktualnym kontraktem.
 
 ## Standard
 - Skill = folder z `SKILL.md` (frontmatter YAML: `name`, `description` wymagane; opcjonalnie `license`, `compatibility`, `metadata`, `allowed-tools`) + opcjonalne `scripts/`, `references/`, `assets/`.
 - `name`: do 64 znaków, a-z0-9 i myślniki, bez myślnika na początku/końcu i bez `--`, zgodne z nazwą folderu.
 - `description`: do 1024 znaków, co robi i kiedy użyć.
 - Progressive disclosure: katalog (name+description) -> pełny SKILL.md (<5000 tokenów, <500 linii) -> zasoby na żądanie.
-- Walidacja lenientna: ostrzegaj, ładuj; pomiń skill tylko przy braku description lub nieparsowalnym YAML. Fallback dla niepoprawnego YAML (np. dwukropek w wartości).
+- Lokalna walidacja lenientna: ostrzegaj, ładuj; pomiń skill tylko przy braku description lub nieparsowalnym YAML. Fallback dla niepoprawnego YAML (np. dwukropek w wartości).
 - Referencje w skillu: ścieżki względne od katalogu skilla, maks. 1 poziom zagłębienia.
 
 ## Aktualny kontrakt po P1-P3/T1-T2 (2026-10-13)
@@ -19,28 +19,9 @@
 - list_skills: aktywne nazwy/opisy/źródła/ostrzeżenia, disabled_count, shadowed_count, diagnostyka skanu (może wspominać kopie). Status trustu w panelu, nie katalogu MCP. activate_skill przyjmuje str, bez enum i deduplikacji w sesji. Skan przy każdym list_skills; aktywacja przy braku rekordu robi rescan.
 - Nowe skille powstają w dev-skills przez create_file/manage_folder z zatwierdzeniem. Po walidacji i testach użytkownik promuje folder ręcznie do ~/.agents/skills. Docelowo testy logiki skilla przy skillu, oddzielnie od testów silnika MCP; obecne testy zewnętrznych skilli w tests/ pozostają długiem do migracji.
 
-Poniższe starsze założenia obowiązują tylko tam, gdzie nie są zastąpione kontraktem powyżej.
-
-## Katalogi skills
-- Centralny (zaufany): domyślnie `~/.agents/skills/`, ścieżka nadpisywalna w `config.json`.
-- Projektowy (opcjonalny): `<PROJECT_ROOT>/.agents/skills/`; przy kolizji nazw wygrywa projektowy; zawsze wymaga potwierdzenia.
-- Skan: przy starcie i po zmianie workspace; pomijaj `.git`, `node_modules`; limity głębokości i liczby katalogów.
-
-## Narzędzia MCP
-- `list_skills` – katalog (name, description, źródło, status zaufania).
-- `activate_skill(name)` – treść w `<skill_content name="...">`, katalog skilla, lista zasobów (bez ich czytania). `name` jako enum. Deduplikacja aktywacji w sesji.
-- `read_skill_resource(name, path)` – plik tekstowy z katalogu skilla.
-- `run_skill_script(name, script, args, timeout)` – uruchomienie skryptu z `scripts/` danego skilla. Parametr `name` oznacza nazwę skilla we wszystkich narzędziach (zgodnie z polem `name` we frontmatterze).
-- Pliki `references/` czytane istniejącym `read_file`; katalogi skills dozwolone tylko do odczytu w path guard.
-
 ## Rozszerzenia (klucze `metadata`)
 - `vibecoder-confirm: "false"` – deklaracja braku potwierdzenia dla skryptów. Działa WYŁĄCZNIE dla skills z katalogu centralnego i tylko przy zgodnym hashu. Domyślnie potwierdzenie wymagane. Opcjonalnie per skrypt.
 - `conda-env: "<nazwa>"` – środowisko Miniforge dla skryptów (możliwe współdzielenie między skills).
-
-## Zaufanie
-- Pierwsze uruchomienie: okno "Ufaj temu skillowi?"; zapis hasha `SKILL.md` + `scripts/` w `config.json`. Zmiana hasha = ponowne pytanie.
-- Skills projektowe: flaga ignorowana, zawsze potwierdzenie.
-- Konfiguracja potwierdzeń per skill/skrypt oraz włączanie/wyłączanie skills w oknie konfiguracji.
 
 ## Uruchamianie skryptów
 - Interpreter wprost: `<miniforge>\envs\<env>\python.exe scripts\x.py` (bez `conda run`, bez shella).
@@ -50,7 +31,9 @@ Poniższe starsze założenia obowiązują tylko tam, gdzie nie są zastąpione 
 - Inne języki wg rozszerzenia skryptu: `.js` (`node`), `.sh` (`bash`), `.ps1` (`pwsh`, a gdy brak: `powershell`).
 - PowerShell: `<exe> -NoProfile -NonInteractive -ExecutionPolicy Bypass -File <skrypt> <args>`, bez shella. Runner dekoduje output jako UTF-8; Windows PowerShell 5.1 domyślnie pisze w kodowaniu konsoli, więc skrypt `.ps1` powinien zaczynać się od `[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()`. Kod wyjścia ustawiaj przez `exit N`. Na Windows preferuj `.ps1` dla prostych skryptów systemowych, `.py` gdy potrzebna jest logika.
 
-## Tworzenie skilli (skill-writer)
-- Skill `skill-writer` (katalog centralny) prowadzi przez tworzenie skilli: szablon SKILL.md, reguły zgodne z `skills_engine`, lista kontrolna, walidator `scripts/validate_skill.py` (korzysta z parsera `skills_engine` z repo sklr).
-- Nowe skille powstają w folderze deweloperskim (root `dev-skills`, zapis przez create_file z zatwierdzeniem w panelu). Sklr go jeszcze nie skanuje; wdrożenie do `~/.agents/skills` wykonuje użytkownik ręcznie.
-- Plan (krok 3): trzy poziomy zaufania: central (dopracowane, trust hash, vibecoder-confirm), dev (`skills.dev_dirs`, jak projektowe: potwierdzenie zawsze, central wygrywa przy kolizji, domyślnie wyłączone dla LLM), project. Panel pozwala włączać i wyłączać skille (`skills.disabled`).
+
+## Narzędzia i tworzenie skilli
+
+list_skills pokazuje katalog; activate_skill zwraca SKILL.md i listę zasobów bez ich automatycznego czytania; read_skill_resource czyta tekst z katalogu skilla; run_skill_script zleca skrypt kolejce. Stan zadania sprawdzamy narzędziami task zgodnie z [AGENTS](../../AGENTS.md).
+
+Nowy skill powstaje w dev-skills z pomocą skill-writer, przechodzi walidację i własne testy; użytkownik promuje go ręcznie do ~/.agents/skills. Dev jest już skanowane zgodnie z skills.dev_dirs, ale domyślnie wyłączone dla LLM. skill-writer jest zewnętrznym skillem, nie częścią tej specyfikacji ani gwarantowaną instalacją. Testy logiki skilli docelowo mieszkają przy skillach; migracja obecnych zewnętrznych testów pozostaje w [backlogu](../plan/backlog.md).

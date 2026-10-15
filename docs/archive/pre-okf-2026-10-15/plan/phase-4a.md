@@ -1,3 +1,5 @@
+> **Archiwum sprzed porządków 2026-10-15.** To historia, nie bieżący stan, instrukcje ani backlog. [Mapa archiwum](../../README.md). Treść źródłowa poniżej; poprawiono wyłącznie ścieżki odnośników.
+
 # Faza 4a: kolejka zadań (plan do akceptacji, bez kodu)
 
 Status: ZREALIZOWANA (kroki 1-7 zrobione; testy ręczne A-E zaliczone, eksperyment F niekonkluzywny; decyzje 1-7 potwierdzone, w pkt 1 wybrana alternatywa). Podstawa: ADR 0002 (`docs/decisions/0002-task-queue-and-web-panel.md`).

@@ -1,3 +1,5 @@
+> **Archiwum sprzed porządków 2026-10-15.** To historia, nie bieżący stan, instrukcje ani backlog. [Mapa archiwum](../../README.md). Treść źródłowa poniżej; poprawiono wyłącznie ścieżki odnośników.
+
 # Faza 4b: panel webowy zatwierdzeń (plan)
 
 Status: ZREALIZOWANA (kroki 1-6 zrobione, testy automatyczne i ręczne zaliczone, 2026-10-10). Decyzje 1-7 wg rekomendacji. Podstawa: ADR 0002.

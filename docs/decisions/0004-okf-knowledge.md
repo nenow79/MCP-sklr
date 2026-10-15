@@ -1,14 +1,16 @@
 # ADR 0004: Wiedza centralna i projektowa w OKF
 
-Status: zaakceptowany w rozmowie po zapisaniu dokumentacji C0 (#153, allow, done/exit0; oba pliki sprawdzone odczytem). Użytkownik polecił domknąć ustalenia, a implementację rozpocząć dopiero na nowym chat. Uzupełnienia kontraktu i stanu przechodzą osobny podgląd w panelu; ta akceptacja nie jest zgodą na rozpoczęcie kodowania w bieżącej rozmowie.
+Status: zaakceptowany. Pierwotny kontrakt C0 przyjęto po zapisie #153 i odczycie. Poniższe decyzje zachowują uzasadnienia z C0; stan wdrożenia i testów opisuje [CURRENT](../plan/CURRENT.md).
+
+Aktualizacja 2026-10-15: po odbiorze C3b użytkownik autoryzował domknięcie przepływu. Panel i minimalne P0/P1/P2 wdrożono w `e6cee29` przed zakończeniem pilota C4; pierwotna kolejność central → projekt nie jest już blokadą implementacji. Brak AGENTS/konwersji pozostaje advisory. Konwerter nie porządkuje historii, a indeks jest w pamięci. Ręczne dodanie wiedzy centralnej potwierdzono; partial/3 dokumenty projektu nie są pełnym odbiorem. Hard guard, selektor semantyczny i skill kuratora nadal są propozycjami.
 
 Numer 0003 pozostawiamy dla decyzji przewidzianej w odłożonej fazie 5e. Ten dokument nie zastępuje tamtej decyzji.
 
-## Kontekst
+## Kontekst w chwili decyzji C0
 
 Sklr ma już skills, roots, kontrolowane zapisy, kolejkę zadań i panel zatwierdzeń. Brakuje trwałej, przenośnej wiedzy, którą agent może odnajdywać bez czytania wielu pełnych dokumentów.
 
-Standard OKF 0.2 (docs/specs/okf/SPEC.md) definiuje pliki Markdown z YAML frontmatter, koncepty identyfikowane ścieżkami, źródła, weryfikację i aktualność. Nie definiuje wyszukiwarki ani bezpiecznego runtime. Dokumentacja projektowa już zawiera wiedzę; tworzenie jej równoległych kopii w docs/knowledge/ zwiększa ryzyko rozbieżności.
+Standard OKF 0.2 (docs/specs/OKF/SPEC.md) definiuje pliki Markdown z YAML frontmatter, koncepty identyfikowane ścieżkami, źródła, weryfikację i aktualność. Nie definiuje wyszukiwarki ani bezpiecznego runtime. Dokumentacja projektowa już zawiera wiedzę; tworzenie jej równoległych kopii w docs/knowledge/ zwiększa ryzyko rozbieżności.
 
 ## Decyzje
 
@@ -44,11 +46,11 @@ Standard OKF 0.2 (docs/specs/okf/SPEC.md) definiuje pliki Markdown z YAML frontm
 - Root rw nadal daje dostęp również zwykłymi narzędziami plikowymi po ich zgodach. Enabled dotyczy API OKF, nie jest uniwersalnym ACL ani sandboxem skryptów.
 - Maskowanie jest heurystyką; nietypowe sekrety i poufne dane biznesowe mogą nie zostać rozpoznane. Dane zwrócone przez MCP mogą trafić do rozmowy.
 - Istniejące transakcje zapewniają walidację, staging i best-effort rollback, nie pełną atomowość wielu plików przy awarii systemu ani sandbox wobec TOCTOU.
-- C0 nie potwierdza wykonania poprzedniego commita lub pełnego pytest. Te informacje pozostają do sprawdzenia z użytkownikiem przed C1.
+- Sama akceptacja C0 nie była potwierdzeniem kodu ani testów. Obecny zakres potwierdzeń jest w CURRENT; wpisy historyczne nie poświadczają pełnego bieżącego pytest.
 
 ## Dokumenty związane
 
-- docs/plan/okf.md — zaakceptowany kierunek i kolejność wdrożenia; szczegóły C0 rozwinięte poniżej.
+- docs/archive/pre-okf-2026-10-15/plan/okf.md — historyczny kierunek i kolejność wdrożenia; aktualizacja kolejności na początku tego ADR.
 - docs/specs/okf-support.md — lokalny kontrakt narzędzi, konfiguracji, formatu i bezpieczeństwa.
-- docs/specs/okf/SPEC.md — oryginalna specyfikacja OKF 0.2, bez zmian w C0.
+- docs/specs/OKF/SPEC.md — oryginalna specyfikacja OKF 0.2, bez zmian w C0.
 - docs/decisions/0002-task-queue-and-web-panel.md — kolejka, limit wywołania i panel zgód.

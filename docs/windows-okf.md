@@ -20,7 +20,7 @@ nie deklaracja zweryfikowanego wdrożenia na Windows.
 - prepare_project zwraca root/nested AGENTS, rewizje, jawne oznaczenie skróconych
   instrukcji, kandydatów pliku stanu, audyt i szablon brakującego AGENTS.
   create_agents=true tworzy zadanie do zgody; nie nadpisuje istniejących zasad.
-- knowledge_audit bada oba układy. knowledge_convert dodaje brakujące metadane
+- knowledge_audit bada docs/ i dwa root legacy pliki. Dowolny inny podkatalog, np. doc/, można indeksować profilem docs, ale audyt/konwerter go jeszcze nie obsługują. knowledge_convert dodaje brakujące metadane
   do jawnych plików i wymaga expected_revision z audytu. Jedna zgoda na maks.
   10 plików, każdy ograniczony limitem dokumentu. Body zachowane byte-for-byte,
   BOM i EOL zachowane. Istniejący YAML/komentarze nie są zastępowane dumpem.
@@ -30,6 +30,8 @@ lecz nie blokuje zwykłych odczytów, zapisów i skryptów z powodu braku pliku 
 konwersji. Stare projekty można dalej obsługiwać dotychczasowymi narzędziami.
 Brak MCP-harnessowej gwarancji, że LLM przeczyta lub zrozumie instrukcje.
 
+Indeks jest w pamięci; nie powstaje index.md na dysku.
+
 Nie automatyzujemy semantycznego dzielenia historii, wyboru obowiązującego
 checkpointu, tworzenia nowych typów ani dopisywania generated/verified. Błędny
 YAML, kolizje nazw, reserved index/log, mixed EOL oraz CP1250 są raportowane
@@ -37,27 +39,11 @@ jako wyjątki wymagające osobnej edycji/decyzji. Nie blokują pozostałej pracy
 Skill okf-curator, pełny selektor bieżącej sekcji i pomiar kontekstu są dalszymi
 ulepszeniami; audyt i konwersja działają bez instalowania dodatkowego skilla.
 
-## Publikacja z Linuksa
+## Punkt odniesienia i dostarczenie wersji
 
-W tej sesji agent ma .git tylko do odczytu, dlatego nie wykona commit/push.
-Zmiany można opublikować z własnego terminala. Lista obejmująca wyłącznie pliki
-tej implementacji jest w docs/plan/windows-ready-files.txt; nie zawiera config.json,
-venv, tasks.db, logów ani produkcyjnej wiedzy.
+Implementacja jest już w commicie `e6cee29` (`feat: complete OKF knowledge workflow`). Dawna instrukcja publikacji niezacommitowanej paczki, manifest i odwołania do /tmp są [historią](archive/pre-okf-2026-10-15/windows-okf.md). Bieżący status publikacji remote nie został sprawdzony; przed aktualizacją upewnij się, że wybrane zdalne repo zawiera ten commit. Ta instrukcja nie wymaga ponownego tworzenia commita implementacji.
 
-Przed publikacją sprawdź zmiany i stan indeksu Git. Przy pustym indeksie:
-
-```bash
-git add --pathspec-from-file=docs/plan/windows-ready-files.txt
-git diff --cached --check
-git diff --cached --stat
-git commit -m "feat: complete OKF knowledge workflow"
-git push origin main
-```
-
-Nie używaj force push. Jeśli upstream ma dodatkowe zmiany, zintegruj je po
-commicie i rozwiąż konflikty przed publikacją. Dla tej sesji przygotowano także
-skrypt /tmp/MCP-sklr-publish.sh, który sprawdza branch i pusty indeks przed
-wykonaniem tych kroków, oraz patch /tmp/MCP-sklr-windows-ready.patch.
+Aktualny zakres potwierdzeń: [CURRENT](plan/CURRENT.md). Użytkownik potwierdził dodanie wiedzy centralnej; projektowy sklr-okf miał partial/3 dokumenty o nieustalonej przyczynie. Przed pełnym odbiorem odczytaj reasons i diagnostykę, nie zakładaj kompletności indeksu.
 
 ## Aktualizacja na Windows
 

@@ -1,3 +1,5 @@
+> **Archiwum sprzed porządków 2026-10-15.** To historia, nie bieżący stan, instrukcje ani backlog. [Mapa archiwum](../../README.md). Treść źródłowa poniżej; poprawiono wyłącznie ścieżki odnośników.
+
 # Plan implementacji nowego MCP (krok 6)
 
 ## Zasady prowadzenia prac

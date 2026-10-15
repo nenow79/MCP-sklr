@@ -1,3 +1,5 @@
+> **Archiwum sprzed porządków 2026-10-15.** To historia, nie bieżący stan, instrukcje ani backlog. [Mapa archiwum](../../README.md). Treść źródłowa poniżej; poprawiono wyłącznie ścieżki odnośników.
+
 # Plan wdrożenia OKF w sklr
 
 ## Aktualny kierunek: kandydat Windows
@@ -29,7 +31,7 @@ Status: kierunek i kolejność zaakceptowane w rozmowie; plan zapisany #152 done
 
 Oszczędność kontekstu ma wynikać z przepływu katalog -> wyszukiwanie fragmentów -> pobranie sekcji -> ewentualnie cały dokument. Sam frontmatter nie gwarantuje lepszego wyszukiwania.
 
-Źródła: docs/specs/okf/SPEC.md (OKF 0.2), AGENTS.md, aktualna sekcja docs/plan/CURRENT.md, istniejące moduły roots, zapisów, kolejki i panelu.
+Źródła: docs/specs/OKF/SPEC.md (OKF 0.2), AGENTS.md, aktualna sekcja docs/plan/CURRENT.md, istniejące moduły roots, zapisów, kolejki i panelu.
 
 ## 2. Proponowane decyzje bazowe
 
@@ -157,7 +159,7 @@ Proponowane początkowe limity do pomiaru: do 5000 dokumentów na bundle, do 1 M
 ### C0. Kontrakt i ADR
 
 - Zaakceptować niniejszy plan i robocze nazwy narzędzi.
-- Przygotować osobny ADR oraz docs/specs/okf-support.md z lokalnym kontraktem sklr. Oryginalny docs/specs/okf/SPEC.md pozostaje źródłem standardu, bez modyfikacji przy okazji.
+- Przygotować osobny ADR oraz docs/specs/okf-support.md z lokalnym kontraktem sklr. Oryginalny docs/specs/OKF/SPEC.md pozostaje źródłem standardu, bez modyfikacji przy okazji.
 - Ustalić dokładne parametry, konfigurację, limits i semantykę rewizji.
 - Potwierdzić stan commita poprzedniej pracy i punkt odniesienia testów; nie traktować pełnego pytest jako potwierdzonego.
 
