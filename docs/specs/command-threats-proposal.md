@@ -1,3 +1,9 @@
+---
+type: Specification
+title: Model zagrożeń i środowisko firmowe — propozycja
+description: Model zagrożeń i wymagania ochrony dla niewdrożonej propozycji komend.
+tags: [sklr, commands, security, proposal]
+---
 # Model zagrożeń i środowisko firmowe — propozycja
 
 Niewdrożone w `e6cee29`. [Status, korekty i mapa propozycji](command-execution-proposal.md) są częścią kontraktu. Wzmianki o ADR 0003 oznaczają planowany dokument. Testy opisują wymagania, nie wyniki.

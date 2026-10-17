@@ -12,6 +12,7 @@ from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 
 from config_store import ConfigStore
+from okf_engine.cache_bootstrap import open_application_cache
 from panel.app import create_panel_app
 from panel.auth import PanelAuth
 from panel.server import PanelServer, build_panel_url
@@ -606,6 +607,18 @@ if __name__ == "__main__":
     print("=" * 50 + "\n")
 
     try:
+        backend = None
+        try:
+            backend = open_application_cache(Path(__file__).resolve().parent)
+            KNOWLEDGE.attach_refresh_backend(backend)
+        except Exception:
+            if backend is not None:
+                backend.close(5)
+            print("BŁĄD: inicjalizacja cache wiedzy nie powiodła się; "
+                  "sprawdź knowledge_index.sqlite3 i knowledge_cache.key. "
+                  "Nie usuwaj ani nie regeneruj klucza bez decyzji o odbudowie cache.")
+            sys.exit(1)
+        print("Wiedza: cache SQLite aktywny, odświeżanie w dedykowanym workerze.")
         uvicorn.run(
             mcp.http_app(middleware=get_middleware(), json_response=True),
             host=host,
@@ -613,6 +626,8 @@ if __name__ == "__main__":
             log_level="info",
         )
     finally:
+        if not KNOWLEDGE.close(5):
+            print("UWAGA: worker wiedzy nadal kończy operację I/O; nie potwierdzono zamknięcia.")
         if EXPIRY_WATCHER is not None:
             EXPIRY_WATCHER.stop()
         if PANEL_SERVER is not None:

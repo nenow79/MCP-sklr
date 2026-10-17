@@ -1,3 +1,6 @@
+---
+type: Reference
+---
 # ADR 0001: Architektura nowego MCP opartego na skills
 
 Status: zaakceptowany (rozmowa, krok 5 audytu)

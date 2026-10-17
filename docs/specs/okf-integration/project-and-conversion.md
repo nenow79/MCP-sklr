@@ -1,3 +1,8 @@
+---
+type: Specification
+title: "OKF: projekt, przygotowanie i konwersja"
+tags: [sklr, okf, project, migration]
+---
 # OKF: projekt, przygotowanie i konwersja
 
 Kontrakt lokalny sklr (baza `e6cee29`, rozszerzona o automatyczne docs); odbiór i ograniczenia testów: [CURRENT](../../plan/CURRENT.md).

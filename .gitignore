@@ -3,4 +3,6 @@ __pycache__/
 .pytest_cache/
 logs/
 tasks.db*
+knowledge_index.sqlite3*
+knowledge_cache.key*
 config.json.bak

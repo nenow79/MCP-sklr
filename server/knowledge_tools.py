@@ -33,12 +33,39 @@ class RefreshQueue:
             try:
                 summary = run(cancel_event)
                 if summary.get("error"):
-                    return {"started": False, "exit_code": 1, "error": "Odświeżanie OKF przerwane.",
+                    message = ("Odświeżanie OKF: przekroczono budżet publikacji; "
+                               "zachowano poprzednią generację indeksu."
+                               if summary["error"] == "REFRESH_BUDGET_EXHAUSTED"
+                               else "Odświeżanie OKF przerwane.")
+                    return {"started": False, "exit_code": 1, "error": message,
                             "cancelled": summary.get("cancelled", False)}
                 # Jawna lista pól: nawet zmiana serwisu nie utrwali treści dokumentów.
                 safe = {"index_state": summary["index_state"],
                         "indexed_documents": summary["indexed_documents"],
-                        "partial": summary["partial"]}
+                        "partial": summary["partial"],
+                        "reasons": [reason for reason in summary.get("reasons", [])
+                                    if reason in {"scan_budget", "refresh_budget", "document_limit",
+                                                  "depth_limit", "scan_io_error", "index_text_limit",
+                                                  "document_unavailable"}]}
+                # Diagnostyka z allowlisty serwisu: kody/liczniki/czasy, bez dokumentów.
+                from okf_engine.service import READ_ERROR_CODES, READ_ERROR_STAGES, READER_METRIC_FIELDS
+                diagnostics = summary.get("diagnostics", {})
+                safe["diagnostics"] = {
+                    name: value for name, value in diagnostics.items()
+                    if name in {"scan_ms", "publish_ms", "candidates", "read_documents"}
+                    and type(value) is int and value >= 0}
+                for phase in ("scan_checks", "publish_checks"):
+                    safe["diagnostics"][phase] = {
+                        name: value for name, value in diagnostics.get(phase, {}).items()
+                        if name in READER_METRIC_FIELDS and type(value) is int and value >= 0}
+                safe["diagnostics"]["read_errors"] = {
+                    code: count for code, count in diagnostics.get("read_errors", {}).items()
+                    if code in READ_ERROR_CODES and type(count) is int and 0 < count <= 5000}
+                safe["diagnostics"]["read_error_stages"] = {
+                    name: count for name, count in diagnostics.get("read_error_stages", {}).items()
+                    if isinstance(name, str) and name.partition(".")[0] in READ_ERROR_STAGES
+                    and name.partition(".")[2] in READ_ERROR_CODES
+                    and type(count) is int and 0 < count <= 5000}
                 return {"exit_code": 0, "stdout": json.dumps(safe, ensure_ascii=False)}
             except Exception:
                 return {"started": False, "exit_code": 1, "error": "Odświeżanie OKF nie powiodło się."}

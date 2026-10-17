@@ -36,6 +36,7 @@ class ScanResult:
     reasons: Tuple[str, ...]
     skipped: Dict[str, int]  # reserved, hidden, links, invalid_name, case_collision, unread
     errors: Dict[str, int]  # bezpieczne kody DocumentError -> liczba plików
+    error_stages: Dict[str, int] = field(default_factory=dict)
 
 
 def _inventory(root: Path, bundle_id: str, limits: KnowledgeLimits, clock: Callable[[], float],
@@ -100,10 +101,21 @@ def _inventory(root: Path, bundle_id: str, limits: KnowledgeLimits, clock: Calla
 
 
 def scan_bundle(reader: DocumentReader, bundle_id: str, limits: KnowledgeLimits,
-                clock: Callable[[], float] = time.monotonic) -> ScanResult:
-    """Skanuje aktualnie dostępny bundle. Niedostępny bundle zgłasza DocumentError."""
+                clock: Callable[[], float] = time.monotonic, *,
+                background_budget_s=None) -> ScanResult:
+    """Skan zwykły ma krótki budżet; zadanie w tle zachowuje ten sam przebieg.
+
+    Nie restartujemy inventory ani pending po krótkim budżecie. Kontrola
+    pozostaje kooperacyjna: nie przerywa pojedynczego blokującego I/O.
+    """
+    if background_budget_s is not None and (
+            isinstance(background_budget_s, bool) or
+            not isinstance(background_budget_s, (int, float)) or
+            not 1 <= background_budget_s <= 90):
+        raise ValueError("invalid background scan budget")
     state = reader.current_bundle(bundle_id)
-    deadline = clock() + limits.scan_budget_s
+    deadline = clock() + (limits.scan_budget_s if background_budget_s is None
+                          else background_budget_s)
     reasons: set = set()
     skipped: Counter = Counter()
     errors: Counter = Counter()

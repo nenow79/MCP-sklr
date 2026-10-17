@@ -125,6 +125,48 @@ def test_budget_exhausted_between_reads(env):
     assert result.partial and result.reasons == ('scan_budget',) and result.skipped == {'unread': 2}
 
 
+def test_background_scan_continues_beyond_short_budget(env):
+    base, _, _, reader = env
+    for name in ('a', 'b', 'c'):
+        write(base / (name + '.md'))
+    seconds = [0]
+
+    def now():
+        seconds[0] += 10
+        return NOW
+
+    reader.now = now
+    result = scan_bundle(reader, 'general', reader.limits,
+                         clock=lambda: seconds[0], background_budget_s=90)
+    assert ids(result) == ['a', 'b', 'c']
+    assert not result.partial and result.skipped == {}
+
+
+def test_background_scan_stops_at_total_scan_budget(env):
+    base, _, _, reader = env
+    for name in ('a', 'b', 'c'):
+        write(base / (name + '.md'))
+    seconds = [0]
+
+    def now():
+        seconds[0] += 50
+        return NOW
+
+    reader.now = now
+    result = scan_bundle(reader, 'general', reader.limits,
+                         clock=lambda: seconds[0], background_budget_s=90)
+    assert ids(result) == ['a', 'b']
+    assert result.partial and result.reasons == ('scan_budget',)
+    assert result.skipped == {'unread': 1}
+
+
+@pytest.mark.parametrize('budget', [True, 0, 91, float('nan'), float('inf'), '90'])
+def test_invalid_background_budget_is_rejected(env, budget):
+    _, _, _, reader = env
+    with pytest.raises(ValueError, match='invalid background scan budget'):
+        scan_bundle(reader, 'general', reader.limits, background_budget_s=budget)
+
+
 def test_links_are_skipped(env, monkeypatch):
     base, _, _, reader = env
     write(base / 'ok.md')

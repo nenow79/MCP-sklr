@@ -1,3 +1,8 @@
+---
+type: Specification
+title: "OKF: bundles, konfiguracja i panel"
+tags: [sklr, okf, bundles, panel]
+---
 # OKF: bundles, konfiguracja i panel
 
 Kontrakt lokalny sklr (baza `e6cee29`, rozszerzona o automatyczne docs); odbiór i ograniczenia testów: [CURRENT](../../plan/CURRENT.md).

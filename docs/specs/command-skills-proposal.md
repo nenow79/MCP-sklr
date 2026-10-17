@@ -1,3 +1,9 @@
+---
+type: Specification
+title: Podział komend i skills, Docker — propozycja
+description: Niewdrożona propozycja podziału odpowiedzialności komend, skills i izolacji Docker.
+tags: [sklr, commands, skills, proposal]
+---
 # Podział komend i skills, Docker — propozycja
 
 Niewdrożone w `e6cee29`. [Status, korekty i mapa propozycji](command-execution-proposal.md) są częścią kontraktu. Wzmianki o ADR 0003 oznaczają planowany dokument. Testy opisują wymagania, nie wyniki.

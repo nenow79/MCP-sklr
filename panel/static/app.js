@@ -829,7 +829,41 @@
       card.appendChild(el("p", {text: bundle.available ?
         "Dostępny, " + (bundle.writable ? "zapis możliwy" : "tylko odczyt") :
         "Niedostępny: " + visibleText(bundle.reason + (bundle.detail ? " / " + bundle.detail : ""))}));
-      card.appendChild(el("p", {text: "Indeks: " + bundle.index_state + ", dokumenty: " + bundle.indexed_documents}));
+      card.appendChild(el("p", {text: "Indeks: " + visibleText(bundle.index_state) + ", dokumenty: " + bundle.indexed_documents}));
+      if (bundle.reasons && bundle.reasons.length) {
+        card.appendChild(el("p", {text: "Powody: " + visibleText(bundle.reasons.join(", ")) +
+          "; pominięte dokumenty: " + bundle.excluded_documents}));
+      }
+      if (bundle.refresh_task_id) {
+        card.appendChild(el("p", {text: "Odświeżanie — zadanie " + bundle.refresh_task_id}));
+      }
+      if (bundle.index_error) {
+        card.appendChild(el("p", {text: "Błąd indeksu: " + visibleText(bundle.index_error)}));
+      }
+      var diagnostic = bundle.last_refresh || {};
+      if (typeof diagnostic.scan_ms === "number") {
+        card.appendChild(el("p", {text: "Ostatnie odświeżenie: odczyt " + diagnostic.scan_ms +
+          " ms, publikacja " + (diagnostic.publish_ms || 0) + " ms; odczytane dokumenty: " +
+          diagnostic.read_documents + " / " + diagnostic.candidates}));
+      }
+      ["scan_checks", "publish_checks"].forEach(function (phase) {
+        var metrics = diagnostic[phase];
+        if (metrics) {
+          card.appendChild(el("p", {text: (phase === "scan_checks" ? "Kontrole odczytu: " : "Kontrole publikacji: ") +
+            visibleText("bundle " + metrics.bundle_check_calls + " / " + metrics.bundle_check_ms + " ms; " +
+              "ścieżka " + metrics.path_resolve_calls + " / " + metrics.path_resolve_ms + " ms; " +
+              "autoryzacja " + metrics.authorize_calls + " / " + metrics.authorize_ms + " ms")}));
+        }
+      });
+      ["read_errors", "read_error_stages"].forEach(function (kind) {
+        var counts = diagnostic[kind] || {};
+        if (Object.keys(counts).length) {
+          card.appendChild(el("p", {text: (kind === "read_errors" ? "Błędy odczytu: " : "Etapy błędów: ") +
+            visibleText(Object.keys(counts).sort().map(function (code) {
+              return code + ": " + counts[code];
+            }).join(", "))}));
+        }
+      });
       var toggle = el("button", {type: "button", className: "btn", text: bundle.automatic ?
         (bundle.enabled ? "Wyłącz automatyczne docs" : "Włącz automatyczne docs") : (bundle.enabled ? "Wyłącz" : "Włącz"),
         onclick: function () { changeKnowledge(bundle.key, "enabled", {enabled: !bundle.enabled}); }});

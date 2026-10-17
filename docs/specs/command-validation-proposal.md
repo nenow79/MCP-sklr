@@ -1,3 +1,9 @@
+---
+type: Specification
+title: Wymagane testy komend — propozycja
+description: Proponowane scenariusze testów komend, nie raport wykonanych sprawdzeń.
+tags: [sklr, commands, testing, proposal]
+---
 # Wymagane testy komend — propozycja
 
 Niewdrożone w `e6cee29`. [Status, korekty i mapa propozycji](command-execution-proposal.md) są częścią kontraktu. Wzmianki o ADR 0003 oznaczają planowany dokument. Testy opisują wymagania, nie wyniki.

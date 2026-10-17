@@ -1,3 +1,8 @@
+---
+type: Specification
+title: "OKF: polityka formatu dokumentacji projektu"
+tags: [sklr, okf, write-policy]
+---
 # OKF: polityka formatu dokumentacji projektu
 
 Polityka dotyczy wyników zapisu plików `.md` przez MCP. Nie jest sandboxem skryptów ani zewnętrznych edytorów. Stan implementacji i odbioru: [CURRENT](../../plan/CURRENT.md).

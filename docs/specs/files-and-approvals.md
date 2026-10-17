@@ -1,3 +1,9 @@
+---
+type: Specification
+title: Pliki, roots, zatwierdzenia i sekrety
+description: Kontrakt narzędzi plikowych, kontroli dostępu, kolejki zgód i ochrony sekretów.
+tags: [sklr, files, approvals, security]
+---
 # Pliki, roots, zatwierdzenia i sekrety
 
 Kontrakt istniejących narzędzi bazowych. Historia planowania i szczegółowe wyniki pozostają w [fazie 5](../archive/pre-okf-2026-10-15/plan/phase-5.md); odczyt historii nie jest wymagany do zwykłej pracy. Ochronę specyficzną dla wiedzy opisują [kontrakty OKF](okf-support.md).

@@ -65,6 +65,18 @@ def test_knowledge_tab_and_configuration_controls():
     assert "Konwersja Markdown do OKF jest opcjonalna" in html
 
 
+def test_knowledge_index_diagnostics_are_rendered_as_text():
+    js = read("app.js")
+    for field in ("bundle.reasons", "bundle.excluded_documents",
+                  "bundle.refresh_task_id", "bundle.index_error", "bundle.last_refresh"):
+        assert field in js
+    assert 'visibleText(bundle.reasons.join(", "))' in js
+    assert 'visibleText(bundle.index_error)' in js
+    assert '["scan_checks", "publish_checks"]' in js
+    for metric in ("bundle_check_calls", "path_resolve_calls", "authorize_calls"):
+        assert "metrics." + metric in js
+
+
 def test_js_uses_roots_api_and_ids_exist_in_html():
     js = read("app.js")
     html = read("index.html")

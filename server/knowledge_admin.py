@@ -60,7 +60,12 @@ class KnowledgeAdmin:
                                 "available": state.available, "writable": state.writable,
                                 "reason": state.reason, "detail": state.detail,
                                 "index_state": public.get(state.id, {}).get("index_state", "empty"),
-                                "indexed_documents": public.get(state.id, {}).get("indexed_documents", 0)})
+                                "indexed_documents": public.get(state.id, {}).get("indexed_documents", 0),
+                                "reasons": public.get(state.id, {}).get("reasons", []),
+                                "excluded_documents": public.get(state.id, {}).get("excluded_documents", 0),
+                                "refresh_task_id": public.get(state.id, {}).get("refresh_task_id"),
+                                "index_error": public.get(state.id, {}).get("error"),
+                                "last_refresh": public.get(state.id, {}).get("last_refresh", {})})
             return {"bundles": entries, "count": len(entries), "revision": self._revision(),
                     "roots": [{"alias": root.alias, "mode": root.mode,
                                "write_policy": policy_view(config, root.path)} for root in self.roots.list()]}

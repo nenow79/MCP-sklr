@@ -1,3 +1,9 @@
+---
+type: Specification
+title: Obsługa Agent Skills w sklr
+description: Kontrakt wykrywania, dostępności, zaufania i uruchamiania Agent Skills w sklr.
+tags: [sklr, skills, security]
+---
 # Obsługa Agent Skills
 
 Kontrakt lokalnej implementacji sklr; źródło standardu wskazane w poprzedniej wersji: https://agentskills.io. Starsze, zastąpione założenia (enum/deduplikacja activate_skill, brak skanowania dev, okno zaufania) zachowano w [archiwum](../archive/pre-okf-2026-10-15/specs/skills-support.md), nie są aktualnym kontraktem.

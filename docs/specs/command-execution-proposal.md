@@ -1,3 +1,9 @@
+---
+type: Reference
+title: Wykonywanie komend — propozycja, niewdrożone
+description: Mapa niewdrożonej propozycji wykonywania komend i jej ograniczeń.
+tags: [sklr, commands, proposal]
+---
 # Wykonywanie komend — propozycja, niewdrożone
 
 W `e6cee29` nie ma narzędzia execute_command ani modułu command_policy. Poniżej zachowano wymagania projektowe fazy 5c, w tym model zagrożeń; nie potwierdzają implementacji ani testów. Rejestracja kodu, kontrakt i ADR 0003 wymagają osobnego planu i akceptacji. Priorytety: [backlog](../plan/backlog.md).

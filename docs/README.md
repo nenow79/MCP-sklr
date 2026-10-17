@@ -1,3 +1,13 @@
+---
+type: Reference
+title: Mapa dokumentacji sklr
+description: Nawigacja po aktualnym stanie, kontraktach, decyzjach i archiwum projektu
+  sklr.
+tags:
+- sklr
+- documentation
+- navigation
+---
 # Mapa dokumentacji
 
 Zacznij od [AGENTS](../AGENTS.md) i krótkiego [CURRENT](plan/CURRENT.md). Otwarte prace są wyłącznie w [backlogu](plan/backlog.md). Nie trzeba czytać całego docs/ ani archiwum.

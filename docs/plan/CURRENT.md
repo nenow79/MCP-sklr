@@ -1,4 +1,10 @@
-# Aktualny stan — 2026-10-15
+---
+type: Project State
+title: Aktualny stan projektu sklr
+description: Zakres implementacji, ograniczenia odbioru i potwierdzone sprawdzenia projektu sklr.
+tags: [sklr, project-state, testing]
+---
+# Aktualny stan — 2026-10-16
 
 Baza funkcji OKF: `e6cee29` — `feat: complete OKF knowledge workflow`; porządki dokumentacji: `39cc074`. Bieżące rozszerzenia obejmują automatyczne docs i politykę formatu opisane poniżej. Development: Linux; docelowy runtime: Windows.
 
@@ -15,7 +21,11 @@ Baza funkcji OKF: `e6cee29` — `feat: complete OKF knowledge workflow`; porząd
 
 Konwerter dodaje brakujące pola frontmattera, zachowując body; nie reorganizuje historii. Audyt/konwersja obejmują docs/ i dwa root legacy pliki. Dowolny inny podkatalog, np. doc/, można indeksować profilem docs, lecz konwerter go jeszcze nie obsługuje. Archiwum nie trafia do indeksu projektu; audyt domyślnie je raportuje.
 
-Użytkownik potwierdził ręcznie dodanie wiedzy centralnej. Bundle projektu `sklr-okf` pokazał **partial i 3 dokumenty**; przyczyna pozostaje nieustalona. To nie jest pełny odbiór pilota ani dowód kompletności indeksu. Pełny odbiór Windows i pomiar kontekstu pozostają otwarte.
+Wiedza centralna general_knowladge: ready, 2 dokumenty. Dla sklr-okf potwierdzono scan_budget przy 2 dokumentach; poprawka task 349 zapisana w 9/9 plikach wydłuża skan w tle do 90 s, odświeżenie z publikacją do kooperacyjnych 120 s i dodaje diagnostykę panelu. Po restarcie użytkownik i MCP potwierdzili task 351: partial, 26 dokumentów, 9 pominiętych, scan_budget i refresh_budget, około 122 s. Zwiększenie budżetu pomogło, lecz nie rozwiązało wydajności ani kompletności. Wynik paczki testów poprawki nie został potwierdzony; agent nie uruchamiał testów ani serwera.
+
+Zaakceptowano kierunek SQLite → RAM, dedykowanego workera partiami i aktualizacji przyrostowych. Kontrakt [trwałego indeksu](../specs/okf-integration/persistent-index.md) zapisano po zgodzie w task 352. SQLite, worker dedykowany i wykrywanie zmian zewnętrznych nie są wdrożone. Lokalizacja/retencja bazy, schemat i fingerprint wymagają rozstrzygnięcia przed integracją. Nadal działają RAM i pełne skany; pełny odbiór Windows oraz pomiar kosztów pozostają otwarte.
+
+Konwersja wybranego aktywnego zakresu docs do OKF: zapisano metadane 22 dokumentów w taskach 339, 341, 343–345; 3 wcześniej poprawne dokumenty pozostawiono bez zmian. Archiwum, standard upstream i przykłady nie były konwertowane. Treść nie była reorganizowana; kompletność audytu nadal ogranicza audit_budget. Nie włączano require_okf.
 
 Hard guard gotowości projektu, semantyczny selektor stanu i skill okf-curator nie są wdrożone. Maskowanie jest heurystyczne; transakcje mają best-effort rollback, bez pełnej atomowości przy awarii systemu. Szczegóły ochrony: [kontrakty OKF](../specs/okf-support.md).
 
@@ -39,4 +49,4 @@ Polityka formatu: AST 13 zmienionych/nowych plików Python, importy, `node --che
 
 ## Następny krok
 
-Wyjaśnić `partial`/3 dokumenty na podstawie reasons, diagnostyki i zakresu bundle, następnie wykonać odbiór na Windows według [instrukcji](../windows-okf.md). Dopiero po świadomym wyborze zakresu osobno zdecydować o konwersji uporządkowanych źródeł. Jedyna lista otwartych prac: [backlog](backlog.md). Do bieżącej pracy wystarczą AGENTS, ten plik i właściwy temat z [mapy dokumentacji](../README.md).
+Przed integracją rozstrzygnąć lokalizację i retencję bazy oraz fingerprint według [kontraktu trwałego indeksu](../specs/okf-integration/persistent-index.md), następnie dostarczać cache i worker etapami z pomiarem kosztów i kontrolą regresji bezpieczeństwa. Potwierdzić wynik testów poprawki task 349; nie traktować partial/26 jako zakończonego odbioru. Jedyna lista otwartych prac: [backlog](backlog.md). Do bieżącej pracy wystarczą AGENTS, ten plik i właściwy temat z [mapy dokumentacji](../README.md).

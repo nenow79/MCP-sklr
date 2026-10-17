@@ -1,3 +1,6 @@
+---
+type: Reference
+---
 # ADR 0002: Asynchroniczna kolejka zadań i panel webowy
 
 Status: zaakceptowany (rozmowa, 2026-10-09)

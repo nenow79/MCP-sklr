@@ -1,3 +1,8 @@
+---
+type: Specification
+title: "OKF: konwencja kuracji"
+tags: [sklr, okf, curation]
+---
 # OKF: konwencja kuracji
 
 Kontrakt lokalny sklr dla implementacji w `e6cee29`; odbiór i ograniczenia testów: [CURRENT](../../plan/CURRENT.md).

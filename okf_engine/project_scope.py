@@ -9,7 +9,8 @@ def allowed_path(state, relative: str, *, directory=False):
     parts = relative.split("/")
     if relative.casefold() in LEGACY_FILES and not directory and entry.profile in ("legacy", "mixed"):
         return True
-    if any(part.startswith(".") for part in parts) or (not directory and parts[-1].casefold() == "agents.md"):
+    if any(part.startswith(".") for part in parts) or (
+            not directory and parts[-1].casefold() in ("agents.md", "skill.md")):
         return False
     if any(part.casefold() in ("archive", "archives") for part in (parts if directory else parts[:-1])):
         return False

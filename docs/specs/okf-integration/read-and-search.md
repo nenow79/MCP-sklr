@@ -1,3 +1,8 @@
+---
+type: Specification
+title: "OKF: katalog, wyszukiwanie i odczyt"
+tags: [sklr, okf, api, search]
+---
 # OKF: katalog, wyszukiwanie i odczyt
 
 Kontrakt lokalny sklr dla implementacji w `e6cee29`; odbiór i ograniczenia testów: [CURRENT](../../plan/CURRENT.md).

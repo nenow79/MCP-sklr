@@ -1,3 +1,9 @@
+---
+type: Procedure
+title: Aktualizacja i odbiór OKF na Windows
+description: Instrukcja aktualizacji, testów i ręcznego odbioru funkcji OKF na Windows.
+tags: [sklr, okf, windows, testing]
+---
 # Wersja OKF do odbioru na Windows
 
 Development: Linux. System docelowy: Windows. To kandydat do końcowych testów,

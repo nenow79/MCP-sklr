@@ -1,3 +1,14 @@
+---
+type: Architecture Decision
+title: 'ADR 0004: Wiedza centralna i projektowa w OKF'
+description: Decyzje i uzasadnienia dotyczące integracji OKF, źródeł prawdy, dostępu
+  i kontrolowanej konwersji w sklr.
+tags:
+- sklr
+- okf
+- architecture
+- adr
+---
 # ADR 0004: Wiedza centralna i projektowa w OKF
 
 Status: zaakceptowany. Pierwotny kontrakt C0 przyjęto po zapisie #153 i odczycie. Poniższe decyzje zachowują uzasadnienia z C0; stan wdrożenia i testów opisuje [CURRENT](../plan/CURRENT.md).
@@ -5,6 +16,18 @@ Status: zaakceptowany. Pierwotny kontrakt C0 przyjęto po zapisie #153 i odczyci
 Aktualizacja 2026-10-15: po odbiorze C3b użytkownik autoryzował domknięcie przepływu. Panel i minimalne P0/P1/P2 wdrożono w `e6cee29` przed zakończeniem pilota C4; pierwotna kolejność central → projekt nie jest już blokadą implementacji. Brak AGENTS/konwersji pozostaje advisory. Konwerter nie porządkuje historii, a indeks jest w pamięci. Ręczne dodanie wiedzy centralnej potwierdzono; partial/3 dokumenty projektu nie są pełnym odbiorem. Hard guard, selektor semantyczny i skill kuratora nadal są propozycjami.
 
 Numer 0003 pozostawiamy dla decyzji przewidzianej w odłożonej fazie 5e. Ten dokument nie zastępuje tamtej decyzji.
+
+## Uzupełnienie: trwały cache i indeksowanie przyrostowe
+
+Kierunek zaakceptowany przez użytkownika; kontrakt zapisany po zgodzie w zadaniu 352. To decyzja docelowa, nie potwierdzenie implementacji ani odbioru. [Trwały indeks](../specs/okf-integration/persistent-index.md) zastępuje dla przyszłej implementacji ograniczenie do RAM z punktu 10 i założenie pustego indeksu po restarcie. Pierwotne decyzje C0 poniżej zachowujemy jako historię uzasadnień.
+
+- SQLite przechowuje odtwarzalny publiczny cache po maskowaniu, RAM przygotowany indeks wyszukiwania. Pliki pozostają źródłem prawdy; bez FTS i zmiany rankingu w pierwszej wersji.
+- Dedykowany worker wiedzy przetwarza partie i zmienione ścieżki po committed; kontrola zmian zewnętrznych uzgadnia dodania, edycje i usunięcia. Nie wykonujemy pełnego parsowania zbioru po każdej edycji.
+- Cache nie nadaje dostępu ani zaufania. Rewizje API pozostają związane z procesem i świeżym odczytem; tokenu aktualnego pliku nie przypisujemy do starszych sekcji.
+- Trwałość publicznego widoku zwiększa zakres retencji danych. Lokalizacja bazy, jej czyszczenie, schemat i fingerprint wymagają rozstrzygnięcia przed integracją. Nie deklarujemy DLP, szyfrowania ani atomowości SQLite + RAM.
+- Osobny proces, watcher i SQLite FTS są odłożone. Najpierw cache, worker partiami, pomiary kosztów i zachowanie kontroli dostępu/junctionów.
+
+Aktualny runtime nadal używa RAM i pełnych skanów. Stan wdrożenia: [CURRENT](../plan/CURRENT.md); jedyna lista prac: [backlog](../plan/backlog.md).
 
 ## Kontekst w chwili decyzji C0
 

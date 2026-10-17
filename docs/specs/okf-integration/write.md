@@ -1,3 +1,8 @@
+---
+type: Specification
+title: "OKF: kontrolowany zapis"
+tags: [sklr, okf, write, approvals]
+---
 # OKF: kontrolowany zapis
 
 Kontrakt lokalny sklr dla implementacji w `e6cee29`; odbiór i ograniczenia testów: [CURRENT](../../plan/CURRENT.md).

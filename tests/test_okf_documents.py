@@ -39,6 +39,67 @@ def error(reader, concept, expected):
     assert caught.value.code == expected
 
 
+def test_read_bytes_does_not_parse_and_build_matches_read(reader_env, monkeypatch):
+    from okf_engine import documents as module
+    base, _, _, reader = reader_env
+    write(base / 'a.md', '# Title\npassword: RAW_SENTINEL\n')
+    parser = module.parse_document
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError('parser called during byte read')
+
+    monkeypatch.setattr(module, 'parse_document', forbidden)
+    source = reader.read_bytes('general', 'a')
+    assert b'RAW_SENTINEL' in source.raw
+    assert 'RAW_SENTINEL' not in repr(source)
+    monkeypatch.setattr(module, 'parse_document', parser)
+    built = reader.build_document(source)
+    ordinary = reader.read('general', 'a')
+    assert built.view == ordinary.view
+    assert built.revision == ordinary.revision
+    assert 'RAW_SENTINEL' not in built.view.body
+
+
+def test_build_rejects_changed_byte_snapshot(reader_env):
+    base, _, _, reader = reader_env
+    write(base / 'a.md')
+    source = reader.read_bytes('general', 'a')
+    write(base / 'a.md', '# Changed\nlonger content\n')
+    with pytest.raises(DocumentError, match='DOCUMENT_CHANGED'):
+        reader.build_document(source)
+
+
+def test_build_rechecks_access(reader_env):
+    base, _, controls, reader = reader_env
+    write(base / 'a.md')
+    source = reader.read_bytes('general', 'a')
+    controls['allowed'] = False
+    with pytest.raises(DocumentError, match='DOCUMENT_UNAVAILABLE'):
+        reader.build_document(source)
+
+
+def test_reader_measurements_use_only_fixed_keys(reader_env, monkeypatch):
+    import okf_engine.documents as module
+    base, _, controls, reader = reader_env
+    write(base / 'a.md', 'password: PRIVATE_SENTINEL\n')
+    ticks = iter(range(0, 1000000000, 2000000))
+    monkeypatch.setattr(module.time, 'perf_counter_ns', lambda: next(ticks))
+    reader.read('general', 'a')
+    metrics = reader.measurements()
+    assert set(metrics) == {name + suffix for name in ('bundle_check', 'path_resolve', 'authorize')
+                            for suffix in ('_calls', '_ns')}
+    for name in ('bundle_check', 'path_resolve', 'authorize'):
+        assert metrics[name + '_calls'] > 0
+        assert metrics[name + '_ns'] == metrics[name + '_calls'] * 2000000
+    controls['allowed'] = False
+    before = metrics['authorize_calls']
+    with pytest.raises(DocumentError):
+        reader.read('general', 'a')
+    assert reader.measurements()['authorize_calls'] == before + 1
+    assert 'PRIVATE_SENTINEL' not in repr(reader.measurements())
+    assert str(base) not in repr(reader.measurements())
+
+
 def test_fresh_read_public_only_and_revision(reader_env):
     base, _, _, reader = reader_env
     write(base / "Orders.md", "# A\npassword: hiddenvalue\n## B\ntext\n")

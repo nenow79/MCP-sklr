@@ -120,7 +120,8 @@ class KnowledgeIndex:
 
     def publish(self, ticket: int, reader: DocumentReader, bundle_id: str, scan: ScanResult,
                 limits: KnowledgeLimits, *, commit_lock=None,
-                validate_commit: Optional[Callable[[], bool]] = None) -> bool:
+                validate_commit: Optional[Callable[[], bool]] = None,
+                budget_exhausted: Optional[Callable[[], bool]] = None) -> bool:
         """Publikuje zweryfikowaną generację; False, gdy ticket jest nieaktualny.
 
         DocumentError(BUNDLE_UNAVAILABLE) oznacza utratę dostępu: indeks bundle jest usunięty.
@@ -142,6 +143,10 @@ class KnowledgeIndex:
         excluded = sum(scan.errors.values()) + scan.skipped.get("unread", 0)
         used = 0
         for position, document in enumerate(documents):
+            if budget_exhausted is not None and budget_exhausted():
+                # Nie publikujemy niedokończonego podzbioru wskutek timeoutu.
+                # Właściciel kończy refresh jako błąd, zachowując starą generację.
+                raise DocumentError("REFRESH_BUDGET_EXHAUSTED")
             size = public_text_bytes(document)
             if used + size > limits.max_index_text_bytes:
                 reasons.add(REASON_TEXT_LIMIT)
@@ -172,6 +177,8 @@ class KnowledgeIndex:
                 slot = self._slot(bundle_id)
                 if slot.ticket != ticket:
                     return False
+                if budget_exhausted is not None and budget_exhausted():
+                    raise DocumentError("REFRESH_BUDGET_EXHAUSTED")
                 slot.generation = generation
                 slot.refreshing = False
                 slot.error = None

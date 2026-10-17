@@ -1,7 +1,18 @@
+---
+type: Specification
+title: "OKF: indeks w pamięci i odświeżanie"
+tags: [sklr, okf, index, refresh]
+---
 # OKF: indeks w pamięci i odświeżanie
 
 Kontrakt lokalny sklr dla implementacji w `e6cee29`; odbiór i ograniczenia testów: [CURRENT](../../plan/CURRENT.md).
 Mapa i pozostałe kontrakty: [obsługa OKF](../okf-support.md). Standard formatu: [OKF 0.2](../OKF/SPEC.md).
+
+## Status kontraktu
+
+Ten dokument opisuje obecną implementację RAM. Zaakceptowany, ale niewdrożony kierunek SQLite → RAM, workera partiami i aktualizacji zmienionych dokumentów opisuje [trwały indeks](persistent-index.md). Do jego wdrożenia nadal obowiązują brak trwałego cache i odbudowa po restarcie.
+
+Poprawka zapisana w zadaniu 349 wprowadza osobny budżet skanu w tle 90 s i kooperacyjny budżet odświeżenia 120 s, sprawdzany także między dokumentami publikacji; profil krótkiego scan_bundle pozostaje bez zmian. Nie jest to jeszcze worker z kontynuacją między partiami. Panel i podsumowanie zadania pokazują powody partial. Limit nie przerywa pojedynczego blokującego I/O; wynik taska 351 i ograniczenia odbioru zapisano w CURRENT.
 
 ## 7. Skan, cache i odświeżanie
 

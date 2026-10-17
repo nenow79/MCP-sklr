@@ -6,6 +6,9 @@ Kontrole przed/po odczycie ograniczają wyścigi, nie gwarantują pełnego TOCTO
 """
 import os
 import stat
+import threading
+import time
+from functools import wraps
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
@@ -37,7 +40,17 @@ class PublicDocument:
     revision: str = field(repr=False)
     binding: RevisionBinding = field(repr=False)
     _bundle: BundleState = field(repr=False)  # wiązanie dostępu, nie serializować
-    format: str = "okf"
+    format: str = field(default="okf", repr=False)
+
+
+@dataclass(frozen=True)
+class DocumentBytes:
+    """Prywatna migawka odczytu; raw nie trafia do cache/SQLite/logów."""
+    identity: DocumentIdentity
+    state: BundleState = field(repr=False)
+    path: Path = field(repr=False)
+    raw: bytes = field(repr=False)
+    snapshot: tuple = field(repr=False)
 
 
 def require_bundle(state: BundleState) -> BundleState:
@@ -71,6 +84,23 @@ def _regular(info):
     return stat.S_ISREG(info.st_mode) and not (getattr(info, "st_file_attributes", 0) & 0x400)
 
 
+def _measure_reader(name):
+    """Stałe nazwy i agregaty; pomiar nie obejmuje ani nie utrwala argumentów."""
+    def decorate(method):
+        @wraps(method)
+        def measured(self, *args, **kwargs):
+            started = time.perf_counter_ns()
+            try:
+                return method(self, *args, **kwargs)
+            finally:
+                elapsed = max(0, time.perf_counter_ns() - started)
+                with self._measurement_lock:
+                    calls, nanos = self._measurements.get(name, (0, 0))
+                    self._measurements[name] = (calls + 1, nanos + elapsed)
+        return measured
+    return decorate
+
+
 class DocumentReader:
     """Callback bundle(id) zwraca świeży BundleState; authorize(state,path) -> bool.
 
@@ -87,7 +117,28 @@ class DocumentReader:
         self.signer = signer
         self.limits = limits
         self.now = now
+        self._measurement_lock = threading.Lock()
+        self._measurements = {}
 
+    def measurements(self):
+        """Suma czasu operacji, nie czas wall-clock przebiegu; bez danych wejściowych."""
+        with self._measurement_lock:
+            result = {}
+            for name in ("bundle_check", "path_resolve", "authorize"):
+                calls, nanos = self._measurements.get(name, (0, 0))
+                result[name + "_calls"] = calls
+                result[name + "_ns"] = nanos
+            return result
+
+    @_measure_reader("path_resolve")
+    def _resolve_concept(self, directory, concept):
+        return resolve_concept_file(directory, concept)
+
+    @_measure_reader("authorize")
+    def _authorize_path(self, state, path):
+        return self.authorize(state, path)
+
+    @_measure_reader("bundle_check")
     def current_bundle(self, bundle_id: str) -> BundleState:
         try:
             state = require_bundle(self.bundle(bundle_id))
@@ -104,7 +155,7 @@ class DocumentReader:
         if not allowed_path(current, path.relative_to(current.path).as_posix()):
             raise DocumentError("DOCUMENT_UNAVAILABLE")
         try:
-            allowed = self.authorize(current, path)
+            allowed = self._authorize_path(current, path)
         except Exception:
             allowed = False
         if allowed is not True:
@@ -123,7 +174,7 @@ class DocumentReader:
         if not same_binding(state, current):
             raise DocumentError("BUNDLE_UNAVAILABLE")
         try:
-            path, canonical = resolve_concept_file(current.path, document.view.identity.concept_id)
+            path, canonical = self._resolve_concept(current.path, document.view.identity.concept_id)
         except (PathSecurityError, OSError, ValueError):
             raise DocumentError("DOCUMENT_UNAVAILABLE") from None
         expected = RevisionBinding(current.id, current.entry.root_path, str(current.path), str(path))
@@ -132,9 +183,13 @@ class DocumentReader:
         self.check_access(state, path)
 
     def read(self, bundle_id: str, concept_id: str) -> PublicDocument:
+        return self.build_document(self.read_bytes(bundle_id, concept_id))
+
+    def read_bytes(self, bundle_id: str, concept_id: str) -> DocumentBytes:
+        """Ograniczony świeży odczyt z kontrolą dostępu; nie wywołuje parsera."""
         state = self.current_bundle(bundle_id)
         try:
-            path, canonical = resolve_concept_file(state.path, concept_id)
+            path, canonical = self._resolve_concept(state.path, concept_id)
             identity = DocumentIdentity(bundle_id, canonical)
         except (PathSecurityError, IdentityError):
             raise DocumentError("DOCUMENT_UNAVAILABLE") from None
@@ -156,12 +211,33 @@ class DocumentReader:
             if (len(raw) != after.st_size or _snapshot(opened) != _snapshot(after)
                     or _snapshot(after) != _snapshot(path.lstat())):
                 raise DocumentError("DOCUMENT_CHANGED")
-            checked_path, checked_id = resolve_concept_file(state.path, canonical)
+            checked_path, checked_id = self._resolve_concept(state.path, canonical)
             if checked_path != path or checked_id != canonical:
                 raise DocumentError("DOCUMENT_CHANGED")
         except (OSError, ValueError, PathSecurityError):
             raise DocumentError("DOCUMENT_UNAVAILABLE") from None
         self.check_access(state, path)
+        return DocumentBytes(identity, state, path, raw, _snapshot(after))
+
+    def check_bytes(self, source: DocumentBytes) -> None:
+        """Ponowna kontrola migawki i ścieżki przed użyciem odczytanych bajtów."""
+        if not isinstance(source, DocumentBytes):
+            raise DocumentError("DOCUMENT_UNAVAILABLE")
+        self.check_access(source.state, source.path)
+        try:
+            path, canonical = self._resolve_concept(source.state.path, source.identity.concept_id)
+            info = path.lstat()
+            if (path != source.path or canonical != source.identity.concept_id
+                    or not _regular(info) or _snapshot(info) != source.snapshot):
+                raise DocumentError("DOCUMENT_CHANGED")
+        except (OSError, ValueError, PathSecurityError):
+            raise DocumentError("DOCUMENT_UNAVAILABLE") from None
+
+    def build_document(self, source: DocumentBytes) -> PublicDocument:
+        """Parsuje tę samą kontrolowaną migawkę, bez drugiego odczytu pliku."""
+        self.check_bytes(source)
+        state, path, raw, identity = source.state, source.path, source.raw, source.identity
+        bundle_id = identity.bundle_id
         parsed = parse_document(raw, identity, self.limits.to_parse_limits())
         document_format = "okf"
         if (not parsed.ok and state.entry.scope == "project" and
@@ -184,7 +260,7 @@ class DocumentReader:
         self.check_document(document)
         try:
             final = path.lstat()
-            if not _regular(final) or _snapshot(final) != _snapshot(after):
+            if not _regular(final) or _snapshot(final) != source.snapshot:
                 raise DocumentError("DOCUMENT_CHANGED")
         except (OSError, ValueError):
             raise DocumentError("DOCUMENT_UNAVAILABLE") from None

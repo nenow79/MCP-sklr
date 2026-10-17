@@ -1,3 +1,9 @@
+---
+type: Specification
+title: Model i twarde reguły komend — propozycja
+description: Proponowane, niewdrożone wymagania dla execute_command i command_policy.
+tags: [sklr, commands, proposal]
+---
 # Model i twarde reguły komend — propozycja
 
 Niewdrożone w `e6cee29`. [Status, korekty i mapa propozycji](command-execution-proposal.md) są częścią kontraktu. Wzmianki o ADR 0003 oznaczają planowany dokument. Testy opisują wymagania, nie wyniki.

@@ -53,6 +53,41 @@ class _Refresh:
     finished: bool = False
 
 
+READ_ERROR_CODES = frozenset({"DOCUMENT_UNAVAILABLE", "DOCUMENT_CHANGED", "INVALID_OKF",
+                              "SAFETY_LIMIT", "UNSUPPORTED_PROFILE", "IDENTITY_UNSAFE"})
+READ_ERROR_STAGES = frozenset({"read_bytes", "cache_load", "cache_hit",
+                               "build_document", "cache_write_check"})
+
+
+def _read_diagnostics(scan):
+    errors = {code: count for code, count in scan.errors.items()
+              if code in READ_ERROR_CODES and type(count) is int and 0 < count <= 5000}
+    stages = {}
+    for name, count in getattr(scan, "error_stages", {}).items():
+        if not isinstance(name, str):
+            continue
+        stage, separator, code = name.partition(".")
+        if (separator and stage in READ_ERROR_STAGES and code in READ_ERROR_CODES
+                and type(count) is int and 0 < count <= 5000):
+            stages[name] = count
+    return {"read_errors": errors, "read_error_stages": stages}
+
+
+READER_METRIC_FIELDS = frozenset({"bundle_check_calls", "bundle_check_ms",
+                                  "path_resolve_calls", "path_resolve_ms",
+                                  "authorize_calls", "authorize_ms"})
+
+
+def _reader_metrics(reader, baseline=None):
+    current = reader.measurements()
+    baseline = baseline or {}
+    result = {}
+    for name in ("bundle_check", "path_resolve", "authorize"):
+        result[name + "_calls"] = max(0, current[name + "_calls"] - baseline.get(name + "_calls", 0))
+        result[name + "_ms"] = max(0, current[name + "_ns"] - baseline.get(name + "_ns", 0)) // 1000000
+    return result
+
+
 def _json_size(value):
     return len(json.dumps(value, ensure_ascii=False))
 
@@ -64,8 +99,11 @@ def _budget(value):
 
 class KnowledgeService:
     def __init__(self, source, authorize, submit, task_status, *, lock=None,
-                 now=None, clock=time.monotonic, signer=None, active_project=None):
+                 now=None, clock=time.monotonic, signer=None, active_project=None,
+                 refresh_backend=None):
         self._source, self._authorize = source, authorize
+        self._refresh_backend = refresh_backend
+        self._closed = False
         self._submit, self._task_status = submit, task_status
         self._lock = lock if lock is not None else threading.RLock()
         self._now = now or (lambda: datetime.now(timezone.utc))
@@ -78,8 +116,38 @@ class KnowledgeService:
         self._limits = None
         self._refreshes = {}
         self._retry_at = {}
+        self._refresh_diagnostics = {}
+
+    def attach_refresh_backend(self, backend):
+        """Podłączenie podczas bootstrapu, przed pierwszym odświeżeniem."""
+        if not callable(getattr(backend, "run", None)) or not callable(getattr(backend, "close", None)):
+            raise KnowledgeError("BACKEND_INVALID")
+        with self._lock:
+            if self._closed or self._refresh_backend is not None or self._refreshes:
+                raise KnowledgeError("BACKEND_ATTACH_CONFLICT")
+            self._refresh_backend = backend
+            for bundle_id in self._states:
+                self.index.invalidate(bundle_id)
+
+    def close(self, timeout=5):
+        """Unieważnia przebiegi; backend zamyka zasoby w swoim wątku właściciela.
+
+        Nie trzymamy locka konfiguracji podczas join. False oznacza, że worker
+        nie zakończył się jeszcze (np. blokujące I/O), nie sukces zamknięcia.
+        """
+        with self._lock:
+            self._closed = True
+            for refresh in self._refreshes.values():
+                refresh.cancel.set()
+            for bundle_id in self._states:
+                self.index.invalidate(bundle_id)
+        if self._refresh_backend is not None:
+            return self._refresh_backend.close(timeout)
+        return True
 
     def _sync(self):
+        if self._closed:
+            raise KnowledgeError("SERVICE_CLOSED")
         states, limits, version = self._source()
         available = {state.id: state for state in states if state.available}
         if version != self._version:
@@ -89,6 +157,7 @@ class KnowledgeService:
                 refresh.cancel.set()
             self._refreshes.clear()
             self._retry_at.clear()
+            self._refresh_diagnostics.clear()
             self._version = version
         # Dostępność filesystem może zmienić się bez zmiany configu.
         for bundle_id in self._states.keys() - available.keys():
@@ -97,6 +166,7 @@ class KnowledgeService:
             if refresh is not None:
                 refresh.cancel.set()
             self._retry_at.pop(bundle_id, None)
+            self._refresh_diagnostics.pop(bundle_id, None)
         self._states, self._limits = available, limits
 
     def _current(self, bundle_id):
@@ -212,6 +282,7 @@ class KnowledgeService:
         result["indexed_at"] = state.indexed_at.isoformat() if state.indexed_at else None
         result["reasons"] = list(state.reasons)
         result["refresh_task_id"] = refresh.task_id if refresh else None
+        result["last_refresh"] = dict(self._refresh_diagnostics.get(bundle_id, {}))
         return result
 
     def bundles(self):
@@ -265,7 +336,31 @@ class KnowledgeService:
                 clock()
                 if refresh.version != self._version:
                     raise _Cancelled()
-            scan = scan_bundle(reader, bundle_id, limits, clock=clock)
+            scan_baseline = reader.measurements()
+            scan_started = clock()
+            # Stara ścieżka: 120 s łącznie. Backend partiami: jego czas pracy
+            # nie zużywa budżetu późniejszej publikacji do RAM.
+            refresh_deadline = scan_started + 120
+            if self._refresh_backend is None:
+                scan = scan_bundle(reader, bundle_id, limits, clock=clock,
+                                   background_budget_s=90)
+            else:
+                # Backend oddaje ScanResult, nie publikuje sam do RAM. Serwis
+                # zachowuje końcową kontrolę wersji, tickets i aktualnego dostępu.
+                # run musi respektować clock() (anulowanie) i sam ograniczać partie.
+                scan = self._refresh_backend.run(reader, bundle_id, limits, clock)
+            publish_baseline = reader.measurements()
+            publish_started = clock()
+            if self._refresh_backend is not None:
+                refresh_deadline = publish_started + 120
+            diagnostics = _read_diagnostics(scan)
+            diagnostics.update(scan_ms=int(max(0, publish_started - scan_started) * 1000),
+                               candidates=len(scan.documents) + sum(scan.errors.values()),
+                               read_documents=len(scan.documents),
+                               scan_checks=_reader_metrics(reader, scan_baseline))
+            with self._lock:
+                if self._refreshes.get(bundle_id) is refresh:
+                    self._refresh_diagnostics[bundle_id] = diagnostics
 
             def can_publish():
                 # KnowledgeIndex woła pod wspólnym lockiem tylko przed podmianą.
@@ -274,22 +369,33 @@ class KnowledgeService:
                 return refresh.version == self._version
 
             if not self.index.publish(refresh.ticket, reader, bundle_id, scan, limits,
-                                      commit_lock=self._lock, validate_commit=can_publish):
+                                      commit_lock=self._lock, validate_commit=can_publish,
+                                      budget_exhausted=lambda: clock() >= refresh_deadline):
                 raise _Cancelled()
             with self._lock:
                 state = self.index.state(bundle_id)
+                diagnostics["publish_ms"] = int(max(0, clock() - publish_started) * 1000)
+                diagnostics["publish_checks"] = _reader_metrics(reader, publish_baseline)
                 refresh.finished = True
                 self._retry_at.pop(bundle_id, None)
                 return {"index_state": state.state, "indexed_documents": state.indexed_documents,
-                        "partial": state.state == "partial", "reasons": list(state.reasons)}
+                        "partial": state.state == "partial", "reasons": list(state.reasons),
+                        "diagnostics": dict(diagnostics)}
         except Exception as exc:
             # Nie przepuszczamy wyjątków od parsera/I/O do logów TaskManager.
             cancelled = isinstance(exc, _Cancelled) or cancel_event.is_set() or refresh.cancel.is_set()
-            code = "REFRESH_CANCELLED" if cancelled else "REFRESH_FAILED"
+            code = "REFRESH_CANCELLED" if cancelled else (
+                "REFRESH_BUDGET_EXHAUSTED" if isinstance(exc, DocumentError)
+                and exc.code == "REFRESH_BUDGET_EXHAUSTED" else "REFRESH_FAILED")
             with self._lock:
                 refresh.finished = True
                 if self._refreshes.get(bundle_id) is refresh:
                     self.index.finish_failed(refresh.ticket, bundle_id, code)
+                    if code == "REFRESH_BUDGET_EXHAUSTED":
+                        last = self._refresh_diagnostics.get(bundle_id, {})
+                        last["failure"] = code
+                        last["publish_ms"] = int(max(0, self._clock() - publish_started) * 1000)
+                        last["publish_checks"] = _reader_metrics(reader, publish_baseline)
                     self._retry_at[bundle_id] = self._clock() + 5
             return {"error": code, "cancelled": cancelled}
 

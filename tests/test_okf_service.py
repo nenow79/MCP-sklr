@@ -164,6 +164,159 @@ def test_disable_during_scan_blocks_publication(env, monkeypatch):
     assert env.service.index.snapshot("general") is None
 
 
+def test_refresh_publication_has_total_budget(env):
+    ready(env)
+    previous = env.service.index.snapshot('general')
+    for name in ('a', 'b', 'c'):
+        (env.base / (name + '.md')).write_text(
+            '---\ntype: Reference\n---\n# Alpha\n', encoding='utf-8')
+    original = env.service.index._prepare
+
+    def slow_prepare(document):
+        result = original(document)
+        env.controls['seconds'] += 70
+        return result
+
+    env.service.index._prepare = slow_prepare
+    search(env, refresh='force')
+    result = env.queue.finish(2)
+    assert result == {'error': 'REFRESH_BUDGET_EXHAUSTED', 'cancelled': False}
+    assert env.service.index.snapshot('general') is previous
+    state = env.service.bundles()['bundles'][0]
+    assert state['index_state'] == 'error' and state['previous_state'] == 'ready'
+    assert state['indexed_documents'] == 1
+    assert state['last_refresh']['failure'] == 'REFRESH_BUDGET_EXHAUSTED'
+
+
+def test_slow_backend_does_not_spend_publication_budget(env):
+    from okf_engine.scanner import scan_bundle
+
+    class Backend:
+        def run(self, reader, bundle, limits, clock):
+            scan = scan_bundle(reader, bundle, limits, clock=clock)
+            env.controls['seconds'] += 200
+            return scan
+
+        def close(self, timeout):
+            return True
+
+    env.service.attach_refresh_backend(Backend())
+    search(env)
+    result = env.queue.finish(1)
+    assert result['index_state'] == 'ready' and result['indexed_documents'] == 1
+    assert result['diagnostics']['scan_ms'] == 200000
+    assert result['diagnostics']['publish_ms'] == 0
+    for phase in ('scan_checks', 'publish_checks'):
+        metrics = result['diagnostics'][phase]
+        assert metrics['bundle_check_calls'] > 0
+        assert metrics['path_resolve_calls'] > 0
+        assert metrics['authorize_calls'] > 0
+        assert all(type(value) is int and value >= 0 for value in metrics.values())
+
+
+def test_last_document_cannot_commit_after_publication_deadline(env):
+    ready(env)
+    previous = env.service.index.snapshot('general')
+    original = env.service.index._prepare
+
+    def slow_prepare(document):
+        result = original(document)
+        env.controls['seconds'] += 130
+        return result
+
+    env.service.index._prepare = slow_prepare
+    search(env, refresh='force')
+    assert env.queue.finish(2)['error'] == 'REFRESH_BUDGET_EXHAUSTED'
+    assert env.service.index.snapshot('general') is previous
+
+
+def test_read_diagnostics_are_filtered(env):
+    from dataclasses import replace as changed
+    from okf_engine.scanner import scan_bundle
+
+    class Backend:
+        def run(self, reader, bundle, limits, clock):
+            scan = scan_bundle(reader, bundle, limits, clock=clock)
+            return changed(scan, partial=True, reasons=('document_unavailable',),
+                           errors={'DOCUMENT_CHANGED': 2, 'PRIVATE_SENTINEL': 1},
+                           error_stages={'build_document.DOCUMENT_CHANGED': 2,
+                                         'PRIVATE_SENTINEL.DOCUMENT_CHANGED': 1})
+
+        def close(self, timeout):
+            return True
+
+    env.service.attach_refresh_backend(Backend())
+    search(env)
+    result = env.queue.finish(1)
+    diag = result['diagnostics']
+    assert diag['read_errors'] == {'DOCUMENT_CHANGED': 2}
+    assert diag['read_error_stages'] == {'build_document.DOCUMENT_CHANGED': 2}
+    assert 'PRIVATE_SENTINEL' not in json.dumps(diag)
+
+
+def test_optional_refresh_backend_and_explicit_close(env, monkeypatch):
+    from okf_engine import service as module
+    original = module.scan_bundle
+    calls = []
+
+    class Backend:
+        def run(self, reader, bundle, limits, clock):
+            calls.append(bundle)
+            return original(reader, bundle, limits, clock=clock)
+
+        def close(self, timeout):
+            calls.append(('close', timeout))
+            return True
+
+    env.service._refresh_backend = Backend()
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError('old scan called alongside backend')
+
+    monkeypatch.setattr(module, 'scan_bundle', forbidden)
+    assert ready(env)['count'] == 1
+    assert calls == ['general']
+    assert env.service.close(2)
+    assert calls[-1] == ('close', 2)
+    assert env.service.index.snapshot('general') is None
+    with pytest.raises(KnowledgeError, match='SERVICE_CLOSED'):
+        env.service.bundles()
+
+
+def test_attach_backend_only_once_before_refresh(env):
+    backend = SimpleNamespace(run=lambda *args: None, close=lambda timeout: True)
+    env.service.attach_refresh_backend(backend)
+    with pytest.raises(KnowledgeError, match='BACKEND_ATTACH_CONFLICT'):
+        env.service.attach_refresh_backend(backend)
+    assert env.service.close()
+
+
+def test_attach_backend_rejects_pending_refresh(env):
+    search(env)
+    backend = SimpleNamespace(run=lambda *args: None, close=lambda timeout: True)
+    with pytest.raises(KnowledgeError, match='BACKEND_ATTACH_CONFLICT'):
+        env.service.attach_refresh_backend(backend)
+    env.queue.finish(1)
+
+
+def test_backend_cannot_publish_after_disable(env):
+    from okf_engine.scanner import scan_bundle
+
+    class Backend:
+        def run(self, reader, bundle, limits, clock):
+            scan = scan_bundle(reader, bundle, limits, clock=clock)
+            env.config['bundles'][0]['enabled'] = False
+            return scan
+
+        def close(self, timeout):
+            return True
+
+    env.service._refresh_backend = Backend()
+    search(env)
+    assert env.queue.finish(1)['cancelled']
+    assert env.service.index.snapshot('general') is None
+
+
 def test_document_access_revoked(env):
     ready(env)
     env.controls["allowed"] = False

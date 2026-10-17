@@ -1,3 +1,9 @@
+---
+type: Reference
+title: Obsługa OKF w sklr — mapa kontraktów
+description: Nawigacja po lokalnych kontraktach integracji OKF i ich granicach.
+tags: [sklr, okf, documentation, navigation]
+---
 # Obsługa OKF w sklr — mapa kontraktów
 
 Baza implementacji: `e6cee29` (2026-10-15), rozszerzona o automatyczne podpinanie projektowego docs. Dostępność funkcji nie oznacza pełnego odbioru: [stan i testy](../plan/CURRENT.md).
@@ -12,7 +18,8 @@ Czytaj tylko dokument właściwy dla zadania:
 | knowledge_bundles/search/get, ranking i budżety | [Odczyt i wyszukiwanie](okf-integration/read-and-search.md) |
 | knowledge_save, preview, zgody, konflikty i rollback | [Zapis](okf-integration/write.md) |
 | Zgodność starszych projektów, wymóg OKF i ochrona przed utratą formatu | [Polityka zapisu](okf-integration/write-policy.md) |
-| Cache, task odświeżenia, partial i restart | [Indeks](okf-integration/index-and-refresh.md) |
+| Obecny indeks RAM, task odświeżenia, partial i restart | [Indeks](okf-integration/index-and-refresh.md) |
+| Docelowy cache SQLite → RAM i aktualizacje przyrostowe — niewdrożone | [Trwały indeks](okf-integration/persistent-index.md) |
 | Profile docs/legacy/mixed, prepare_project, audit/convert | [Projekt i konwersja](okf-integration/project-and-conversion.md) |
 | Typy i zasady opracowywania wiedzy | [Kuracja](okf-integration/curation.md) |
 

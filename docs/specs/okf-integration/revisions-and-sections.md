@@ -1,3 +1,8 @@
+---
+type: Specification
+title: "OKF: rewizje i sekcje"
+tags: [sklr, okf, revisions, sections]
+---
 # OKF: rewizje i sekcje
 
 Kontrakt lokalny sklr dla implementacji w `e6cee29`; odbiór i ograniczenia testów: [CURRENT](../../plan/CURRENT.md).

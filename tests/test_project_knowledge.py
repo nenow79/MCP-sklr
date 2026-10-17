@@ -127,7 +127,8 @@ def test_project_profiles_plain_markdown_search_get_and_exclusions(env, profile,
     (env.work / "docs/archive/old.md").write_text("alpha old", encoding="utf-8")
     (env.work / "docs/nested/archive").mkdir(parents=True)
     (env.work / "docs/nested/archive/old.md").write_text("alpha old", encoding="utf-8")
-    for name in (".vibecoder_context.md", ".vibecoder_checkpoints.md", "README.md", "AGENTS.md", "docs/AGENTS.md"):
+    for name in (".vibecoder_context.md", ".vibecoder_checkpoints.md", "README.md", "AGENTS.md",
+                 "docs/AGENTS.md", "docs/SKILL.md", "docs/nested/skill.MD"):
         (env.work / name).write_text("# Alpha\nlegacy or instructions\n", encoding="utf-8")
     add(env, profile=profile, subpath=subpath)
     cold = env.service.search(query="alpha", scope="project")
@@ -138,6 +139,33 @@ def test_project_profiles_plain_markdown_search_get_and_exclusions(env, profile,
     result = env.service.get("project", sorted(expected)[0], "document")
     assert result["format"] == "markdown" and result["metadata"] == {} and result["signals"]["status"] is None
     assert "SENTINEL" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("profile,subpath,concept", [
+    ("docs", "docs", "SKILL"),
+    ("docs", "docs", "nested/skill"),
+    ("mixed", "", "docs/SKILL"),
+])
+def test_project_get_skill_is_outside_okf_scope(env, profile, subpath, concept):
+    path = env.work / "docs" / ("nested/skill.md" if "nested" in concept else "SKILL.md")
+    path.parent.mkdir(exist_ok=True)
+    raw = b"---\nname: example\ndescription: alpha\n---\n# Alpha\n"
+    path.write_bytes(raw)
+    add(env, profile=profile, subpath=subpath)
+    with pytest.raises(Exception) as caught:
+        env.service.get("project", concept)
+    assert getattr(caught.value, "code", None) == "DOCUMENT_UNAVAILABLE"
+    assert path.read_bytes() == raw
+
+
+def test_skill_scope_does_not_exclude_central_or_directory():
+    from okf_engine.project_scope import allowed_path
+    project = SimpleNamespace(entry=SimpleNamespace(scope="project", profile="docs"))
+    central = SimpleNamespace(entry=SimpleNamespace(scope="central", profile="all"))
+    assert not allowed_path(project, "examples/sKiLl.Md")
+    assert allowed_path(project, "SKILL.md", directory=True)
+    assert allowed_path(central, "examples/SKILL.md")
+    assert allowed_path(project, "examples/references/guide.md")
 
 
 def test_project_switch_does_not_include_old_project_in_aggregate_search(env):
