@@ -10,9 +10,9 @@ Mapa i pozostałe kontrakty: [obsługa OKF](../okf-support.md). Standard formatu
 
 ## Status kontraktu
 
-Ten dokument opisuje obecną implementację RAM. Zaakceptowany, ale niewdrożony kierunek SQLite → RAM, workera partiami i aktualizacji zmienionych dokumentów opisuje [trwały indeks](persistent-index.md). Do jego wdrożenia nadal obowiązują brak trwałego cache i odbudowa po restarcie.
+Aktualny runtime używa SQLite jako podpisanego publicznego cache i RAM jako indeksu wyszukiwania. [Trwały indeks](persistent-index.md) rozróżnia wdrożony zakres od docelowych rozszerzeń. Po starcie cache ładowany jest bez odczytu źródeł jako cache_unchecked; pełne uzgodnienie planowane jest w tle. Użytkownik może pracować bez czekania na pełny skan, z ograniczeniami świeżości wyników opisanymi poniżej.
 
-Poprawka zapisana w zadaniu 349 wprowadza osobny budżet skanu w tle 90 s i kooperacyjny budżet odświeżenia 120 s, sprawdzany także między dokumentami publikacji; profil krótkiego scan_bundle pozostaje bez zmian. Nie jest to jeszcze worker z kontynuacją między partiami. Panel i podsumowanie zadania pokazują powody partial. Limit nie przerywa pojedynczego blokującego I/O; wynik taska 351 i ograniczenia odbioru zapisano w CURRENT.
+Dokumenty przetwarza dedykowany worker z kontynuacją między partiami; TaskManager pozostaje uchwytem oczekiwania/anulowania. Inventory pełnego refresh nadal używa ograniczonego skanu 90 s. Dla backendu cache publikacja ma osobny kooperacyjny budżet 120 s od zakończenia odczytu; jego wyczerpanie odrzuca niedokończoną generację i zachowuje poprzednią RAM ze stanem error. Stara ścieżka bez backendu zachowuje 120 s łącznie. Nie jest to twardy timeout blokującego I/O. Pomiary i wyniki odbioru są w CURRENT.
 
 ## 7. Skan, cache i odświeżanie
 
@@ -31,7 +31,11 @@ Skan ma budżet kooperacyjny scan_budget_s i wszystkie limity rozmiaru/liczby. s
 
 Failed scan ma bezpieczny error i backoff 5 s przed kolejnym auto; force może jawnie ponowić. Queue full/panel down -> bezpieczna diagnostyka, żadnego synchronicznego obejścia. Disabled/utrata root -> usuwa indeks, anuluje skan jeśli możliwe; późna publikacja generacji musi ponownie sprawdzić wiązanie i enabled. W trakcie odpowiedzi ponownie sprawdzamy scope/dostępność; nie deklarujemy odporności na wszystkie zewnętrzne TOCTOU.
 
-Po restart wszystkie indeksy są empty. Nie odtwarzamy ich z tasks.db. Nie zapisujemy treści lub klucza rewizji do logs/config. Trwały indeks może zostać zaprojektowany dopiero jako osobna decyzja po C4/P4.
+Po restarcie zgodne, podpisane rekordy dostępnych zbiorów są odtwarzane z knowledge_index.sqlite3 do RAM z pustą rewizją i cache_unchecked, nie z tasks.db. Search odczytuje tylko kandydatów z niezweryfikowanego cache przed zwrotem i ponownie ocenia dopasowanie, filtry i sekcję; nie przypisuje świeżej rewizji do starego excerpt. Cały wynik może być partial, bo nowe dopasowania lub ranking poza starym cache nie są jeszcze znane. Get/save nadal czytają źródło.
+
+Po committed knowledge_save/convert/create_file/edit_file zgłaszają tylko dotknięte dokumenty: stare cele są czasowo usuwane z RAM, reszta IndexEntry pozostaje; backend.update nie wykonuje inventory, patch nie zmienia indexed_at pełnego uzgodnienia. Cele zaległych aktualizacji są scalane, starszy refresh anulowany. Przerwane pełne uzgodnienie może pozostawić reconcile_required. Niepewny rollback zachowuje ostrożną invalidację. Create_tree/rename i okresowa kontrola zmian zewnętrznych jeszcze nie są podłączone.
+
+Zachowanie auto/cached/force opisane wyżej nadal obowiązuje: auto może planować pełny skan, a przy zaległych celach priorytetowo aktualizację przyrostową. Nie ma watchera ani gwarancji wykrycia po 30 s. Pełne odświeżenie czyta źródła nawet przy cache-hit (pomija parser) i nie purguje niewidzianych wpisów SQLite. Nie zapisujemy zapytań, treści ani klucza rewizji do logs/config; SQLite przechowuje wyłącznie publiczny payload i osobne HMAC.
 
 
 Nie powstaje index.md na dysku. Reserved index.md/log.md należą do standardu, lecz nie są wymaganym produktem indeksowania sklr. Wynik partial wymaga odczytania reasons i diagnostyki; nie dowodzi pełnego przeszukania zbioru.

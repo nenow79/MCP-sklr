@@ -110,7 +110,7 @@ def _reason(preview: Dict[str, Any]) -> str:
     return APPROVAL_REASON + " Zmiana wrażliwa: " + ", ".join(reasons) + "."
 
 
-def _make_executor(transaction: FileTransaction, plan: PreparedChanges, count: int):
+def _make_executor(transaction: FileTransaction, plan: PreparedChanges, count: int, after_write=None):
     """Adaptuje wynik transakcji do kontraktu menedżera; nigdy nie rzuca."""
     def executor(cancel_event) -> Dict[str, Any]:
         started = time.monotonic()
@@ -124,7 +124,20 @@ def _make_executor(transaction: FileTransaction, plan: PreparedChanges, count: i
             cancelled = bool(data.get("cancelled"))
             success = bool(result.get("success"))
         except Exception:  # surowy wyjątek nie trafia do error/logów menedżera
+            if after_write is not None:
+                try:
+                    after_write(tuple(item.path for item in plan.files if item.changed), uncertain=True)
+                except Exception:
+                    pass
             return {"started": False, "error": EXEC_INTERNAL_ERROR}
+        index_note = ""
+        if after_write is not None and (committed or not rollback_ok):
+            try:
+                after_write(tuple(item.path for item in plan.files if item.changed),
+                            uncertain=not committed or not rollback_ok)
+            except Exception:
+                # Zapis pliku pozostaje udany nawet przy awarii powiadomienia indeksu.
+                index_note = "\nAktualizacja indeksu nie została potwierdzona; sprawdź stan wiedzy."
         duration = round(time.monotonic() - started, 3)
         summary = (f"committed={str(committed).lower()}, published={published}, "
                    f"rollback_complete={str(rollback_ok).lower()}, cleanup_complete={str(cleanup_ok).lower()}")
@@ -136,7 +149,7 @@ def _make_executor(transaction: FileTransaction, plan: PreparedChanges, count: i
                 error += " " + COMMITTED_NOTE
             return {"started": False, "error": error, "stdout": summary, "duration_s": duration}
         if success:
-            return {"exit_code": 0, "stdout": f"Zapisano plików: {published} z {count}.",
+            return {"exit_code": 0, "stdout": f"Zapisano plików: {published} z {count}." + index_note,
                     "stderr": "", "duration_s": duration}
         if cancelled:
             return {"cancelled": True, "stdout": summary, "duration_s": duration}
@@ -147,7 +160,7 @@ def _make_executor(transaction: FileTransaction, plan: PreparedChanges, count: i
 
 
 def _submit(manager: TaskManager, transaction: FileTransaction, plan: PreparedChanges,
-            kind: str, title: str, description: str, preview: Dict[str, Any]) -> Dict[str, Any]:
+            kind: str, title: str, description: str, preview: Dict[str, Any], after_write=None) -> Dict[str, Any]:
     roots = {entry["root"] for entry in preview["files"]}
     payload = {
         "root": next(iter(roots)) if len(roots) == 1 else None,
@@ -163,7 +176,7 @@ def _submit(manager: TaskManager, transaction: FileTransaction, plan: PreparedCh
     )
     try:
         submitted = manager.submit(
-            fields, _make_executor(transaction, plan, len(preview["files"])),
+            fields, _make_executor(transaction, plan, len(preview["files"]), after_write),
             needs_approval=True, verify=lambda: transaction.verify(plan))
     except (QueueFullError, TaskStateError) as exc:
         return _error(str(exc))
@@ -194,6 +207,7 @@ def edit_file_impl(
     root: Any = None,
     description: Any = "",
     policy: Optional[SensitivePolicy] = None,
+    after_write=None,
 ) -> Dict[str, Any]:
     try:
         try:
@@ -204,7 +218,7 @@ def edit_file_impl(
         if plan is None:
             return preview
         title = _title("Edytuj pliki", "Edytuj", preview)
-        return _submit(manager, transaction, plan, KIND_FILE_EDIT, title, text, preview)
+        return _submit(manager, transaction, plan, KIND_FILE_EDIT, title, text, preview, after_write)
     except Exception:
         return _error(INTERNAL_ERROR)
 
@@ -219,6 +233,7 @@ def create_file_impl(
     root: Any = None,
     description: Any = "",
     policy: Optional[SensitivePolicy] = None,
+    after_write=None,
 ) -> Dict[str, Any]:
     try:
         try:
@@ -230,6 +245,6 @@ def create_file_impl(
             return preview
         verb = "Utwórz" if preview["files"][0]["created"] else "Nadpisz"
         title = _title(verb, verb, preview)
-        return _submit(manager, transaction, plan, KIND_FILE_WRITE, title, text, preview)
+        return _submit(manager, transaction, plan, KIND_FILE_WRITE, title, text, preview, after_write)
     except Exception:
         return _error(INTERNAL_ERROR)

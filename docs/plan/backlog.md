@@ -4,7 +4,7 @@ title: Aktualny backlog projektu sklr
 description: Jedyna lista otwartych prac, odbiorów i propozycji dalszego rozwoju sklr.
 tags: [sklr, backlog, planning]
 ---
-# Aktualny backlog — 2026-10-16
+# Aktualny backlog — 2026-10-18
 
 Jedyna lista otwartych prac. Stan wdrożenia: [CURRENT](CURRENT.md); historyczne zadania i wyniki: [archiwum](../archive/README.md). C1–C3 i minimalne P0/P1/P2 są zaimplementowane w `e6cee29`; nie są ponownie otwartymi paczkami kodu.
 
@@ -12,21 +12,21 @@ Jedyna lista otwartych prac. Stan wdrożenia: [CURRENT](CURRENT.md); historyczne
 
 - [ ] Dokończyć ręczny odbiór polityki formatu dokumentacji: stare projekty w compatible, zakres i wyjątki require_okf, restart i zmiana aliasu, zapis po zmianie polityki podczas oczekiwania na zgodę oraz scenariusze Windows. Testy potwierdzone przez użytkownika: paczka 8 plików z jednym błędem testu, następnie zielony test_project_knowledge po jego poprawce; 2 pominięcia specyficzne dla Windows.
 - [ ] Dokończyć ręczny odbiór automatycznych docs: panelowy przełącznik i jego trwałość, dodanie/usunięcie roota, zniknięcie/powrót docs, pierwszeństwo ręcznych wpisów oraz junctiony Windows. Paczka 5 plików testowych z CURRENT przeszła według potwierdzenia użytkownika.
-- [ ] Domknąć diagnostykę wydajności sklr-okf: task 351 potwierdził partial/26, 9 pominięć, scan_budget i refresh_budget po poprawce task 349. Zmierzyć inventory/read/parse/mask/access/publish i liczbę powtarzanych ocen zbiorów. Przyczyna partial to budżety; udział poszczególnych kosztów nie został zmierzony. Potwierdzić wynik paczki testów task 349; nie uznawać tego za pełny odbiór.
+- [ ] Wyjaśnić zmienność czasu pełnych uzgodnień (około 0,6 s do ponad 2 min). Bundle-check zoptymalizowany, pomiary dostępne, ready/35 i przyrostowe ready/36 potwierdzone. Nie wracać do zwiększania timeoutów jako podstawowej naprawy; docelowo lekka inventory i tylko zmienione źródła.
 - [ ] Potwierdzić najnowsze rozszerzenia i regresje na Windows: testy i ręczny odbiór panelu/MCP, central/docs/legacy/mixed, restartu i junctionów według [instrukcji Windows](../windows-okf.md). Brak aktualnego pełnego pytest; starsze wyniki mają zakres zapisany w CURRENT.
 - [ ] Dokończyć pilot centralny i projektowy oraz pomiar kontekstu katalog → search → outline/section wobec odczytu pełnych źródeł. Ręczne dodanie wiedzy centralnej jest potwierdzone, pełny pilot nie.
 - [ ] Domknąć walidację wybranego zakresu konwersji: 22 dokumenty otrzymały metadane w taskach 339, 341, 343–345, 3 wcześniejsze OKF pozostawiono bez zmian. Potwierdzić format i kompletność po naprawie ograniczeń audytu/indeksu. Standard, przykłady i archiwum pozostają poza konwersją; bez docs/knowledge/ i bez automatycznego require_okf.
 
-## Trwały indeks — zaakceptowany kierunek, niewdrożony
+## Trwały indeks — pozostałe prace
 
-Kontrakt: [SQLite → RAM i indeksowanie przyrostowe](../specs/okf-integration/persistent-index.md). Plan nie jest raportem implementacji.
+SQLite v2, osobny klucz, worker, start cache_unchecked i przyrostowe knowledge_save/convert/create/edit są wdrożone. Wyniki paczek i smoke wyłącznie w CURRENT; nie otwierać ich ponownie jako niewdrożonych etapów. Kontrakt: [trwały indeks](../specs/okf-integration/persistent-index.md).
 
-- [ ] Rozstrzygnąć miejsce i konfigurację knowledge_index.sqlite3 poza zbiorami, retencję/czyszczenie, schemat i bezpieczny fingerprint; uzupełnić kontrakt przed integracją.
-- [ ] Dostarczyć cache SQLite: walidacja rekordów, limity, transakcje, wersje parsera/maskowania, odbudowa i testy sztucznych danych; bez FTS i zmiany rankingu.
-- [ ] Dostarczyć dedykowany worker wiedzy partiami, ograniczoną kolejkę z deduplikacją, generacje SQLite/RAM, anulowanie i odrzucanie spóźnionych wyników. Optymalizować powtarzane oceny dostępu na podstawie pomiarów bez osłabienia guardów.
-- [ ] Podłączyć committed konkretnych ścieżek dla knowledge_save, konwersji i zwykłych create/edit/tree oraz rename; zachować niepewne wyniki rollbacku jako wymagające uzgodnienia.
-- [ ] Dodać start z cache_unchecked i okresową kontrolę zmian zewnętrznych, usunięć i pełnego uzgodnienia; odróżnić Odśwież od Przebuduj. Nie kasować niewidzianych wpisów po niepełnej inwentaryzacji.
-- [ ] Przeprowadzić odbiór Windows: edycja jednego dokumentu parsuje jeden dokument, ciepły start korzysta z cache, aktualizacje i sekcje/revizje są spójne. Sprawdzić awarie SQLite/RAM, utratę dostępu, junctiony, restart, zmianę maskowania, brak treści w logach i koszty zimnego/ciepłego indeksowania.
+- [ ] Następna paczka: create_tree zgłasza po committed konkretne ścieżki; błąd indeksu nie zmienia wyniku zapisu. Dodać test zachowania reszty RAM i jednego odczytu na zmieniony dokument.
+- [ ] Podłączyć rename ze starym i nowym zakresem; uzgodnić usunięcia oraz wynik niepewnego rollbacku bez cichego odtwarzania starych wpisów.
+- [ ] Wdrożyć okresową lekką kontrolę zmian z IDE/git pull: stat jako filtr, bez pełnego odczytu i przebudowy niezmienionych dokumentów; zachować force pełnego sprawdzenia treści. Doprecyzować interwały/backoff i nie kasować niewidzianych wpisów po częściowej inventory.
+- [ ] Podłączyć purge zbioru/usuniętych dokumentów w SQLite, określić retencję i uprawnienia plików bazy; DPAPI chroni klucz, nie bazę i nie zastępuje ACL. Wprowadzić przebudowę i ewentualne staging-generation DB po osobnym projekcie.
+- [ ] Domknąć ręczny smoke create_file/convert oraz edycję podczas trwającego pełnego skanu. Sprawdzić retry zaległych zmian, reconcile_required, spóźnione wyniki, awarie i usunięcia.
+- [ ] Potwierdzić pełną regresję bieżącego HEAD oraz rzeczywiste junctiony Windows. Po odbiorze jawnie usunąć lokalny docs/incremental-smoke-test.md i sprawdzić brak wpisu po uzgodnieniu; nie commitować smoke-test.
 
 ## Potwierdzony dług i dalszy rozwój
 

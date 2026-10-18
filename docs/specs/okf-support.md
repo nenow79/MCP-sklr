@@ -19,12 +19,12 @@ Czytaj tylko dokument właściwy dla zadania:
 | knowledge_save, preview, zgody, konflikty i rollback | [Zapis](okf-integration/write.md) |
 | Zgodność starszych projektów, wymóg OKF i ochrona przed utratą formatu | [Polityka zapisu](okf-integration/write-policy.md) |
 | Obecny indeks RAM, task odświeżenia, partial i restart | [Indeks](okf-integration/index-and-refresh.md) |
-| Docelowy cache SQLite → RAM i aktualizacje przyrostowe — niewdrożone | [Trwały indeks](okf-integration/persistent-index.md) |
+| Cache SQLite → RAM, szybki start i zakres aktualizacji przyrostowych | [Trwały indeks](okf-integration/persistent-index.md) |
 | Profile docs/legacy/mixed, prepare_project, audit/convert | [Projekt i konwersja](okf-integration/project-and-conversion.md) |
 | Typy i zasady opracowywania wiedzy | [Kuracja](okf-integration/curation.md) |
 
 [Standard OKF 0.2](OKF/SPEC.md) opisuje format, a powyższe dokumenty lokalne API i wymagania bezpieczeństwa. Katalog `OKF/` zawiera standard, a `okf-integration/` lokalną integrację sklr; nazwy nie różnią się wyłącznie wielkością liter.
 
-Źródłami prawdy pozostają oryginalne dokumenty. Indeks jest w pamięci; nie tworzymy index.md ani kopii wiedzy w docs/knowledge/. Brak konwersji lub AGENTS nie blokuje pracy w domyślnym trybie zgodności. Jawny wymóg OKF dotyczy zapisu wybranego zakresu; odczyty nadal działają.
+Źródłami prawdy pozostają oryginalne dokumenty. Publiczny podpisany cache SQLite odtwarza indeks RAM przy starcie; dostęp i świeżość nie wynikają z cache. Nie tworzymy index.md ani kopii wiedzy w docs/knowledge/. Brak konwersji lub AGENTS nie blokuje pracy w domyślnym trybie zgodności. Jawny wymóg OKF dotyczy zapisu wybranego zakresu; odczyty nadal działają.
 
 Pierwotny kontrakt C0 i jego aktualizacje zachowano w [archiwum](../archive/pre-okf-2026-10-15/specs/okf-support.md). Nie są listą prac do ponownego wdrożenia. Decyzje: [ADR 0004](../decisions/0004-okf-knowledge.md).

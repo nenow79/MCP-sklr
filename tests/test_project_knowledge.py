@@ -219,6 +219,25 @@ def test_audit_convert_get_body_unchanged_and_idempotent(env, relative):
     assert result["changed"] is False
 
 
+def test_generic_file_notification_filters_project_scope(env, monkeypatch):
+    row = automatic(env)
+    calls = []
+
+    def after(bundle, concepts=None):
+        calls.append((bundle, concepts))
+        return {'index_error': None}
+
+    monkeypatch.setattr(env.service, 'after_write', after)
+    paths = [env.work / name for name in ('docs/a.md', 'docs/archive/old.md',
+                                          'docs/AGENTS.md', 'docs/examples/SKILL.md',
+                                          'docs/index.md', 'src/code.py')]
+    env.service.after_file_write(paths)
+    assert calls == [(row['id'], ['a'])]
+    calls.clear()
+    env.service.after_file_write([env.work / 'docs/a.md'], uncertain=True)
+    assert calls == [(row['id'], None)]
+
+
 def test_conversion_reports_exact_changed_document(env, monkeypatch):
     path = env.work / 'docs/a.md'
     path.write_text('# Alpha\ntext\n', encoding='utf-8')

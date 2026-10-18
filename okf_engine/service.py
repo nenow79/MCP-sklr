@@ -338,6 +338,41 @@ class KnowledgeService:
             self._select(bundle_id, "all")
             return {"task_id": self._request_refresh(bundle_id, "force")}
 
+    def after_file_write(self, paths, *, uncertain=False):
+        """Powiadomienie zwykłego create/edit: rzeczywiste ścieżki, bez treści plików.
+
+        Działa również dla centralnych zbiorów. Zakres wiedzy nie rozszerza
+        uprawnień: backend ponownie sprawdza dostęp do każdego dokumentu.
+        """
+        from pathlib import Path
+        from .project_scope import allowed_path
+        from .models import DocumentIdentity
+        with self._lock:
+            self._sync()
+            selected = {}
+            for path in paths:
+                path = Path(path)
+                if not path.is_absolute():
+                    raise KnowledgeError('INVALID_ARGUMENT')
+                for key, state in self._states.items():
+                    try:
+                        relative = path.relative_to(state.path).as_posix()
+                    except ValueError:
+                        continue
+                    if not relative.lower().endswith('.md') or not allowed_path(state, relative):
+                        continue
+                    try:
+                        identity = DocumentIdentity(key, relative[:-3])
+                    except IdentityError:
+                        continue  # reserved index/log nepatří mezi koncepty
+                    selected.setdefault(key, set()).add(identity.concept_id)
+            result = {}
+            for key, targets in selected.items():
+                result[key] = self.after_write(key, None if uncertain else sorted(targets))
+                if result[key].get('index_error'):
+                    raise KnowledgeError('REFRESH_UNAVAILABLE')
+            return result
+
     def after_project_write(self, root_alias, relatives=None):
         with self._lock:
             self._sync()

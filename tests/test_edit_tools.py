@@ -117,6 +117,51 @@ def submit_with(env, tx):
     return result["data"]["task_id"]
 
 
+def test_create_and_edit_notify_only_after_commit(env):
+    calls = []
+
+    def notify(paths, *, uncertain=False):
+        calls.append((paths, uncertain))
+
+    result = create(env, 'contract.md', 'old', after_write=notify)
+    assert calls == []
+    done = decide(env, result['data']['task_id'])
+    assert done.status.value == 'done'
+    assert calls == [((env.app / 'contract.md',), False)]
+    calls.clear()
+    result = edit(env, [change(filepath='contract.md')], after_write=notify)
+    assert decide(env, result['data']['task_id']).status.value == 'done'
+    assert calls == [((env.app / 'contract.md',), False)]
+
+
+def test_denied_file_write_does_not_notify_index(env):
+    calls = []
+    result = create(env, 'contract.md', 'text', after_write=lambda *args, **kwargs: calls.append(args))
+    assert decide(env, result['data']['task_id'], 'deny').status.value == 'rejected'
+    assert calls == []
+
+
+def test_index_notification_failure_does_not_fail_committed_file(env):
+    def fail(*args, **kwargs):
+        raise RuntimeError('PRIVATE_SENTINEL')
+
+    result = create(env, 'contract.md', 'text', after_write=fail)
+    done = decide(env, result['data']['task_id'])
+    assert done.status.value == 'done' and (env.app / 'contract.md').read_text() == 'text'
+    assert 'Aktualizacja indeksu' in done.stdout
+    assert 'PRIVATE_SENTINEL' not in json.dumps(done.to_dict())
+
+
+def test_uncertain_rollback_notifies_index_conservatively(env):
+    put(env.app)
+    calls = []
+    tx = StubTx(tx_result(success=False, committed=False, rollback=False))
+    result = edit_file_impl(env.registry, env.manager, tx, [change()],
+                            after_write=lambda paths, **kwargs: calls.append((paths, kwargs)))
+    assert decide(env, result['data']['task_id']).status.value == 'failed'
+    assert calls == [((env.app / 'a.txt',), {'uncertain': True})]
+
+
 # --- błędne argumenty: brak zadania ---
 
 @pytest.mark.parametrize("changes", ["x", None, [], [5], [{"filepath": "a.txt"}],

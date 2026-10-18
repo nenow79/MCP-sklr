@@ -8,7 +8,9 @@ tags: [sklr, okf, index, sqlite]
 
 ## Status i zakres
 
-Kierunek zaakceptowany przez użytkownika w rozmowie: lokalny cache SQLite, RAM do wyszukiwania, dedykowany worker i aktualizacje zmienionych dokumentów. Ten dokument jest kontraktem docelowym, nie deklaracją implementacji ani odbioru. Aktualny stan i wyniki testów pozostają w [CURRENT](../../plan/CURRENT.md), zadania wyłącznie w [backlogu](../../plan/backlog.md).
+Kierunek zaakceptowany przez użytkownika: lokalny cache SQLite, RAM do wyszukiwania, dedykowany worker i aktualizacje zmienionych dokumentów. Wdrożone: CacheStore v2, cache_key/hit/restore/backend, start SQLite → RAM i przyrostowe knowledge_save/convert/create_file/edit_file. Sekcje poniżej zawierają również wymagania docelowe; nie są deklaracją ukończenia wszystkich rozszerzeń.
+
+Niewdrożone: create_tree/rename hooks, okresowa lekka kontrola zmian zewnętrznych, purge przy usunięciu zbioru, staging-generation SQLite i osobna akcja Przebuduj. Surowe sekcje nie są osobno przechowywane w DB: outline odtwarzany z publicznego body. Retencja/ACL bazy i pełne testy platformowe pozostają otwarte. Aktualny stan i wyniki testów pozostają w [CURRENT](../../plan/CURRENT.md), zadania wyłącznie w [backlogu](../../plan/backlog.md).
 
 W chwili przygotowania kontraktu indeks jest nadal wyłącznie w RAM. Ostatni sprawdzony wynik zbioru sklr-okf: 26 dokumentów, 9 pominiętych, scan_budget i refresh_budget; task 351 trwał około 122 s. Zwiększenie budżetu nie rozwiązało kosztu pełnych skanów. Dotychczasową implementację opisuje [indeks i odświeżanie](index-and-refresh.md).
 
@@ -16,7 +18,7 @@ W chwili przygotowania kontraktu indeks jest nadal wyłącznie w RAM. Ostatni sp
 
 Pliki źródłowe pozostają nadrzędne. SQLite jest odtwarzalnym cache, nie drugim autorskim magazynem wiedzy; nie tworzymy docs/knowledge/ ani index.md.
 
-Jedna lokalna baza knowledge_index.sqlite3, oddzielna od tasks.db i umieszczona w katalogu danych aplikacji poza indeksowanymi zbiorami. Dokładną lokalizację i sposób konfiguracji należy ustalić przed integracją. Baza oraz pliki pomocnicze SQLite nie trafiają do Git ani do dystrybucji między systemami. Biblioteka sqlite3 ze standardowego Pythona; FTS, embeddingi i zmiana rankingu nie należą do pierwszej wersji.
+Jedna lokalna baza knowledge_index.sqlite3, oddzielna od tasks.db, obecnie obok tasks.db w katalogu sklr, ze ścieżką bootstrapu względem main.py (nie cwd). Klucz knowledge_cache.key jest osobnym plikiem. Nie uruchamiać zbioru wiedzy obejmującego pliki danych runtime; parser przyjmuje jedynie dokumenty Markdown. Baza oraz pliki pomocnicze SQLite nie trafiają do Git ani do dystrybucji między systemami. Biblioteka sqlite3 ze standardowego Pythona; FTS, embeddingi i zmiana rankingu nie należą do pierwszej wersji.
 
 RAM przechowuje przygotowaną generację wyszukiwarki z zachowaniem istniejących terms/phrase/browse i wag. Ładowanie z SQLite nie oznacza potwierdzenia aktualności wobec filesystem.
 
@@ -24,7 +26,7 @@ RAM przechowuje przygotowaną generację wyszukiwarki z zachowaniem istniejącyc
 
 Przechowujemy identyfikatory i wiązania zbiorów, publiczną treść po maskowaniu, dozwolone metadane, sekcje, informacje o pliku do wykrywania zmian, wersje schematu/parsera/maskowania i stan generacji. Wszystkie deserializowane rekordy podlegają walidacji i limitom rozmiaru; cache nie jest zaufaną instrukcją ani dowodem weryfikacji.
 
-Nie utrwalamy surowego frontmattera/body, zapytań użytkownika, klucza RevisionSigner, zgód dostępu ani starych rewizji API do ponownego użycia. Prywatny fingerprint zawartości nie jest publiczną rewizją ani polem rankingu. Mechanizm fingerprintu i jego ewentualna trwałość wymagają osobnego przeglądu przed implementacją; nie wprowadzamy po cichu trwałego klucza procesu.
+Nie utrwalamy surowego frontmattera/body, zapytań użytkownika, klucza RevisionSigner, zgód dostępu ani starych rewizji API do ponownego użycia. Prywatny fingerprint zawartości nie jest publiczną rewizją ani polem rankingu. Fingerprint źródła i tag publicznego payloadu to domenowo oddzielone HMAC-SHA256 z osobnym trwałym kluczem cache, nigdy kluczem RevisionSigner. Auth_tag obejmuje identity, binding, wersje, digest i publiczny payload; powstaje wyłącznie po kontrolowanym parsowaniu. Migracja schematu v1→v2 pozostawia stare wpisy bez tagu, wymagające parsowania. Klucz: DPAPI CurrentUser na Windows, właściciel/0600 na POSIX; brak bazy-klucza wymaga świadomej odbudowy, bez cichej regeneracji.
 
 Publiczny widok nie oznacza danych niepoufnych: maskowanie jest heurystyczne, nie DLP. Baza ma dostęp ograniczony do lokalnego użytkownika w granicach platformy; nie deklarujemy szyfrowania at rest. Treść i sekrety nie trafiają do telemetrii ani stdout zadań. Kopie, WAL i backupy mogą zachowywać usunięte dane; zwykły DELETE nie gwarantuje ich bezpiecznego wymazania. Politykę retencji i czyszczenia należy określić przed produkcyjnym włączeniem cache.
 

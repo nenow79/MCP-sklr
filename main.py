@@ -380,7 +380,8 @@ def edit_file(changes: List[Dict[str, Any]], root: Any = None,
     sprawdź list_tasks: zadanie mogło powstać. Konflikt nie nadpisuje wykrytej zmiany
     zewnętrznej; błąd rollback/cleanup wymaga sprawdzenia plików, nie ponawiaj w ciemno.
     """
-    return edit_tools.edit_file_impl(ROOTS, TASK_MANAGER, FILE_TRANSACTION, changes, root, description)
+    return edit_tools.edit_file_impl(ROOTS, TASK_MANAGER, FILE_TRANSACTION, changes, root, description,
+                                     after_write=KNOWLEDGE.after_file_write)
 
 
 @register_tool
@@ -398,7 +399,8 @@ def create_file(filepath: str, content: str, overwrite: bool = False, root: Any 
     Błąd rollback/cleanup wymaga sprawdzenia plików, nie ponawiaj w ciemno.
     """
     return edit_tools.create_file_impl(
-        ROOTS, TASK_MANAGER, FILE_TRANSACTION, filepath, content, overwrite, root, description)
+        ROOTS, TASK_MANAGER, FILE_TRANSACTION, filepath, content, overwrite, root, description,
+        after_write=KNOWLEDGE.after_file_write)
 
 
 @register_confidential_tool
