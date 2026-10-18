@@ -219,6 +219,24 @@ def test_audit_convert_get_body_unchanged_and_idempotent(env, relative):
     assert result["changed"] is False
 
 
+def test_conversion_reports_exact_changed_document(env, monkeypatch):
+    path = env.work / 'docs/a.md'
+    path.write_text('# Alpha\ntext\n', encoding='utf-8')
+    row = env.projects.audit()['documents'][0]
+    calls = []
+    original = env.service.after_project_write
+
+    def counted(root, relatives=None):
+        calls.append((root, relatives))
+        return original(root, relatives)
+
+    monkeypatch.setattr(env.service, 'after_project_write', counted)
+    plan = env.projects.convert([{'filepath': 'docs/a.md', 'expected_revision': row['revision'],
+                                  'metadata_yaml': 'type: Reference\n'}])
+    assert decide(env, plan).status.value == 'done'
+    assert calls == [('work', ['docs/a.md'])]
+
+
 def test_conversion_conflict_and_denial_preserve_original(env):
     path = env.work / "docs/a.md"
     path.write_text("old", encoding="utf-8")

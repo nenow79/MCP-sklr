@@ -17,7 +17,8 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from .documents import DocumentError, DocumentReader, PublicDocument
+from .documents import DocumentError, DocumentReader, PublicDocument, same_binding
+from .project_scope import allowed_path
 from .limits import KnowledgeLimits
 from .scanner import ScanResult
 
@@ -121,7 +122,8 @@ class KnowledgeIndex:
     def publish(self, ticket: int, reader: DocumentReader, bundle_id: str, scan: ScanResult,
                 limits: KnowledgeLimits, *, commit_lock=None,
                 validate_commit: Optional[Callable[[], bool]] = None,
-                budget_exhausted: Optional[Callable[[], bool]] = None) -> bool:
+                budget_exhausted: Optional[Callable[[], bool]] = None,
+                cached_unchecked: bool = False) -> bool:
         """Publikuje zweryfikowaną generację; False, gdy ticket jest nieaktualny.
 
         DocumentError(BUNDLE_UNAVAILABLE) oznacza utratę dostępu: indeks bundle jest usunięty.
@@ -133,7 +135,7 @@ class KnowledgeIndex:
             if self._slot(bundle_id).ticket != ticket:
                 return False
         try:
-            reader.current_bundle(bundle_id)
+            current_bundle = reader.current_bundle(bundle_id)
         except DocumentError:
             self.invalidate(bundle_id)
             raise
@@ -157,7 +159,17 @@ class KnowledgeIndex:
                 excluded += 1
                 continue
             try:
-                reader.check_document(document)
+                if cached_unchecked:
+                    # Tylko podpisane rekordy przekazane przez backend restore.
+                    # Nie sprawdzamy plików źródłowych; search sprawdza każde trafienie.
+                    if (document.revision or 'cache_unchecked' not in document.view.warnings
+                            or not same_binding(document._bundle, current_bundle)
+                            or not allowed_path(current_bundle,
+                                                document.view.identity.concept_id + '.md')):
+                        raise DocumentError('DOCUMENT_UNAVAILABLE')
+                    reasons.add('cache_unchecked')
+                else:
+                    reader.check_document(document)
             except DocumentError as exc:
                 if exc.code == "BUNDLE_UNAVAILABLE":
                     self.invalidate(bundle_id)
@@ -179,6 +191,84 @@ class KnowledgeIndex:
                     return False
                 if budget_exhausted is not None and budget_exhausted():
                     raise DocumentError("REFRESH_BUDGET_EXHAUSTED")
+                slot.generation = generation
+                slot.refreshing = False
+                slot.error = None
+                return True
+
+    def mark_partial(self, bundle_id, reason):
+        with self._lock:
+            generation = self._slot(bundle_id).generation
+            if generation is not None:
+                self._slot(bundle_id).generation = replace(
+                    generation, partial=True, reasons=tuple(sorted(set(generation.reasons) | {reason})))
+
+    def drop_targets(self, bundle_id, targets):
+        """Po committed usuwa stare cele i unieważnia spóźnioną publikację; reszta zostaje."""
+        targets = frozenset(targets)
+        with self._lock:
+            slot = self._slot(bundle_id)
+            slot.ticket += 1
+            slot.refreshing = False
+            generation = slot.generation
+            if generation is not None:
+                entries = tuple(entry for entry in generation.entries
+                                if entry.document.view.identity.concept_id not in targets)
+                slot.generation = replace(generation, entries=entries, partial=True,
+                                          reasons=tuple(sorted(set(generation.reasons) | {'update_pending'})),
+                                          text_bytes=sum(entry.text_bytes for entry in entries))
+
+    def patch(self, ticket, reader, bundle_id, scan, limits, targets, *,
+              commit_lock=None, validate_commit=None):
+        """Przetwarza tylko zmienione dokumenty, zachowując resztę bieżącej generacji.
+
+        Nie zmienia indexed_at całego zbioru: patch nie jest pełnym uzgodnieniem.
+        Brak poprawnego odczytu usuwa dotknięty stary wpis i oznacza partial.
+        Zmiana generacji podczas przygotowania daje False, bez nadpisania.
+        """
+        from .models import DocumentIdentity
+        targets = frozenset(targets)
+        if not targets or len(targets) > limits.max_documents_per_bundle:
+            raise DocumentError('SAFETY_LIMIT')
+        for concept in targets:
+            DocumentIdentity(bundle_id, concept)
+        with self._lock:
+            slot = self._slot(bundle_id)
+            if slot.ticket != ticket:
+                return False
+            previous = slot.generation
+        current = reader.current_bundle(bundle_id)
+        entries = {entry.document.view.identity.concept_id: entry
+                   for entry in (previous.entries if previous is not None else ())
+                   if entry.document.view.identity.concept_id not in targets}
+        reasons = (set(previous.reasons if previous else ('index_not_ready',)) - {'update_pending'}) | set(scan.reasons)
+        seen = set()
+        for document in scan.documents:
+            concept = document.view.identity.concept_id
+            if (document.view.identity.bundle_id != bundle_id or concept not in targets
+                    or concept in seen or not same_binding(document._bundle, current)):
+                raise DocumentError('DOCUMENT_UNAVAILABLE')
+            seen.add(concept)
+            reader.check_document(document)
+            size = public_text_bytes(document)
+            prepared = self._prepare(document) if self._prepare is not None else None
+            entries[concept] = IndexEntry(document, size, prepared)
+        missed = len(targets - seen)
+        if missed:
+            reasons.add('document_unavailable')
+        used = sum(entry.text_bytes for entry in entries.values())
+        if len(entries) > limits.max_documents_per_bundle or used > limits.max_index_text_bytes:
+            raise DocumentError('SAFETY_LIMIT')
+        generation = IndexGeneration(tuple(entries[key] for key in sorted(entries)), bool(reasons),
+                                     tuple(sorted(reasons)), previous.indexed_at if previous else self._now(),
+                                     (previous.excluded if previous else 0) + missed, used)
+        with commit_lock if commit_lock is not None else nullcontext():
+            if validate_commit is not None and not validate_commit():
+                return False
+            with self._lock:
+                slot = self._slot(bundle_id)
+                if slot.ticket != ticket or slot.generation is not previous:
+                    return False
                 slot.generation = generation
                 slot.refreshing = False
                 slot.error = None

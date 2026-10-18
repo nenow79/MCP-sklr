@@ -71,7 +71,7 @@ def _verify(transaction, plan, guard):
         return "Zapis OKF przerwany: nie udało się ponownie sprawdzić planu."
 
 
-def _executor(service, transaction, plan, context, guard):
+def _executor(service, transaction, plan, context, guard, concept_id):
     def execute(cancel_event):
         try:
             result = transaction.execute(plan, cancel_event, guard=guard)
@@ -89,7 +89,7 @@ def _executor(service, transaction, plan, context, guard):
                        "index_state": service.index.state(context.bundle.id).state}
             if summary["committed"]:
                 # Błąd odświeżenia nie zmienia powodzenia transakcji.
-                summary.update(service.after_write(context.bundle.id))
+                summary.update(service.after_write(context.bundle.id, [concept_id]))
             elif not summary["rollback_complete"]:
                 _invalidate(service, context.bundle.id)
                 summary["index_state"] = "empty"
@@ -179,7 +179,7 @@ def knowledge_save_impl(service, roots, manager, transaction, config_lock, panel
             {"kind": "knowledge_write", "title": "Zapis konceptu OKF", "payload": payload,
              "sensitive": True, "offer_trust": False,
              "approval_reason": "Zapis OKF wymaga decyzji użytkownika. Sprawdź maskowany diff i ostrzeżenia."},
-            _executor(service, transaction, plan, context, guard), needs_approval=True,
+            _executor(service, transaction, plan, context, guard, canonical), needs_approval=True,
             verify=lambda: _verify(transaction, plan, guard))
         task = manager.get(task.id) or task
         return {"success": True, "data": {"task_id": task.id, "status": task.status.value,

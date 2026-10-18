@@ -283,6 +283,86 @@ def test_optional_refresh_backend_and_explicit_close(env, monkeypatch):
         env.service.bundles()
 
 
+def test_startup_restore_publishes_cache_without_document_checks(env, monkeypatch):
+    from okf_engine.scanner import ScanResult
+    from dataclasses import replace as changed
+    env.service.bundles()  # inicjalizacja konfiguracji i limitów przed prywatnym readerem
+    document = env.service._reader().read('general', 'note')
+    cached = changed(document, revision='', view=changed(
+        document.view, warnings=document.view.warnings + ('cache_unchecked',)))
+
+    class Backend:
+        def restore(self, reader, bundle, limits, clock):
+            return ScanResult((cached,), True, ('cache_unchecked',), {}, {})
+
+        def run(self, *args):
+            raise AssertionError('full refresh must not run during restore')
+
+        def close(self, timeout):
+            return True
+
+    from okf_engine.documents import DocumentReader
+
+    def forbidden(*args):
+        raise AssertionError('document path checked during startup restore')
+
+    monkeypatch.setattr(DocumentReader, 'check_document', forbidden)
+    env.service.attach_refresh_backend(Backend())
+    assert env.service.restore_startup_cache() == {'general': 1}
+    state = env.service.index.state('general')
+    assert state.state == 'partial' and 'cache_unchecked' in state.reasons
+    assert env.queue.jobs == {}
+    assert env.service.refresh_available_background() == {'general': 1}
+    assert env.queue.jobs[1].status == 'queued'
+
+
+def test_incremental_writes_merge_targets_and_keep_other_entries(env):
+    from okf_engine.scanner import ScanResult
+    (env.base / 'other.md').write_text('---\ntype: Reference\n---\n# Other\nkeep\n', encoding='utf-8')
+    ready(env)
+    kept = env.service.index.snapshot('general').entries[1]
+    calls = []
+
+    class Backend:
+        def update(self, reader, bundle, limits, clock, targets):
+            calls.append(tuple(targets))
+            return ScanResult(tuple(reader.read(bundle, concept) for concept in targets), False, (), {}, {})
+
+        def run(self, *args):
+            raise AssertionError('full scan after targeted write')
+
+        def close(self, timeout):
+            return True
+
+    env.service._refresh_backend = Backend()
+    write(env.base, '# Alpha\nnew\n')
+    first = env.service.after_write('general', ['note'])
+    assert first['incremental'] and first['changed_documents'] == 1
+    assert env.service.index.snapshot('general').entries == (kept,)
+    (env.base / 'third.md').write_text('---\ntype: Reference\n---\nthird\n', encoding='utf-8')
+    second = env.service.after_write('general', ['third'])
+    assert second['changed_documents'] == 2
+    assert env.queue.finish(first['refresh_task_id'])['cancelled']
+    result = env.queue.finish(second['refresh_task_id'])
+    assert calls == [('note', 'third')]
+    assert result['indexed_documents'] == 3 and result['diagnostics']['incremental']
+    assert env.service.index.snapshot('general').entries[1] is kept
+    assert env.service._dirty_documents == {}
+
+
+def test_incremental_queue_failure_keeps_unrelated_entries(env):
+    from okf_engine.scanner import ScanResult
+    (env.base / 'other.md').write_text('---\ntype: Reference\n---\nkeep\n', encoding='utf-8')
+    ready(env)
+    env.service._refresh_backend = SimpleNamespace(update=lambda *args: ScanResult((), False, (), {}, {}))
+    env.queue.failure = 'QUEUE_FULL'
+    result = env.service.after_write('general', ['note'])
+    assert result['index_error'] == 'REFRESH_UNAVAILABLE'
+    generation = env.service.index.snapshot('general')
+    assert [entry.document.view.identity.concept_id for entry in generation.entries] == ['other']
+    assert env.service._dirty_documents['general'] == {'note'}
+
+
 def test_attach_backend_only_once_before_refresh(env):
     backend = SimpleNamespace(run=lambda *args: None, close=lambda timeout: True)
     env.service.attach_refresh_backend(backend)

@@ -619,6 +619,10 @@ if __name__ == "__main__":
                   "Nie usuwaj ani nie regeneruj klucza bez decyzji o odbudowie cache.")
             sys.exit(1)
         print("Wiedza: cache SQLite aktywny, odświeżanie w dedykowanym workerze.")
+        restored = KNOWLEDGE.restore_startup_cache()
+        print(f"Wiedza: wczytano z cache {sum(restored.values())} dokumentów; "
+              "aktualność źródeł niepotwierdzona, sprawdzanie w tle.")
+        KNOWLEDGE.refresh_available_background()
         uvicorn.run(
             mcp.http_app(middleware=get_middleware(), json_response=True),
             host=host,

@@ -333,7 +333,10 @@ class ProjectTools:
                         "stdout": json.dumps({"committed": None})}
             summary = {key: bool(data.get(key)) for key in ("committed", "rollback_complete", "cleanup_complete")}
             try:
-                if summary["committed"] or not summary["rollback_complete"]:
+                if summary["committed"] and kind == 'knowledge_convert':
+                    summary["index"] = self.knowledge.after_project_write(
+                        root.alias, [relative for relative, _ in targets])
+                elif summary["committed"] or not summary["rollback_complete"]:
                     summary["index"] = self.knowledge.after_project_write(root.alias)
             except Exception:
                 summary["index_error"] = "REFRESH_UNAVAILABLE"

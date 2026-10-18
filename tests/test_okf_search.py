@@ -59,6 +59,87 @@ def ids(result):
     return [hit.concept_id for hit in result.hits]
 
 
+def publish_unchecked(index, reader):
+    from okf_engine.scanner import ScanResult
+    scan = scan_bundle(reader, 'general', reader.limits)
+    documents = tuple(replace(doc, revision='', view=replace(
+        doc.view, warnings=doc.view.warnings + ('cache_unchecked',))) for doc in scan.documents)
+    ticket = index.begin('general')
+    assert index.publish(ticket, reader, 'general',
+                         ScanResult(documents, False, (), {}, {}), reader.limits)
+
+
+def test_unchecked_cache_returns_fresh_section_and_revision(env, monkeypatch):
+    base, _, reader, index = env
+    write(base / 'a.md', '# Old\nalpha old\n')
+    write(base / 'b.md', '# Other\nbeta\n')
+    publish_unchecked(index, reader)
+    write(base / 'a.md', '# Intro\nother\n# Current\nalpha fresh\n')
+    expected = reader.read('general', 'a')
+    original = reader.read
+    reads = []
+
+    def counted(bundle, concept):
+        reads.append(concept)
+        return original(bundle, concept)
+
+    monkeypatch.setattr(reader, 'read', counted)
+    result = find(index, reader, query='alpha')
+    assert reads == ['a'] and ids(result) == ['a']
+    hit = result.hits[0]
+    assert hit.revision == expected.revision and hit.section_id == 's2'
+    assert hit.heading == 'Current' and 'fresh' in hit.excerpt
+    assert 'old' not in hit.excerpt
+    assert result.partial and 'cache_unchecked' in result.reasons
+
+
+def test_unchecked_cache_drops_no_longer_matching_candidate(env):
+    base, _, reader, index = env
+    write(base / 'a.md', '# Old\nalpha\n')
+    publish_unchecked(index, reader)
+    write(base / 'a.md', '# Current\nbeta\n')
+    result = find(index, reader, query='alpha')
+    assert result.hits == () and 'cache_source_changed' in result.reasons
+    assert index.snapshot('general') is not None  # brak dopasowania nie jest utratą dostępu
+
+
+def test_unchecked_cache_rechecks_metadata_filter(env):
+    base, _, reader, index = env
+    write(base / 'a.md', '# T\nalpha\n', 'type: Reference\ntags: [old]\n')
+    publish_unchecked(index, reader)
+    write(base / 'a.md', '# T\nalpha\n', 'type: Specification\ntags: [new]\n')
+    result = find(index, reader, query='alpha', type='Reference', tags=['old'])
+    assert result.hits == () and 'cache_source_changed' in result.reasons
+
+
+def test_unchecked_cache_rechecks_denied_access(env):
+    base, _, reader, index = env
+    write(base / 'a.md', '# T\nalpha\n')
+    publish_unchecked(index, reader)
+    reader.authorize = lambda state, path: False
+    result = find(index, reader, query='alpha')
+    assert result.hits == () and 'document_unavailable' in result.reasons
+
+
+def test_unchecked_read_cannot_return_after_search_budget(env, monkeypatch):
+    base, _, reader, index = env
+    write(base / 'a.md', '# T\nalpha\n')
+    publish_unchecked(index, reader)
+    seconds = [0]
+    original = reader.read
+
+    def slow(bundle, concept):
+        document = original(bundle, concept)
+        seconds[0] += 3
+        return document
+
+    monkeypatch.setattr(reader, 'read', slow)
+    result = search(index, reader, ['general'], make_request(query='alpha'), 2,
+                    clock=lambda: seconds[0])
+    assert result.hits == () and 'search_budget' in result.reasons
+    assert result.partial and result.truncated
+
+
 # --- walidacja argumentów ---
 
 INVALID = [

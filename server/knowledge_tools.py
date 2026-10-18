@@ -5,7 +5,7 @@ przechwytuje także nieoczekiwane wyjątki przed ogólnym loggerem kolejki.
 """
 import json
 
-from okf_engine.bundles import evaluate_bundles
+from okf_engine.bundles import evaluate_bundles, recheck_bundle
 from okf_engine.discovery import effective_knowledge
 from okf_engine.documents import DocumentError
 from okf_engine.limits import parse_limits
@@ -84,19 +84,39 @@ class RefreshQueue:
 
 def create_service(config_store, roots, manager, panel_available, **kwargs):
     """Jeden serwis/signer na proces; wykrywa docs bez skanu treści i zapisu configu."""
+    evaluated = {}
+
+    def inputs():
+        config = config_store.snapshot()
+        knowledge = config.get("knowledge", {})
+        root_list = roots.list()
+        skills = resolve_central_skills_dir(config)
+        token = json.dumps([knowledge, [root.to_dict() for root in root_list], str(skills)],
+                           sort_keys=True, ensure_ascii=False)
+        return knowledge, root_list, skills, token
+
     def source():
         with config_store.lock:
-            config = config_store.snapshot()
-            knowledge = config.get("knowledge", {})
-            root_list = roots.list()
+            knowledge, root_list, skills, token = inputs()
             knowledge = effective_knowledge(knowledge, root_list)
-            skills = resolve_central_skills_dir(config)
             limits, _ = parse_limits(knowledge.get("limits", {}) if isinstance(knowledge, dict) else None)
             states = evaluate_bundles(knowledge, root_list, skills, allow_project=True)
             # Prywatny token konfiguracji, bez treści plików; nigdy do odpowiedzi/logów.
             version = json.dumps([knowledge, [root.to_dict() for root in root_list], str(skills)],
                                  sort_keys=True, ensure_ascii=False)
+            evaluated.clear()
+            evaluated.update(token=token, states={state.id: state for state in states if state.available})
             return states, limits, version
+
+    def current_source(bundle_id):
+        with config_store.lock:
+            _, _, skills, token = inputs()
+            if token != evaluated.get("token"):
+                return None  # pełna ocena i unieważnienie generacji w _sync
+            state = evaluated.get("states", {}).get(bundle_id)
+            if state is None:
+                return None
+            return recheck_bundle(state, skills)
 
     def authorize(state, path):
         with config_store.lock:
@@ -106,7 +126,7 @@ def create_service(config_store, roots, manager, panel_available, **kwargs):
 
     queue = RefreshQueue(manager, panel_available)
     service = KnowledgeService(source, authorize, queue.submit, queue.status,
-                               lock=config_store.lock,
+                               lock=config_store.lock, current_source=current_source,
                                active_project=lambda: roots.default().alias if roots.default() else None, **kwargs)
     service.bundles()  # wykrycie przy starcie; indeks dopiero na żądanie
     return service

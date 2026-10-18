@@ -46,6 +46,55 @@ def publish(index, reader, ticket=None, limits=None):
     return index.publish(ticket, reader, 'general', scan, limits)
 
 
+def test_incremental_patch_preserves_unmodified_entries(env):
+    from okf_engine.scanner import ScanResult
+    base, _, reader, index = env
+    write(base / 'a.md')
+    write(base / 'b.md')
+    assert publish(index, reader)
+    previous = index.snapshot('general')
+    kept = previous.entries[1]
+    seen = []
+    index._prepare = lambda document: seen.append(document.view.identity.concept_id)
+    write(base / 'a.md', '# Changed\nnew contract\n')
+    updated = reader.read('general', 'a')
+    ticket = index.begin('general')
+    assert index.patch(ticket, reader, 'general', ScanResult((updated,), False, (), {}, {}),
+                       reader.limits, ['a'])
+    generation = index.snapshot('general')
+    assert seen == ['a'] and generation.entries[1] is kept
+    assert generation.indexed_at == previous.indexed_at
+    assert 'new contract' in generation.entries[0].document.view.body
+    assert index.state('general').state == 'ready'
+
+
+def test_incremental_patch_without_previous_generation(env):
+    from okf_engine.scanner import ScanResult
+    base, _, reader, index = env
+    write(base / 'a.md')
+    document = reader.read('general', 'a')
+    ticket = index.begin('general')
+    assert index.patch(ticket, reader, 'general', ScanResult((document,), False, (), {}, {}),
+                       reader.limits, ['a'])
+    state = index.state('general')
+    assert state.indexed_documents == 1 and state.state == 'partial'
+    assert 'index_not_ready' in state.reasons
+    assert ids(index.snapshot('general')) == ['a']
+
+
+def test_incremental_patch_rejects_old_ticket(env):
+    from okf_engine.scanner import ScanResult
+    base, _, reader, index = env
+    write(base / 'a.md')
+    assert publish(index, reader)
+    previous = index.snapshot('general')
+    old = index.begin('general')
+    index.begin('general')
+    assert not index.patch(old, reader, 'general', ScanResult((), False, (), {}, {}),
+                           reader.limits, ['a'])
+    assert index.snapshot('general') is previous
+
+
 def test_empty_state(env):
     _, _, _, index = env
     state = index.state('general')

@@ -13,6 +13,7 @@ from dataclasses import dataclass, field, replace
 from .cache_store import CacheStore, CacheError, fingerprint, record_from_public
 from .cache_hit import cache_hit, record_tag
 from .cache_worker import CacheWorker
+from .cache_restore import restore_cached_document
 from .documents import DocumentError, same_binding
 from .paths import find_case_collisions
 from .scanner import ScanResult, _inventory
@@ -37,6 +38,9 @@ class _Job:
     skipped: Counter = field(default_factory=Counter)
     errors: Counter = field(default_factory=Counter)
     error_stages: Counter = field(default_factory=Counter)
+    restore_only: bool = False
+    after: object = None
+    changes: object = field(default=None, repr=False)
 
 
 class CacheRefreshBackend:
@@ -59,8 +63,23 @@ class CacheRefreshBackend:
     def status(self):
         return self._worker.status()
 
+    def restore(self, reader, bundle_id, limits, clock):
+        return self._run_job(reader, bundle_id, limits, clock, restore_only=True)
+
     def run(self, reader, bundle_id, limits, clock):
-        job = _Job(reader, bundle_id, limits, clock)
+        return self._run_job(reader, bundle_id, limits, clock)
+
+    def update(self, reader, bundle_id, limits, clock, concepts):
+        from .models import DocumentIdentity
+        concepts = tuple(sorted(set(concepts)))
+        if not 1 <= len(concepts) <= limits.max_documents_per_bundle:
+            raise CacheError('CACHE_RECORD_LIMIT')
+        for concept in concepts:
+            DocumentIdentity(bundle_id, concept)
+        return self._run_job(reader, bundle_id, limits, clock, changes=concepts)
+
+    def _run_job(self, reader, bundle_id, limits, clock, restore_only=False, changes=None):
+        job = _Job(reader, bundle_id, limits, clock, restore_only=restore_only, changes=changes)
         with self._lock:
             self._sequence += 1
             name = str(self._sequence)
@@ -98,6 +117,12 @@ class CacheRefreshBackend:
                                           entry.scope, entry.profile], ensure_ascii=False)
                 # Cache zależy również od limitów parsera, nie tylko wersji kodu.
                 job.versions = 'parser1-mask1:' + json.dumps(vars(job.limits.to_parse_limits()), sort_keys=True)
+                if job.restore_only:
+                    job.reasons.add('cache_unchecked')
+                    return False, None
+                if job.changes is not None:
+                    job.pending = list(job.changes)
+                    return False, None
                 # Inventory ograniczone; niepełny wynik jest jawny i nie powoduje purge DB.
                 candidates = _inventory(current.path, job.bundle, job.limits, job.clock,
                                         job.clock() + 90, job.reasons, job.skipped, current)
@@ -107,6 +132,28 @@ class CacheRefreshBackend:
                 return False, None
             if not same_binding(job.state, current):
                 raise DocumentError('BUNDLE_UNAVAILABLE')
+            if job.restore_only:
+                records, cursor = store.load_page(job.bundle, job.binding, job.versions,
+                                                  after=job.after, limit=self._batch_size)
+                for record in records:
+                    job.clock()
+                    if not ticket_valid():
+                        raise CacheError('CACHE_CANCELLED')
+                    try:
+                        document = restore_cached_document(record, self._key, current,
+                                                           binding=job.binding, versions=job.versions,
+                                                           now=reader.now())
+                        job.documents.append(document)
+                    except CacheError:
+                        job.errors['CACHE_RECORD_REJECTED'] += 1
+                        job.reasons.add('cache_record_rejected')
+                job.after = cursor
+                if cursor is not None:
+                    return False, None
+                job.result = ScanResult(tuple(job.documents), True, tuple(sorted(job.reasons)),
+                                        {}, dict(job.errors))
+                job.done.set()
+                return True, None
             end = min(len(job.pending), job.offset + self._batch_size)
             for concept in job.pending[job.offset:end]:
                 job.clock()

@@ -146,6 +146,27 @@ def _overlaps_skills(path: Path, skills_dir: Any) -> bool:
     return _within(target, skills) or _within(skills, target)
 
 
+def recheck_bundle(state: BundleState, skills_dir=None) -> BundleState:
+    """Świeży filesystem dla wcześniej ocenionego zbioru przy niezmienionej konfiguracji.
+
+    Właściciel musi potwierdzić identyczność konfiguracji, roots i skills_dir.
+    Nie zastępuje oceny duplikatów/overlap ani walidacji nowej konfiguracji.
+    """
+    from dataclasses import replace
+    if not state.available or state.entry is None:
+        return state
+    try:
+        path = locate_bundle_dir(state.entry.root_path, state.entry.subpath)
+    except PathSecurityError as exc:
+        return replace(state, available=False, writable=False,
+                       reason=_DIR_REASONS.get(exc.code, "bundle_dir_missing"))
+    if path != state.path:
+        return replace(state, available=False, writable=False, reason="root_changed")
+    if skills_dir is not None and _overlaps_skills(path, skills_dir):
+        return replace(state, available=False, writable=False, reason="overlaps_skills")
+    return state
+
+
 class _Work:
     def __init__(self, bundle_id: Optional[str], entry: Optional[BundleEntry]) -> None:
         self.id = bundle_id

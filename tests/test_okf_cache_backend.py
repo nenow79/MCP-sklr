@@ -63,6 +63,56 @@ def test_cold_warm_restart_and_one_changed_document(tmp_path, monkeypatch):
         assert backend.close()
 
 
+def test_restore_uses_sqlite_without_reading_sources(tmp_path, monkeypatch):
+    _, _, reader = env(tmp_path)
+    path = tmp_path / 'cache.sqlite3'
+    backend = CacheRefreshBackend(path, b'k' * 32, batch_size=1)
+    try:
+        assert len(backend.run(reader, 'general', reader.limits, lambda: 0).documents) == 2
+    finally:
+        assert backend.close()
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError('source read during cache restore')
+
+    monkeypatch.setattr(reader, 'read_bytes', forbidden)
+    monkeypatch.setattr(reader, 'build_document', forbidden)
+    monkeypatch.setattr(reader, 'check_document', forbidden)
+    backend = CacheRefreshBackend(path, b'k' * 32, batch_size=1)
+    try:
+        result = backend.restore(reader, 'general', reader.limits, lambda: 0)
+        assert len(result.documents) == 2 and result.partial
+        assert 'cache_unchecked' in result.reasons
+        assert all(doc.revision == '' for doc in result.documents)
+    finally:
+        assert backend.close()
+
+
+def test_update_reads_only_target_without_inventory(tmp_path, monkeypatch):
+    from okf_engine import cache_backend as module
+    _, _, reader = env(tmp_path)
+    reads = []
+    original = reader.read_bytes
+
+    def counted(bundle, concept):
+        reads.append(concept)
+        return original(bundle, concept)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError('full inventory during incremental update')
+
+    monkeypatch.setattr(reader, 'read_bytes', counted)
+    monkeypatch.setattr(module, '_inventory', forbidden)
+    backend = CacheRefreshBackend(tmp_path / 'cache.sqlite3', b'k' * 32)
+    try:
+        result = backend.update(reader, 'general', reader.limits, lambda: 0, ['a'])
+        assert reads == ['a']
+        assert [doc.view.identity.concept_id for doc in result.documents] == ['a']
+        assert not result.partial
+    finally:
+        assert backend.close()
+
+
 def test_document_errors_include_safe_code_and_stage(tmp_path, monkeypatch):
     _, _, reader = env(tmp_path)
     original = reader.build_document

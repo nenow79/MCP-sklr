@@ -75,6 +75,50 @@ def test_real_queue_search_get_and_safe_persistence(env):
         assert text not in persisted
 
 
+def test_repeated_document_reads_do_not_reevaluate_all_bundles(env, monkeypatch):
+    calls = []
+    original = tools.evaluate_bundles
+
+    def counted(*args, **kwargs):
+        calls.append(True)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(tools, 'evaluate_bundles', counted)
+    # get robi pełną ocenę na wejściu; kontrole dokumentu używają wybranego zbioru.
+    assert tools.knowledge_get_impl(env.service, 'general', 'note')['success']
+    assert len(calls) == 1
+    calls.clear()
+    reader = env.service._reader()
+    reader.read('general', 'note')
+    reader.read('general', 'note')
+    assert calls == []
+    env.store.update(lambda config: config['knowledge']['bundles'][0].update(enabled=False))
+    with pytest.raises(Exception) as caught:
+        reader.read('general', 'note')
+    assert getattr(caught.value, 'code', None) == 'BUNDLE_UNAVAILABLE'
+    assert len(calls) == 1
+    assert env.service.index.snapshot('general') is None
+
+
+def test_target_directory_is_checked_without_config_change(env, monkeypatch):
+    from okf_engine import bundles
+    from okf_engine.paths import PathSecurityError
+    reader = env.service._reader()
+    reader.read('general', 'note')
+    original = bundles.locate_bundle_dir
+
+    def junction(root, subpath):
+        if root == str(env.base.resolve()):
+            raise PathSecurityError('link')
+        return original(root, subpath)
+
+    monkeypatch.setattr(bundles, 'locate_bundle_dir', junction)
+    with pytest.raises(Exception) as caught:
+        reader.read('general', 'note')
+    assert getattr(caught.value, 'code', None) == 'BUNDLE_UNAVAILABLE'
+    assert env.service.index.snapshot('general') is None
+
+
 def test_panel_down_no_task_or_scan(env):
     env.panel["available"] = False
     result = search(env)

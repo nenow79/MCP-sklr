@@ -51,6 +51,7 @@ class _Refresh:
     task_id: object = None
     cancel: threading.Event = field(default_factory=threading.Event, repr=False)
     finished: bool = False
+    targets: object = field(default=None, repr=False)
 
 
 READ_ERROR_CODES = frozenset({"DOCUMENT_UNAVAILABLE", "DOCUMENT_CHANGED", "INVALID_OKF",
@@ -100,8 +101,9 @@ def _budget(value):
 class KnowledgeService:
     def __init__(self, source, authorize, submit, task_status, *, lock=None,
                  now=None, clock=time.monotonic, signer=None, active_project=None,
-                 refresh_backend=None):
+                 refresh_backend=None, current_source=None):
         self._source, self._authorize = source, authorize
+        self._current_source = current_source
         self._refresh_backend = refresh_backend
         self._closed = False
         self._submit, self._task_status = submit, task_status
@@ -117,6 +119,7 @@ class KnowledgeService:
         self._refreshes = {}
         self._retry_at = {}
         self._refresh_diagnostics = {}
+        self._dirty_documents = {}
 
     def attach_refresh_backend(self, backend):
         """Podłączenie podczas bootstrapu, przed pierwszym odświeżeniem."""
@@ -128,6 +131,55 @@ class KnowledgeService:
             self._refresh_backend = backend
             for bundle_id in self._states:
                 self.index.invalidate(bundle_id)
+
+    def restore_startup_cache(self):
+        """Ładuje cache bez źródeł; publikacja wymaga niezmienionej wersji i ticketu.
+
+        Nie uruchamia pełnego skanu. Brak/odrzucony cache pozostaje jawny.
+        """
+        with self._lock:
+            self._sync()
+            backend = self._refresh_backend
+            if backend is None or not callable(getattr(backend, 'restore', None)):
+                raise KnowledgeError('CACHE_RESTORE_UNAVAILABLE')
+            selected = sorted(self._states)
+        result = {}
+        for bundle_id in selected:
+            with self._lock:
+                self._sync()
+                if bundle_id not in self._states:
+                    continue
+                version = self._version
+                ticket = self.index.begin(bundle_id)
+                reader, limits = self._reader(), self._limits
+            try:
+                scan = backend.restore(reader, bundle_id, limits, self._clock)
+
+                def valid():
+                    self._sync()
+                    return not self._closed and self._version == version and bundle_id in self._states
+
+                if not self.index.publish(ticket, reader, bundle_id, scan, limits,
+                                          commit_lock=self._lock, validate_commit=valid,
+                                          cached_unchecked=True):
+                    raise KnowledgeError('CACHE_RESTORE_INVALIDATED')
+                result[bundle_id] = self.index.state(bundle_id).indexed_documents
+            except Exception:
+                self.index.finish_failed(ticket, bundle_id, 'CACHE_RESTORE_FAILED')
+                result[bundle_id] = 0
+        return result
+
+    def refresh_available_background(self):
+        """Planuje uzgodnienie po przywróceniu cache, bez oczekiwania na pełne skany."""
+        with self._lock:
+            self._sync()
+            result = {}
+            for bundle_id in sorted(self._states):
+                try:
+                    result[bundle_id] = self._request_refresh(bundle_id, 'force')
+                except KnowledgeError:
+                    result[bundle_id] = None
+            return result
 
     def close(self, timeout=5):
         """Unieważnia przebiegi; backend zamyka zasoby w swoim wątku właściciela.
@@ -158,6 +210,7 @@ class KnowledgeService:
             self._refreshes.clear()
             self._retry_at.clear()
             self._refresh_diagnostics.clear()
+            self._dirty_documents.clear()
             self._version = version
         # Dostępność filesystem może zmienić się bez zmiany configu.
         for bundle_id in self._states.keys() - available.keys():
@@ -171,7 +224,24 @@ class KnowledgeService:
 
     def _current(self, bundle_id):
         with self._lock:
-            self._sync()
+            if self._closed:
+                raise KnowledgeError("SERVICE_CLOSED")
+            checked = self._current_source(bundle_id) if self._current_source is not None else None
+            if checked is None:
+                self._sync()
+            elif not checked.available:
+                self.index.invalidate(bundle_id)
+                pending = self._refreshes.pop(bundle_id, None)
+                if pending is not None:
+                    pending.cancel.set()
+                self._states.pop(bundle_id, None)
+                self._retry_at.pop(bundle_id, None)
+                self._refresh_diagnostics.pop(bundle_id, None)
+                raise DocumentError("BUNDLE_UNAVAILABLE")
+            elif bundle_id in self._states:
+                self._states[bundle_id] = checked
+            else:
+                self._sync()
             state = self._states.get(bundle_id)
             if state is None:
                 raise DocumentError("BUNDLE_UNAVAILABLE")
@@ -207,8 +277,10 @@ class KnowledgeService:
             if state.path != context.bundle.path or state.entry != context.bundle.entry:
                 raise KnowledgeError("BUNDLE_UNAVAILABLE")
 
-    def after_write(self, bundle_id):
-        """Unieważnia dawną generację przed próbą skanu; nigdy nie cofa zapisu."""
+    def after_write(self, bundle_id, concepts=None):
+        """Po committed: cele przyrostowe lub pełna invalidacja dla niepewnego zakresu."""
+        if concepts is not None and callable(getattr(self._refresh_backend, 'update', None)):
+            return self._after_documents(bundle_id, concepts)
         with self._lock:
             self.index.invalidate(bundle_id)
             pending = self._refreshes.pop(bundle_id, None)
@@ -226,6 +298,37 @@ class KnowledgeService:
                 # Żadnego wyjątku po committed do ogólnego loggera kolejki.
                 return {"index_state": "error", "index_error": "REFRESH_UNAVAILABLE"}
 
+    def _after_documents(self, bundle_id, concepts):
+        from .models import DocumentIdentity
+        with self._lock:
+            try:
+                self._sync()
+                self._select(bundle_id, 'all')
+                targets = set(concepts)
+                for concept in targets:
+                    DocumentIdentity(bundle_id, concept)
+                if not targets:
+                    raise KnowledgeError('INVALID_ARGUMENT')
+                targets.update(self._dirty_documents.get(bundle_id, ()))
+                if len(targets) > self._limits.max_documents_per_bundle:
+                    raise KnowledgeError('SAFETY_LIMIT')
+                pending = self._refreshes.pop(bundle_id, None)
+                if pending is not None and not pending.finished:
+                    pending.cancel.set()
+                    if pending.targets is None:
+                        self.index.mark_partial(bundle_id, 'reconcile_required')
+                self._dirty_documents[bundle_id] = targets
+                # Nie pokazujemy starego kontraktu w oczekiwaniu na aktualizację.
+                # Pozostałe wpisy zachowują dostępność i przygotowany tekst.
+                self.index.drop_targets(bundle_id, targets)
+                self._retry_at.pop(bundle_id, None)
+                task = self._request_refresh(bundle_id, 'force', targets=tuple(sorted(targets)))
+                return {'index_state': self.index.state(bundle_id).state,
+                        'refresh_task_id': task, 'index_error': None,
+                        'incremental': True, 'changed_documents': len(targets)}
+            except Exception:
+                return {'index_state': 'error', 'index_error': 'REFRESH_UNAVAILABLE'}
+
     def write_time(self):
         return self._now()
 
@@ -235,12 +338,30 @@ class KnowledgeService:
             self._select(bundle_id, "all")
             return {"task_id": self._request_refresh(bundle_id, "force")}
 
-    def after_project_write(self, root_alias):
+    def after_project_write(self, root_alias, relatives=None):
         with self._lock:
             self._sync()
             selected = [key for key, state in self._states.items()
                         if state.entry.scope == "project" and state.entry.root == root_alias]
-            return {key: self.after_write(key) for key in selected}
+            if relatives is None:
+                return {key: self.after_write(key) for key in selected}
+            from pathlib import Path
+            from .project_scope import allowed_path
+            result = {}
+            for key in selected:
+                state = self._states[key]
+                concepts = []
+                for relative in relatives:
+                    path = Path(state.entry.root_path) / relative
+                    try:
+                        within = path.relative_to(state.path).as_posix()
+                    except ValueError:
+                        continue
+                    if within.lower().endswith('.md') and allowed_path(state, within):
+                        concepts.append(within[:-3])
+                if concepts:
+                    result[key] = self.after_write(key, concepts)
+            return result
 
     def _select(self, bundle_id, scope):
         if scope not in ("all", "central", "project"):
@@ -296,7 +417,7 @@ class KnowledgeService:
                                    **self._state(bundle_id)))
             return {"count": len(result), "bundles": result}
 
-    def _request_refresh(self, bundle_id, mode):
+    def _request_refresh(self, bundle_id, mode, targets=None):
         pending = self._reap(bundle_id)
         if pending is not None:
             return pending.task_id
@@ -307,7 +428,10 @@ class KnowledgeService:
                 self._clock() < self._retry_at.get(bundle_id, 0) or
                 (not stale and state.state != "error"))):
             return None
-        refresh = _Refresh(self.index.begin(bundle_id), self._version)
+        if (targets is None and mode == 'auto' and self._dirty_documents.get(bundle_id)
+                and callable(getattr(self._refresh_backend, 'update', None))):
+            targets = tuple(sorted(self._dirty_documents[bundle_id]))
+        refresh = _Refresh(self.index.begin(bundle_id), self._version, targets=targets)
         self._refreshes[bundle_id] = refresh
         reader, limits = self._reader(), self._limits
 
@@ -341,7 +465,9 @@ class KnowledgeService:
             # Stara ścieżka: 120 s łącznie. Backend partiami: jego czas pracy
             # nie zużywa budżetu późniejszej publikacji do RAM.
             refresh_deadline = scan_started + 120
-            if self._refresh_backend is None:
+            if refresh.targets is not None:
+                scan = self._refresh_backend.update(reader, bundle_id, limits, clock, refresh.targets)
+            elif self._refresh_backend is None:
                 scan = scan_bundle(reader, bundle_id, limits, clock=clock,
                                    background_budget_s=90)
             else:
@@ -357,7 +483,9 @@ class KnowledgeService:
             diagnostics.update(scan_ms=int(max(0, publish_started - scan_started) * 1000),
                                candidates=len(scan.documents) + sum(scan.errors.values()),
                                read_documents=len(scan.documents),
-                               scan_checks=_reader_metrics(reader, scan_baseline))
+                               scan_checks=_reader_metrics(reader, scan_baseline),
+                               incremental=refresh.targets is not None,
+                               changed_documents=len(refresh.targets) if refresh.targets is not None else 0)
             with self._lock:
                 if self._refreshes.get(bundle_id) is refresh:
                     self._refresh_diagnostics[bundle_id] = diagnostics
@@ -368,15 +496,30 @@ class KnowledgeService:
                 clock()
                 return refresh.version == self._version
 
-            if not self.index.publish(refresh.ticket, reader, bundle_id, scan, limits,
-                                      commit_lock=self._lock, validate_commit=can_publish,
-                                      budget_exhausted=lambda: clock() >= refresh_deadline):
+            if refresh.targets is not None:
+                published = self.index.patch(refresh.ticket, reader, bundle_id, scan, limits,
+                                             refresh.targets, commit_lock=self._lock,
+                                             validate_commit=can_publish)
+            else:
+                published = self.index.publish(refresh.ticket, reader, bundle_id, scan, limits,
+                                               commit_lock=self._lock, validate_commit=can_publish,
+                                               budget_exhausted=lambda: clock() >= refresh_deadline)
+            if not published:
                 raise _Cancelled()
             with self._lock:
                 state = self.index.state(bundle_id)
                 diagnostics["publish_ms"] = int(max(0, clock() - publish_started) * 1000)
                 diagnostics["publish_checks"] = _reader_metrics(reader, publish_baseline)
                 refresh.finished = True
+                if self._refreshes.get(bundle_id) is refresh:
+                    if refresh.targets is None and not scan.partial and not scan.errors:
+                        self._dirty_documents.pop(bundle_id, None)
+                    elif refresh.targets is not None:
+                        successful = {doc.view.identity.concept_id for doc in scan.documents}
+                        dirty = self._dirty_documents.get(bundle_id, set())
+                        dirty.difference_update(successful)
+                        if not dirty:
+                            self._dirty_documents.pop(bundle_id, None)
                 self._retry_at.pop(bundle_id, None)
                 return {"index_state": state.state, "indexed_documents": state.indexed_documents,
                         "partial": state.state == "partial", "reasons": list(state.reasons),

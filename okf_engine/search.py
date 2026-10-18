@@ -476,6 +476,10 @@ def search(index: KnowledgeIndex, reader: DocumentReader, bundle_ids: Sequence[s
             partial = True
             reasons.update(generation.reasons)
         for entry in generation.entries:
+            if not entry.document.revision or "cache_unchecked" in entry.document.view.warnings:
+                # Stary cache może nie zawierać nowych dopasowań ani aktualnego rankingu.
+                partial = True
+                reasons.add("cache_unchecked")
             if clock() >= deadline:
                 exhausted = True
                 break
@@ -510,8 +514,25 @@ def search(index: KnowledgeIndex, reader: DocumentReader, bundle_ids: Sequence[s
             partial = truncated = True
             reasons.add("search_budget")
             break
+        document = entry.document
         try:
-            reader.check_document(entry.document)
+            if not document.revision or "cache_unchecked" in document.view.warnings:
+                document = reader.read(bundle_id, concept_id)
+                if (document.view.identity.bundle_id != bundle_id
+                        or document.view.identity.concept_id != concept_id
+                        or not document.revision):
+                    raise DocumentError("DOCUMENT_UNAVAILABLE")
+                outcome = _evaluate(prepare_document(document), request)
+                if outcome is None:
+                    reasons.add("cache_source_changed")
+                    partial = True
+                    continue
+                if (not request.include_deprecated and request.status != "deprecated"
+                        and document.view.status == "deprecated"):
+                    skipped_deprecated += 1
+                    continue
+                _, best = outcome
+            reader.check_document(document)
         except DocumentError as exc:
             partial = True
             if exc.code == "BUNDLE_UNAVAILABLE":
@@ -522,7 +543,12 @@ def search(index: KnowledgeIndex, reader: DocumentReader, bundle_ids: Sequence[s
                 index.remove_document(bundle_id, concept_id)
                 reasons.add("document_unavailable")
             continue
-        fitted = _fit(_make_hit(entry.document, best, pattern), used, request.max_total_chars,
+        # Świeży odczyt może przekroczyć budżet; nie publikujemy trafienia po terminie.
+        if clock() >= deadline:
+            partial = truncated = True
+            reasons.add("search_budget")
+            break
+        fitted = _fit(_make_hit(document, best, pattern), used, request.max_total_chars,
                       first=not hits)
         if fitted is None:
             truncated = True

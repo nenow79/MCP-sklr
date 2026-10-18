@@ -99,6 +99,37 @@ def test_create_approval_get_and_search(env):
     assert hit["concept_id"] == "note"
 
 
+def test_committed_write_uses_incremental_backend(env, monkeypatch):
+    from okf_engine.cache_backend import CacheRefreshBackend
+    put(env)
+    (env.base / 'other.md').write_text('---\ntype: Reference\n---\nother\n', encoding='utf-8')
+    cold = env.service.search(query='alpha')
+    env.manager.wait(cold['refresh_tasks'][0]['task_id'], 8)
+    backend = CacheRefreshBackend(env.base.parent / 'cache-test.sqlite3', b'k' * 32)
+    env.service._refresh_backend = backend
+    reads = []
+    from okf_engine.documents import DocumentReader
+    original = DocumentReader.read_bytes
+
+    def counted(reader, bundle, concept):
+        reads.append(concept)
+        return original(reader, bundle, concept)
+
+    try:
+        request = update(env)
+        monkeypatch.setattr(DocumentReader, 'read_bytes', counted)
+        done = decide(env, request)
+        summary = json.loads(done.stdout)
+        assert summary['committed'] and summary['incremental']
+        finished = env.manager.wait(summary['refresh_task_id'], 8)
+        assert finished.status.value == 'done'
+        assert reads == ['note']
+        assert env.service.index.state('general').indexed_documents == 2
+    finally:
+        assert backend.close()
+        env.service._refresh_backend = None
+
+
 def test_update_uses_get_revision_and_exact_frontmatter_bytes(env):
     raw = b"\xef\xbb\xbf---\r\n# comment\r\ntype: 'Reference'\r\nx-ext: 7\r\n---\r\nold\r\n"
     path = put(env, raw=raw)
