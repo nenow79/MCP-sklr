@@ -21,6 +21,7 @@ Zacznij od [AGENTS](../AGENTS.md) i krótkiego [CURRENT](plan/CURRENT.md). Otwar
 | Format OKF 0.2 | [Mapa standardu](specs/OKF/SPEC.md), potem wybrany rozdział |
 | Skills i zaufanie | [Obsługa skills](specs/skills-support.md) |
 | Pliki, roots, zgody i sekrety | [Bezpieczeństwo narzędzi](specs/files-and-approvals.md) |
+| Zewnętrzne MCP — zaakceptowany kontrakt v1, jeszcze niewdrożony | [Profile, panel i zgody](specs/external-mcp-support.md) |
 | Proponowane wykonywanie komend | [Propozycja i model zagrożeń](specs/command-execution-proposal.md) |
 | Uzasadnienia decyzji | [Architektura](decisions/0001-architecture.md), [kolejka i panel](decisions/0002-task-queue-and-web-panel.md), [OKF](decisions/0004-okf-knowledge.md) |
 | Wyniki dawnych sesji, stare plany | [Archiwum](archive/README.md) — tylko na żądanie |

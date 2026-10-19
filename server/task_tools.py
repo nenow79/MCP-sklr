@@ -185,6 +185,9 @@ def get_task_impl(manager: TaskManager, task_id: int) -> Dict[str, Any]:
             # nie konsumuje wyniku ani nie przedłuża TTL. Brak wyniku po
             # restarcie nie zmienia trwałego statusu zadania.
             data["secret_result"] = manager.get_volatile_result(task_id)
+        if task.kind == "external_mcp":
+            # Osobny kanał (M3): ten sam stan i TTL, ale bez wpływu na kontrakt secret_result.
+            data["external_result"] = manager.get_external_result(task_id)
         return {"success": True, "data": data}
     except Exception:
         # Błąd może powstać również po pobraniu wyniku RAM. Nigdy nie

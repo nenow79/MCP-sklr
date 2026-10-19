@@ -28,7 +28,7 @@ KIND_SKILL_SCRIPT = "skill_script"
 TASK_KINDS = (
     KIND_SKILL_SCRIPT, "file_edit", "file_write", "folder",
     "command", "root_change", "secret_reveal", "knowledge_refresh", "knowledge_write",
-    "project_setup", "knowledge_convert",
+    "project_setup", "knowledge_convert", "external_mcp",
 )
 
 _SUMMARY_EXCLUDED = ("stdout", "stderr", "command", "payload")

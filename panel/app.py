@@ -20,6 +20,7 @@ from starlette.staticfiles import StaticFiles
 from panel.auth import COOKIE_NAME, PanelAuth
 from roots import RootConflict, RootError, RootNotFound
 from server.skills_admin import SkillConflict, SkillNotFound
+from external_mcp.profiles import ProfileConflict, ProfileError, ProfileNotFound
 from server.knowledge_admin import KnowledgeConflict
 from tasks.approval import ApprovalService
 from tasks.manager import TaskManager, TaskNotFoundError, TaskStateError
@@ -111,7 +112,8 @@ def _opt_str(body: dict, key: str) -> Optional[str]:
 
 def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: PanelAuth,
                      static_dir: Optional[Path] = None, roots: Any = None,
-                     skills: Any = None, knowledge: Any = None) -> Starlette:
+                     skills: Any = None, knowledge: Any = None,
+                     external_mcp: Any = None) -> Starlette:
     """`roots` (RootsRegistry) jest opcjonalne: bez niego endpointy /api/roots nie istnieją (404)."""
     static_path = Path(static_dir) if static_dir is not None else DEFAULT_STATIC_DIR
 
@@ -184,7 +186,12 @@ def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: Pane
         task = await run_in_threadpool(manager.get, task_id) if task_id else None
         if task is None:
             return _err("Nie ma takiego zadania.", 404)
-        return _ok(task.to_dict())
+        data = task.to_dict()
+        if task.kind == "external_mcp":
+            preview = await run_in_threadpool(manager.get_approval_preview, task_id)
+            if preview is not None:
+                data["approval_preview"] = preview  # panel-only detached RAM, never TaskStore
+        return _ok(data)
 
     async def decide(request: Request) -> JSONResponse:
         task_id = _parse_task_id(request)
@@ -314,6 +321,72 @@ def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: Pane
             return _err("Nie udało się zapisać zaufania skilla.", 500)
         return _ok(data)
 
+    def _external_error(exc: Exception) -> JSONResponse:
+        # ProfileError messages hold a machine code only, never a submitted value.
+        if isinstance(exc, ProfileConflict):
+            return _err(str(exc), 409)
+        if isinstance(exc, ProfileNotFound):
+            return _err(str(exc), 404)
+        if isinstance(exc, ProfileError):
+            return _err(str(exc), 400)
+        return _err("Nie udało się wykonać operacji na zewnętrznym MCP.", 500)
+
+    async def external_list(request: Request) -> JSONResponse:
+        try:
+            return _ok(await run_in_threadpool(external_mcp.list))
+        except Exception:
+            return _err("Nie można odczytać profili zewnętrznych MCP.", 500)
+
+    async def external_add(request: Request) -> JSONResponse:
+        body = await _json_body(request)
+        if body is None:
+            return _err("Oczekiwano obiektu JSON.", 400)
+        try:
+            return _ok(await run_in_threadpool(
+                external_mcp.add, body.get("profile"), body.get("revision")))
+        except Exception as exc:
+            return _external_error(exc)
+
+    async def external_action(request: Request) -> JSONResponse:
+        action = request.path_params["action"]
+        profile_id = request.path_params["profile_id"]
+        if action not in ("update", "enabled", "delete", "trust", "revoke-trust", "inspect"):
+            return _err("Nieznana operacja.", 404)
+        body = await _json_body(request)
+        if body is None:
+            return _err("Oczekiwano obiektu JSON.", 400)
+        revision = body.get("revision")
+        try:
+            if action == "update":
+                data = await run_in_threadpool(
+                    external_mcp.update, profile_id, body.get("profile"), revision)
+            elif action == "enabled":
+                data = await run_in_threadpool(
+                    external_mcp.set_enabled, profile_id, body.get("enabled"), revision)
+            elif action == "delete":
+                data = await run_in_threadpool(external_mcp.remove, profile_id, revision)
+            elif action == "revoke-trust":
+                data = await run_in_threadpool(external_mcp.revoke_trust, profile_id, revision)
+            elif action == "trust":
+                data = await run_in_threadpool(
+                    external_mcp.grant_trust, profile_id, body.get("token"),
+                    body.get("tools"), revision)
+            else:
+                data = await run_in_threadpool(
+                    external_mcp.start_inspection, profile_id,
+                    body.get("acknowledge_launch") is True)
+                return _ok(data, 202)
+            return _ok(data)
+        except Exception as exc:
+            return _external_error(exc)
+
+    async def external_inspection(request: Request) -> JSONResponse:
+        try:
+            return _ok(await run_in_threadpool(
+                external_mcp.get_inspection, request.path_params["token"]))
+        except Exception as exc:
+            return _external_error(exc)
+
     async def index(request: Request):
         index_file = static_path / "index.html"
         if not index_file.is_file():
@@ -348,6 +421,13 @@ def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: Pane
                        Route("/api/knowledge", knowledge_change, methods=["POST"]),
                        Route("/api/knowledge/policy", knowledge_policy_change, methods=["POST"]),
                        Route("/api/knowledge/{key}/{action}", knowledge_change, methods=["POST"])])
+    if external_mcp is not None:
+        routes.extend([
+            Route("/api/external-mcp", external_list, methods=["GET"]),
+            Route("/api/external-mcp", external_add, methods=["POST"]),
+            Route("/api/external-mcp/inspections/{token}", external_inspection, methods=["GET"]),
+            Route("/api/external-mcp/{profile_id}/{action}", external_action, methods=["POST"]),
+        ])
     if static_path.is_dir():
         routes.append(Mount("/static", app=StaticFiles(directory=str(static_path)), name="static"))
 

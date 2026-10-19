@@ -8,7 +8,8 @@ import pytest
 
 CONFIDENTIAL = {"get_task", "secret_reveal", "create_tree",
                 "knowledge_bundles", "knowledge_search", "knowledge_get", "knowledge_save",
-                "prepare_project", "knowledge_audit", "knowledge_convert"}
+                "prepare_project", "knowledge_audit", "knowledge_convert",
+                "list_external_mcp", "list_external_mcp_tools", "call_external_mcp_tool"}
 
 
 def main_tree():
@@ -40,7 +41,7 @@ def test_confidential_tools_use_confidential_decorator():
     assert confidential == CONFIDENTIAL
     assert all(value == "register_tool" for name, value in decorators.items() if name not in CONFIDENTIAL)
     # 19 wcześniejszych narzędzi + create_tree + cztery OKF + trzy projektowe.
-    assert len(decorators) == 27
+    assert len(decorators) == 30
 
 
 def test_confidential_registration_enables_confidential_telemetry():

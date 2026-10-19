@@ -202,6 +202,9 @@ pre {
 .badge-ro { background: var(--neutral); margin-right: 6px; }
 .badge-default { background: var(--accent); margin-left: 6px; }
 .badge-invalid { background: var(--bad); margin-left: 6px; }
+.badge-external-on { background: var(--accent); margin-right: 6px; }
+.badge-external-off { background: var(--neutral); margin-right: 6px; }
+.badge-trusted { background: var(--warn); margin-right: 6px; }
 
 .root-form { display: grid; gap: 10px; max-width: 560px; }
 .root-form label { display: grid; gap: 4px; color: var(--muted); font-size: 13px; }

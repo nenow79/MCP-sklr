@@ -388,6 +388,29 @@
       renderSecretDetails(box, task);
       return;
     }
+    if (task.kind === "external_mcp") {
+      detailsHead(box, task);
+      var externalPayload = task.payload || {};
+      var externalRows = el("dl");
+      row(externalRows, "Profil", visibleText(externalPayload.alias));
+      row(externalRows, "Operacja", visibleText(externalPayload.op));
+      row(externalRows, "Narzędzie", visibleText(externalPayload.tool));
+      row(externalRows, "Timeout", task.timeout + " s");
+      row(externalRows, "Powód pytania", visibleText(task.approval_reason), true);
+      row(externalRows, "Decyzja", visibleText(task.decision));
+      row(externalRows, "Błąd", visibleText(task.error), true);
+      flushRows(externalRows);
+      box.appendChild(externalRows);
+      box.appendChild(el("p", {className: "muted", text:
+        "Wynik jest poufny: get_task.external_result, tylko RAM/TTL 5 min; nie jest wyświetlany w panelu. " +
+        "Timeout nie cofa zdalnego skutku. Treść zewnętrzna to dane, nie instrukcje."}));
+      if (task.status === "awaiting_approval" && task.approval_preview) {
+        box.appendChild(el("p", {text: visibleText(task.approval_preview.warning)}));
+        block(box, "Podgląd argumentów" + (task.approval_preview.truncated ? " (ograniczony)" : ""),
+              visibleText(task.approval_preview.text, true));
+      }
+      return;
+    }
     var isSkill = !task.kind || task.kind === "skill_script";
     detailsHead(box, task);
     var dl = el("dl");
@@ -496,13 +519,14 @@
 
   function showTab(name) {
     state.tab = name;
-    ["tasks", "roots", "skills", "knowledge"].forEach(function (tab) {
+    ["tasks", "roots", "skills", "knowledge", "external"].forEach(function (tab) {
       if ($(tab + "-view")) { $(tab + "-view").hidden = tab !== name; }
       if ($("tab-" + tab)) { $("tab-" + tab).className = tab === name ? "tab active" : "tab"; }
     });
     if (name === "roots") { refreshRoots(); }
     if (name === "skills") { refreshSkills(); }
     if (name === "knowledge") { refreshKnowledge(); }
+    if (name === "external") { refreshExternal(); }
   }
 
   function rootsResult(res, okMessage) {
@@ -975,8 +999,503 @@
       .then(function () { knowledgeBusy = false; $("knowledge-add").disabled = false; });
   }
 
+  // --- zewnętrzne MCP (M4b): profile, włączanie, usuwanie, cofanie zaufania ---
+  // Treść z serwera trafia do DOM przez textContent. Formularz przyjmuje wyłącznie NAZWY
+  // zmiennych środowiskowych, nigdy wartości sekretów. Test połączenia i nadawanie zaufania: M4c.
+
+  var externalData = null;
+  var externalBusy = false;
+  var externalEditing = null;   // id edytowanego profilu; null = dodawanie
+  var EXTERNAL_TEXT_FIELDS = ["external-alias", "external-description", "external-url",
+    "external-bearer", "external-ca", "external-headers", "external-command",
+    "external-args", "external-cwd", "external-env-refs"];
+
+  // --- test połączenia i zaufanie (M4c) ---
+  // Katalog narzędzi trzyma serwer. Przeglądarka dostaje nazwy i opisy tylko do wyświetlenia
+  // i odsyła wyłącznie token testu oraz nazwy wybranych narzędzi; nie widzi skrótów schematów.
+
+  var externalInspect = {};      // id profilu -> {token, state, tools, selected, code, polls}
+  var externalLastError = "";
+  var EXTERNAL_POLL_MS = 1000;
+  var EXTERNAL_POLL_MAX = 90;    // ok. 90 s, dłużej niż limit zadania testu (60 s)
+  var EXTERNAL_HINTS = {
+    timeout: "Przekroczono limit czasu. Sprawdź, czy serwer działa i odpowiada.",
+    http_transport_failed: "Nie udało się połączyć z serwerem. Sprawdź adres, port i czy serwer jest uruchomiony.",
+    dns_failed: "Nie udało się rozwiązać nazwy hosta.",
+    dns_timeout: "Rozwiązywanie nazwy hosta trwało zbyt długo.",
+    self_or_panel_endpoint: "Adres wskazuje na sklr lub jego panel.",
+    destination_blocked: "Adres docelowy jest zablokowany (np. link-local lub metadane chmury).",
+    environment_missing: "W procesie sklr brakuje zmiennej środowiskowej wskazanej w profilu.",
+    tls_configuration: "Nie udało się wczytać pliku CA lub skonfigurować TLS.",
+    cwd_unavailable: "Katalog roboczy nie istnieje.",
+    stdio_spawn_failed: "Nie udało się uruchomić programu.",
+    stdio_batch_not_supported: "Pliki .cmd i .bat nie są obsługiwane; podaj plik wykonywalny.",
+    stdio_containment_failed: "Nie udało się objąć programu kontrolą procesów; nie został uruchomiony.",
+    message_limit: "Serwer odesłał zbyt dużą wiadomość.",
+    http_message_limit: "Serwer odesłał zbyt dużą odpowiedź.",
+    tools_limit: "Katalog narzędzi ma za dużo pozycji.",
+    schema_limit: "Schemat narzędzia jest za duży.",
+    catalog_limit: "Katalog narzędzi jest za duży.",
+    client_failed: "Nieoczekiwany błąd klienta.",
+    cancelled: "Test został anulowany.",
+    profile_changed: "Ustawienia połączenia zmieniły się w trakcie testu.",
+    poll_timeout: "Panel przestał czekać na wynik testu.",
+    inspection_expired: "Wynik testu wygasł lub serwer go nie zna.",
+    panel_unreachable: "Brak połączenia z serwerem panelu."
+  };
+
+  function externalHint(code) {
+    if (Object.prototype.hasOwnProperty.call(EXTERNAL_HINTS, code)) { return EXTERNAL_HINTS[code]; }
+    if (String(code).indexOf("task_") === 0) {
+      return "Zadanie testu zakończyło się bez wyniku (np. po zmianie ustawień połączenia).";
+    }
+    return "";
+  }
+
+  function selectedExternalTools(rec) {
+    return rec.tools.map(function (tool) { return tool.name; })
+      .filter(function (name) { return rec.selected[name]; });
+  }
+
+  function scheduleExternalPoll(id) {
+    setTimeout(function () { pollExternalInspection(id); }, EXTERNAL_POLL_MS);
+  }
+
+  function settleExternalInspection(rec, state, code) {
+    rec.state = state;
+    rec.code = code;
+    if (externalData) { renderExternal(externalData); }
+    return refreshExternal();   // odświeża też stan ostatniego testu z serwera
+  }
+
+  function pollExternalInspection(id) {
+    var rec = externalInspect[id];
+    if (!rec || rec.state !== "pending") { return Promise.resolve(); }
+    return api("GET", "/api/external-mcp/inspections/" + encodeURIComponent(rec.token)).then(function (res) {
+      if (externalInspect[id] !== rec) { return; }   // zastąpiony albo usunięty
+      if (res.status === 401) { authFailed(); return; }
+      var data = res.status === 200 && res.json && res.json.success ? res.json.data : null;
+      if (data && data.state === "pending") {
+        rec.polls += 1;
+        if (rec.polls < EXTERNAL_POLL_MAX) { scheduleExternalPoll(id); return; }
+        return settleExternalInspection(rec, "failed", "poll_timeout");
+      }
+      if (data && data.state === "ready") {
+        rec.tools = data.tools || [];
+        return settleExternalInspection(rec, "ready", "");
+      }
+      return settleExternalInspection(rec, "failed", data ? data.code : "inspection_expired");
+    }).catch(function () {
+      if (externalInspect[id] === rec) { return settleExternalInspection(rec, "failed", "panel_unreachable"); }
+    });
+  }
+
+  function startExternalInspection(profile) {
+    var current = externalInspect[profile.id];
+    if (current && current.state === "pending") { return Promise.resolve(); }
+    var body = {};
+    if (profile.transport === "stdio") {
+      if (!window.confirm("Test uruchomi lokalny program: " + visibleText(externalTarget(profile)) +
+          " Program działa z Twoimi uprawnieniami i może pobierać oraz wykonywać kod. Kontynuować?")) {
+        return Promise.resolve();
+      }
+      body.acknowledge_launch = true;
+    }
+    return api("POST", externalPath(profile, "inspect"), body).then(function (res) {
+      if (externalProblem(res)) { return; }
+      if (res.status !== 202 || !res.json.success) {
+        showBanner(visibleText((res.json && res.json.error) || ("Błąd HTTP " + res.status)), false);
+        return;
+      }
+      hideBanner();
+      externalInspect[profile.id] = {token: res.json.data.token, state: "pending", tools: [],
+        selected: {}, code: "", polls: 0};
+      if (externalData) { renderExternal(externalData); }
+      scheduleExternalPoll(profile.id);
+    }).catch(function () { showBanner("Brak połączenia z serwerem panelu.", false); });
+  }
+
+  function grantExternalTrust(profile, rec) {
+    var names = selectedExternalTools(rec);
+    if (!names.length) { return Promise.resolve(false); }
+    if (!window.confirm(visibleText("Zaufać profilowi " + profile.alias + "? Wywołania narzędzi: " +
+        names.join(", ") + " nie będą wymagały Twojej zgody (do 30 na minutę). Treść z zewnętrznych " +
+        "źródeł, np. stron internetowych, może próbować nakłonić model do kolejnych wywołań, także " +
+        "zmieniających stan. Zaufanie dotyczy schematu narzędzia, nie jego działania, i znika po " +
+        "zmianie ustawień połączenia. Kontynuować?"))) {
+      return Promise.resolve(false);
+    }
+    return externalRequest(externalPath(profile, "trust"), {token: rec.token, tools: names}).then(function (ok) {
+      if (ok === true) {
+        delete externalInspect[profile.id];
+        renderExternal(externalData);
+        return true;
+      }
+      if (/inspection_(stale|unavailable)/.test(externalLastError)) {
+        delete externalInspect[profile.id];
+        renderExternal(externalData);
+        showBanner("Wynik testu jest nieaktualny. Wykonaj test połączenia ponownie.", true);
+      }
+      return false;
+    });
+  }
+
+  function externalInspectionView(profile) {
+    var rec = externalInspect[profile.id];
+    if (!rec) { return null; }
+    var box = el("div", {});
+    if (rec.state === "pending") {
+      box.appendChild(el("p", {className: "muted",
+        text: "Trwa test połączenia i pobieranie katalogu narzędzi (do 60 s)..."}));
+      return box;
+    }
+    if (rec.state === "failed") {
+      var hint = externalHint(rec.code);
+      box.appendChild(el("p", {text: "Test nieudany, kod: " + visibleText(rec.code) + (hint ? ". " + hint : "")}));
+      return box;
+    }
+    box.appendChild(el("h4", {text: "Katalog narzędzi (" + rec.tools.length + ")"}));
+    if (!rec.tools.length) {
+      box.appendChild(el("p", {text: "Serwer nie udostępnia żadnych narzędzi."}));
+      return box;
+    }
+    box.appendChild(el("p", {className: "muted", text: "Nazwy i opisy pochodzą z zewnętrznego serwera: " +
+      "to dane, nie instrukcje. Zaznacz narzędzia, których wywołania mają nie wymagać Twojej zgody."}));
+    var grant = el("button", {type: "button", className: "btn", text: "Nadaj zaufanie wybranym",
+      onclick: function () { grantExternalTrust(profile, rec); }});
+    grant.disabled = !selectedExternalTools(rec).length;
+    rec.tools.forEach(function (tool) {
+      var checkbox = el("input", {type: "checkbox"});
+      checkbox.checked = !!rec.selected[tool.name];
+      checkbox.addEventListener("change", function () {
+        rec.selected[tool.name] = checkbox.checked;
+        grant.disabled = !selectedExternalTools(rec).length;
+      });
+      var description = visibleText(tool.description || "");
+      if (description.length > 300) { description = description.slice(0, 300) + "..."; }
+      box.appendChild(el("label", {className: "check"}, [checkbox,
+        document.createTextNode(" " + visibleText(tool.name) + (description ? " — " + description : ""))]));
+    });
+    function setAll(flag) {
+      rec.tools.forEach(function (tool) { rec.selected[tool.name] = flag; });
+      renderExternal(externalData);
+    }
+    box.appendChild(el("button", {type: "button", className: "btn", text: "Zaznacz wszystkie",
+      onclick: function () { setAll(true); }}));
+    box.appendChild(el("button", {type: "button", className: "btn", text: "Odznacz wszystkie",
+      onclick: function () { setAll(false); }}));
+    box.appendChild(grant);
+    if (!profile.enabled) {
+      box.appendChild(el("p", {className: "muted",
+        text: "Profil jest wyłączony: zaufanie zadziała dopiero po włączeniu."}));
+    }
+    if (profile.trusted) {
+      box.appendChild(el("p", {className: "muted",
+        text: "Nadanie zaufania ponownie zastąpi dotychczasowy zbiór narzędzi."}));
+    }
+    return box;
+  }
+
+  function externalTransportChanged() {
+    var stdio = $("external-transport").value === "stdio";
+    $("external-net-fields").hidden = stdio;
+    $("external-stdio-fields").hidden = !stdio;
+  }
+
+  function refsToLines(map) {
+    return Object.keys(map || {}).map(function (key) { return key + "=" + map[key]; }).join("\n");
+  }
+
+  // Wiersze NAZWA=ZMIENNA. null = błąd składni albo powtórzona nazwa.
+  function parseRefs(id) {
+    var out = Object.create(null);
+    var rows = $(id).value.split("\n");
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i].replace(/\r$/, "").trim();
+      if (!row) { continue; }
+      var at = row.indexOf("=");
+      if (at < 1 || at === row.length - 1) { return null; }
+      var key = row.slice(0, at).trim();
+      if (Object.prototype.hasOwnProperty.call(out, key)) { return null; }
+      out[key] = row.slice(at + 1).trim();
+    }
+    return out;
+  }
+
+  function parseArgs() {
+    var rows = $("external-args").value.split("\n").map(function (row) { return row.replace(/\r$/, ""); });
+    while (rows.length && rows[rows.length - 1] === "") { rows.pop(); }
+    return rows;
+  }
+
+  function optionalText(id) {
+    var value = $(id).value.trim();
+    return value ? value : null;
+  }
+
+  function buildExternalProfile() {
+    var transport = $("external-transport").value;
+    var profile = {alias: $("external-alias").value.trim(),
+      description: $("external-description").value.trim(),
+      enabled: $("external-enabled").checked, transport: transport};
+    var refsError = {error: "Zmienne: po jednym wierszu NAZWA=ZMIENNA, bez powtórzeń nazw."};
+    if (transport === "stdio") {
+      var env = parseRefs("external-env-refs");
+      if (env === null) { return refsError; }
+      profile.command = $("external-command").value.trim();
+      profile.args = parseArgs();
+      profile.cwd = optionalText("external-cwd");
+      profile.env_refs = env;
+    } else {
+      var headers = parseRefs("external-headers");
+      if (headers === null) { return refsError; }
+      profile.url = $("external-url").value.trim();
+      profile.headers_env = headers;
+      profile.bearer_env = optionalText("external-bearer");
+      profile.ca_file = optionalText("external-ca");
+    }
+    return {profile: profile};
+  }
+
+  function externalTarget(profile) {
+    if (profile.transport === "stdio") {
+      return [profile.command].concat((profile.args || []).map(function (arg) {
+        return "[" + arg + "]";
+      })).join(" ");
+    }
+    return profile.url;
+  }
+
+  function externalReferences(profile) {
+    var names = [];
+    [profile.headers_env, profile.env_refs].forEach(function (map) {
+      Object.keys(map || {}).forEach(function (key) { names.push(map[key]); });
+    });
+    if (profile.bearer_env) { names.push(profile.bearer_env); }
+    return names;
+  }
+
+  function externalCard(profile) {
+    var card = el("article", {className: "task-card"});
+    var badges = [
+      el("span", {className: "badge badge-kind", text: profile.transport}),
+      el("span", {className: "badge " + (profile.enabled ? "badge-external-on" : "badge-external-off"),
+        text: profile.enabled ? "włączony" : "wyłączony"})
+    ];
+    if (profile.trusted) { badges.push(el("span", {className: "badge badge-trusted", text: "zaufany"})); }
+    card.appendChild(el("h3", {}, badges.concat([document.createTextNode(visibleText(profile.alias))])));
+    if (profile.description) { card.appendChild(el("p", {text: visibleText(profile.description)})); }
+    card.appendChild(el("p", {text: "Połączenie: " + visibleText(externalTarget(profile))}));
+    if (profile.cwd) { card.appendChild(el("p", {text: "Katalog roboczy: " + visibleText(profile.cwd)})); }
+    var references = externalReferences(profile);
+    if (references.length) {
+      card.appendChild(el("p", {text: "Zmienne środowiskowe: " + visibleText(references.join(", "))}));
+    }
+    if (profile.env_missing && profile.env_missing.length) {
+      card.appendChild(el("p", {text: "Brak w procesie sklr: " + visibleText(profile.env_missing.join(", ")) +
+        ". Połączenie się nie powiedzie."}));
+    }
+    if (profile.trusted && profile.trust) {
+      var names = Object.keys(profile.trust.tools || {}).sort();
+      card.appendChild(el("p", {text: "Zaufanie (od " + fmtTime(profile.trust.granted_at) +
+        ") obejmuje narzędzia: " + visibleText(names.join(", ")) + ". Ich wywołania nie wymagają zgody; " +
+        "zmiana ustawień połączenia zeruje zaufanie."}));
+    }
+    var last = profile.last_test;
+    card.appendChild(el("p", {className: "muted", text: !last ? "Brak testu połączenia w tej sesji serwera." :
+      (last.state === "ok" ? "Ostatni test (" + fmtTime(last.at) + "): połączono, narzędzi: " + last.tools :
+        "Ostatni test (" + fmtTime(last.at) + ") nieudany, kod: " + visibleText(last.code))}));
+    var inspection = externalInspect[profile.id];
+    var testing = !!(inspection && inspection.state === "pending");
+    var testButton = el("button", {type: "button", className: "btn",
+      text: testing ? "Testowanie…" : "Testuj połączenie",
+      onclick: function () { startExternalInspection(profile); }});
+    testButton.disabled = testing;
+    card.appendChild(testButton);
+    card.appendChild(el("button", {type: "button", className: "btn", text: profile.enabled ? "Wyłącz" : "Włącz",
+      onclick: function () { toggleExternal(profile); }}));
+    card.appendChild(el("button", {type: "button", className: "btn", text: "Edytuj",
+      onclick: function () { startExternalEdit(profile); }}));
+    if (profile.trusted) {
+      card.appendChild(el("button", {type: "button", className: "btn", text: "Cofnij zaufanie",
+        onclick: function () { revokeExternalTrust(profile); }}));
+    }
+    card.appendChild(el("button", {type: "button", className: "btn", text: "Usuń",
+      onclick: function () { removeExternal(profile); }}));
+    var inspectionView = externalInspectionView(profile);
+    if (inspectionView) { card.appendChild(inspectionView); }
+    return card;
+  }
+
+  function renderExternal(data) {
+    externalData = data;
+    var known = {};
+    (data.profiles || []).forEach(function (item) { known[item.id] = true; });
+    Object.keys(externalInspect).forEach(function (id) {
+      if (!known[id]) { delete externalInspect[id]; }   // usunięty profil: zapomnij wynik testu
+    });
+    var list = $("external-list");
+    list.textContent = "";
+    var invalid = !data.configuration_valid;
+    $("external-state").textContent = invalid ? visibleText(
+      "Konfiguracja zewnętrznych MCP jest uszkodzona lub w nieznanym formacie (kod: " + data.error +
+      "). Nic nie zostało zmienione ani usunięte; popraw config.json ręcznie i odśwież.") : "";
+    $("external-save").disabled = invalid;
+    if (invalid) { return; }
+    if (!data.profiles.length) { list.appendChild(el("p", {text: "Brak zapisanych profili."})); }
+    data.profiles.forEach(function (profile) { list.appendChild(externalCard(profile)); });
+  }
+
+  function externalProblem(res) {
+    if (res.status === 401) { authFailed(); return true; }
+    if (res.status === 404 && !(res.json && res.json.error)) {
+      showBanner("Zewnętrzne MCP są wyłączone w tej wersji serwera.", true);
+      return true;
+    }
+    return false;
+  }
+
+  function refreshExternal() {
+    if (externalBusy) { return Promise.resolve(); }
+    externalBusy = true;
+    return api("GET", "/api/external-mcp").then(function (res) {
+      if (externalProblem(res)) { return; }
+      if (res.status !== 200 || !res.json.success) {
+        showBanner(visibleText((res.json && res.json.error) || ("Błąd HTTP " + res.status)), false);
+        return;
+      }
+      renderExternal(res.json.data);
+    }).catch(function () { showBanner("Brak połączenia z serwerem panelu.", false); })
+      .then(function () { externalBusy = false; });
+  }
+
+  // Zwraca true przy powodzeniu. Konflikt rewizji odświeża widok i nic nie zmienia.
+  function externalRequest(path, body) {
+    if (externalBusy || !externalData || !externalData.configuration_valid) { return Promise.resolve(false); }
+    externalBusy = true;
+    body.revision = externalData.revision;
+    return api("POST", path, body).then(function (res) {
+      externalLastError = String((res.json && res.json.error) || "");
+      if (externalProblem(res)) { return false; }
+      if (res.status === 409) {
+        showBanner("Konfiguracja zmieniła się w międzyczasie. Odświeżono widok; powtórz operację.", true);
+        return "conflict";
+      }
+      if (res.status >= 200 && res.status < 300 && res.json.success) {
+        renderExternal(res.json.data);
+        hideBanner();
+        return true;
+      }
+      showBanner(visibleText((res.json && res.json.error) || ("Błąd HTTP " + res.status)), false);
+      return false;
+    }).catch(function () { showBanner("Brak połączenia z serwerem panelu.", false); return false; })
+      .then(function (outcome) {
+        externalBusy = false;
+        if (outcome === "conflict") { return refreshExternal().then(function () { return false; }); }
+        return outcome;
+      });
+  }
+
+  function externalPath(profile, action) {
+    return "/api/external-mcp/" + encodeURIComponent(profile.id) + "/" + action;
+  }
+
+  function toggleExternal(profile) {
+    return externalRequest(externalPath(profile, "enabled"), {enabled: !profile.enabled});
+  }
+
+  function revokeExternalTrust(profile) {
+    return externalRequest(externalPath(profile, "revoke-trust"), {});
+  }
+
+  function removeExternal(profile) {
+    if (!window.confirm("Usunąć profil " + visibleText(profile.alias) +
+        "? Konfiguracja zostanie zapomniana, a zaufanie utracone.")) {
+      return Promise.resolve(false);
+    }
+    return externalRequest(externalPath(profile, "delete"), {}).then(function (ok) {
+      if (ok === true && externalEditing === profile.id) { resetExternalForm(); }
+      return ok;
+    });
+  }
+
+  function resetExternalForm() {
+    externalEditing = null;
+    EXTERNAL_TEXT_FIELDS.forEach(function (id) { $(id).value = ""; });
+    $("external-transport").value = "http";
+    $("external-enabled").checked = false;
+    $("external-form-title").textContent = "Dodaj profil";
+    $("external-save").textContent = "Zapisz profil";
+    $("external-cancel").hidden = true;
+    $("external-error").textContent = "";
+    externalTransportChanged();
+  }
+
+  function startExternalEdit(profile) {
+    externalEditing = profile.id;
+    $("external-alias").value = profile.alias;
+    $("external-description").value = profile.description || "";
+    $("external-transport").value = profile.transport;
+    $("external-url").value = profile.url || "";
+    $("external-bearer").value = profile.bearer_env || "";
+    $("external-ca").value = profile.ca_file || "";
+    $("external-headers").value = refsToLines(profile.headers_env);
+    $("external-command").value = profile.command || "";
+    $("external-args").value = (profile.args || []).join("\n");
+    $("external-cwd").value = profile.cwd || "";
+    $("external-env-refs").value = refsToLines(profile.env_refs);
+    $("external-enabled").checked = !!profile.enabled;
+    $("external-form-title").textContent = "Edytuj profil";
+    $("external-save").textContent = "Zapisz zmiany";
+    $("external-cancel").hidden = false;
+    $("external-error").textContent = "";
+    externalTransportChanged();
+  }
+
+  function submitExternal(event) {
+    event.preventDefault();
+    if (externalBusy || !externalData || !externalData.configuration_valid) { return; }
+    var built = buildExternalProfile();
+    if (built.error) { $("external-error").textContent = built.error; return; }
+    $("external-error").textContent = "";
+    var editing = externalEditing;
+    var current = editing ? externalData.profiles.filter(function (item) { return item.id === editing; })[0] : null;
+    if (editing && !current) {
+      $("external-error").textContent = "Profil nie istnieje już na liście. Anuluj edycję i odśwież widok.";
+      return;
+    }
+    if (current && current.trusted && !window.confirm("Ten profil jest zaufany. Zmiana ustawień połączenia " +
+        "(adres, polecenie, argumenty, katalog, zmienne, nagłówki, CA, transport) zeruje zaufanie i trzeba je " +
+        "nadać od nowa. Zmiana samej nazwy, opisu lub włączenia go nie zeruje. Zapisać?")) {
+      return;
+    }
+    $("external-save").disabled = true;
+    var path = editing ? externalPath(current, "update") : "/api/external-mcp";
+    externalRequest(path, {profile: built.profile}).then(function (ok) {
+      if (ok === true) {
+        if (editing && externalInspect[editing]) {
+          delete externalInspect[editing];   // po edycji wynik testu może być nieaktualny
+          renderExternal(externalData);
+        }
+        resetExternalForm();
+      }
+      $("external-save").disabled = !externalData || !externalData.configuration_valid;
+    });
+  }
+
+  function initExternal() {
+    if (!$("tab-external")) { return; }
+    $("tab-external").addEventListener("click", function () { showTab("external"); });
+    $("external-refresh").addEventListener("click", function () { refreshExternal(); });
+    $("external-form").addEventListener("submit", submitExternal);
+    $("external-transport").addEventListener("change", externalTransportChanged);
+    $("external-cancel").addEventListener("click", resetExternalForm);
+    externalTransportChanged();
+  }
+
   function init() {
     initSkillFilters();
+    initExternal();
     $("notify-btn").addEventListener("click", enableNotifications);
     $("status-filter").addEventListener("change", function () { refresh(); });
     $("tab-tasks").addEventListener("click", function () { showTab("tasks"); });

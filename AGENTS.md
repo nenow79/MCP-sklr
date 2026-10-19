@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ## Projekt
-Nowy lokalny serwer MCP ("vibecoder") oparty na standardzie Agent Skills (agentskills.io). Udostępnia ubogiemu harnessowi pliki/roots, kolejkę i panel zgód, skills oraz wiedzę OKF. Ogólne wykonywanie komend i integracja zewnętrznych MCP pozostają propozycjami w backlogu.
+Nowy lokalny serwer MCP ("vibecoder") oparty na standardzie Agent Skills (agentskills.io). Udostępnia ubogiemu harnessowi pliki/roots, kolejkę i panel zgód, skills oraz wiedzę OKF. Ogólne wykonywanie komend pozostaje propozycją w backlogu. Integracja zewnętrznych MCP jest wdrożona: trwałe profile w panelu, trzy narzędzia modelu, zaufanie i poufne zadania. Kontrakt v1: `docs/specs/external-mcp-support.md`; zakres odbioru i ograniczenia: CURRENT, pozostałe prace: backlog. Nie oznacza to pełnej ochrony SSRF ani gotowości produkcyjnej.
 
 ## Stack
 Python, FastMCP + Uvicorn (MCP obecnie 8101; historyczny cel 8100), panel webowy (127.0.0.1:8102: zatwierdzenia i konfiguracja folderów), Miniforge/conda (środowiska skryptów skills).

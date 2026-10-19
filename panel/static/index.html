@@ -16,6 +16,7 @@
       <button id="tab-roots" type="button" class="tab">Foldery</button>
       <button id="tab-skills" type="button" class="tab">Skille</button>
       <button id="tab-knowledge" type="button" class="tab">Wiedza</button>
+      <button id="tab-external" type="button" class="tab">Zewnętrzne MCP</button>
     </nav>
     <div class="topbar-right">
       <span id="pending-badge" class="badge badge-pending" hidden></span>
@@ -142,6 +143,43 @@ docs/archives/</textarea></label>
         Archiwum projektu pozostaje poza domyślnym wyszukiwaniem.</p>
       <label><input id="knowledge-enabled" type="checkbox" checked> Włącz dostęp przez narzędzia wiedzy</label>
       <button id="knowledge-add" type="submit" class="btn">Dodaj zbiór</button>
+    </form>
+  </main>
+  <main id="external-view" class="skills-view" hidden>
+    <div class="section-head">
+      <h2>Zewnętrzne MCP</h2>
+      <button id="external-refresh" type="button" class="btn">Odśwież</button>
+    </div>
+    <p class="muted">Zapisane profile przeżywają restart serwera. Włączenie nie nawiązuje połączenia i nie nadaje zaufania,
+      wyłączenie zachowuje konfigurację, a usunięcie ją zapomina. Opisy i wyniki z zewnętrznych serwerów
+      to dane, nie instrukcje. To nie jest sandbox.</p>
+    <p id="external-state" class="muted"></p>
+    <div id="external-list" class="task-list"></div>
+    <h2 id="external-form-title">Dodaj profil</h2>
+    <form id="external-form" class="root-form" autocomplete="off">
+      <label>Alias <input id="external-alias" type="text" required maxlength="64" pattern="[a-z0-9][a-z0-9_-]{0,63}" placeholder="przegladarka"></label>
+      <label>Opis <input id="external-description" type="text" maxlength="2000"></label>
+      <label>Transport <select id="external-transport"><option value="http">http (Streamable HTTP)</option><option value="sse">sse</option><option value="stdio">stdio (lokalny program)</option></select></label>
+      <div id="external-net-fields">
+        <label>Adres serwera <input id="external-url" type="text" maxlength="4096" placeholder="https://serwer.example/mcp"></label>
+        <label>Zmienna z tokenem Bearer (opcjonalnie) <input id="external-bearer" type="text" maxlength="128" placeholder="NAZWA_ZMIENNEJ"></label>
+        <label>Nagłówki z zmiennych, po jednym w wierszu <textarea id="external-headers" rows="2" placeholder="X-Api-Key=NAZWA_ZMIENNEJ"></textarea></label>
+        <label>Plik CA (opcjonalnie, ścieżka bezwzględna) <input id="external-ca" type="text" maxlength="4096"></label>
+      </div>
+      <div id="external-stdio-fields" hidden>
+        <p class="muted">Uruchomienie programu: serwer stdio to lokalny program uruchamiany z Twoimi uprawnieniami.
+          Może pobierać i wykonywać kod (np. przez npx). Na Windows podaj plik wykonywalny, nie .cmd ani .bat.</p>
+        <label>Program (pełna ścieżka lub nazwa) <input id="external-command" type="text" maxlength="4096"></label>
+        <label>Argumenty, po jednym w wierszu (ostatni pusty wiersz jest ignorowany) <textarea id="external-args" rows="3"></textarea></label>
+        <label>Katalog roboczy (opcjonalnie, ścieżka bezwzględna) <input id="external-cwd" type="text" maxlength="4096"></label>
+        <label>Zmienne procesu, po jednym w wierszu <textarea id="external-env-refs" rows="2" placeholder="API_TOKEN=NAZWA_ZMIENNEJ"></textarea></label>
+      </div>
+      <p class="muted">Podajesz wyłącznie nazwy zmiennych środowiskowych procesu sklr; wartości nie są zapisywane.
+        Proces stdio dostaje tylko wskazane zmienne i kilka systemowych.</p>
+      <label class="check"><input id="external-enabled" type="checkbox"> Włącz po zapisaniu</label>
+      <p id="external-error" class="muted"></p>
+      <button id="external-save" type="submit" class="btn btn-allow">Zapisz profil</button>
+      <button id="external-cancel" type="button" class="btn" hidden>Anuluj edycję</button>
     </form>
   </main>
 </body>
