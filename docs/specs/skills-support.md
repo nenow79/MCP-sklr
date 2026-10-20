@@ -28,6 +28,8 @@ Kontrakt lokalnej implementacji sklr; źródło standardu wskazane w poprzedniej
 ## Rozszerzenia (klucze `metadata`)
 - `vibecoder-confirm: "false"` – deklaracja braku potwierdzenia dla skryptów. Działa WYŁĄCZNIE dla skills z katalogu centralnego i tylko przy zgodnym hashu. Domyślnie potwierdzenie wymagane. Opcjonalnie per skrypt.
 - `conda-env: "<nazwa>"` – środowisko Miniforge dla skryptów (możliwe współdzielenie między skills).
+- `network-env: "proxy-ca"` – jawny opt-in do ustawień sieciowych procesu sklr. Brak klucza lub pusty napis zachowuje dotychczasowe clean_env; inne wartości blokują run przed utworzeniem zadania. Zamknięta lista: HTTP_PROXY, HTTPS_PROXY, ALL_PROXY, NO_PROXY, REQUESTS_CA_BUNDLE, CURL_CA_BUNDLE, SSL_CERT_FILE, SSL_CERT_DIR (nazwy bez rozróżnienia wielkości liter, oryginalna pisownia zachowana). Nie przekazuje DATABRICKS_*, tokenów, CONDA_* ani PYTHONPATH/PYTHONHOME. Nie zmienia PATH, TLS lub runnera zewnętrznych MCP.
+- Wartości pobierane dopiero przy wykonaniu, bez zapisu w Task/PreparedRun/payload; proces sklr musi je już posiadać. Zmiana SKILL.md unieważnia hash/trust i blokuje oczekujące uruchomienie przez istniejące verify. Powód zgody informuje o opt-in. Zasady centralnego trust bez zmian: obejmuje deklarację w SKILL.md, ale nie aktualne wartości środowiska. Proxy może zawierać dane uwierzytelniające; opt-in udostępnia je skryptowi. To nie sandbox ani gwarancja redakcji dowolnego stdout/stderr: skrypt musi nie wypisywać środowiska i surowych błędów. Brak automatycznego pobierania CA/proxy, aktywacji conda lub wyłączania weryfikacji TLS.
 
 ## Uruchamianie skryptów
 - Interpreter wprost: `<miniforge>\envs\<env>\python.exe scripts\x.py` (bez `conda run`, bez shella).

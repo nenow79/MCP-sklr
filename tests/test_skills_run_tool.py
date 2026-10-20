@@ -1,4 +1,7 @@
+import json
 import sys
+
+import pytest
 
 from skills_engine import SkillRegistry
 
@@ -184,6 +187,82 @@ def test_conda_env_python_is_used(tmp_path, make_env):
     result = env.call(default_python="SHOULD-NOT-BE-USED")
     assert result["success"] is True
     assert env.requests[0].command[0] == sys.executable
+
+
+@pytest.mark.parametrize("metadata,expected", [
+    ("", False), ('  network-env: ""\n', False),
+    ('  network-env: "proxy-ca"\n', True),
+])
+def test_network_env_end_to_end(tmp_path, make_env, monkeypatch, metadata, expected):
+    monkeypatch.setenv("HTTPS_PROXY", "SENTINEL-PROXY-CREDENTIAL")
+    monkeypatch.setenv("SSL_CERT_FILE", "SENTINEL-CA-PATH")
+    monkeypatch.setenv("DATABRICKS_TOKEN", "SENTINEL-TOKEN")
+    body = ("import os, json; print(json.dumps({"
+            "'proxy': bool(os.environ.get('HTTPS_PROXY')),"
+            "'ca': bool(os.environ.get('SSL_CERT_FILE')),"
+            "'token': bool(os.environ.get('DATABRICKS_TOKEN'))}))")
+    central, _ = _setup(tmp_path, metadata=metadata, script_body=body)
+    env = make_env(SkillRegistry(central_dir=central), "allow")
+    response = env.call(args=[])
+    assert response["success"]
+    assert json.loads(response["data"]["stdout"]) == {
+        "proxy": expected, "ca": expected, "token": False}
+    assert len(env.requests) == 1
+    assert ("network-env=proxy-ca" in env.requests[0].approval_reason) == expected
+    assert "SENTINEL" not in repr(response)
+    assert "SENTINEL" not in repr(env.requests[0].to_dict())
+    assert "SENTINEL" not in repr(env.manager.get(1).to_dict())
+
+
+@pytest.mark.parametrize("value", ['"all"', '"PROXY-CA"', '" proxy-ca"', 'null', 'true', '123'])
+def test_invalid_network_env_creates_no_task(tmp_path, make_env, value):
+    central, _ = _setup(tmp_path, metadata=f"  network-env: {value}\n")
+    env = make_env(SkillRegistry(central_dir=central), "allow")
+    response = env.call()
+    assert not response["success"]
+    assert "metadata.network-env" in response["error"]
+    assert env.requests == [] and env.manager.list() == []
+
+
+def test_network_env_denial_does_not_run(tmp_path, make_env):
+    central, skill_dir = _setup(tmp_path, metadata='  network-env: "proxy-ca"\n',
+                               script_body="open('marker', 'w').write('ran')")
+    env = make_env(SkillRegistry(central_dir=central), "deny")
+    assert not env.call()["success"]
+    assert not (skill_dir / "marker").exists()
+
+
+def test_network_env_changed_during_approval(tmp_path, make_env):
+    central, skill_dir = _setup(tmp_path, metadata='  network-env: "proxy-ca"\n',
+                               script_body="open('marker', 'w').write('ran')")
+    def tamper(_task):
+        path = skill_dir / "SKILL.md"
+        path.write_text(path.read_text(encoding="utf-8").replace('"proxy-ca"', '""'), encoding="utf-8")
+    env = make_env(SkillRegistry(central_dir=central), "allow", before_decision=tamper)
+    assert not env.call()["success"]
+    assert not (skill_dir / "marker").exists()
+
+
+def test_network_env_read_at_dispatch_only(tmp_path, make_env, monkeypatch):
+    from server.task_tools import get_task_impl
+    monkeypatch.setenv("HTTPS_PROXY", "SENTINEL-BEFORE")
+    central, _ = _setup(tmp_path, metadata='  network-env: "proxy-ca"\n',
+                       script_body="print('safe')")
+    env = make_env(SkillRegistry(central_dir=central), answer=None)
+    response = env.call()
+    task_id = response["data"]["task_id"]
+    assert "SENTINEL" not in repr(env.manager.get(task_id).to_dict())
+    monkeypatch.setenv("HTTPS_PROXY", "SENTINEL-AT-DISPATCH")
+    seen = []
+    def fake_run(command, cwd, timeout, child_env, cancel_event):
+        seen.append(child_env.get("HTTPS_PROXY") == "SENTINEL-AT-DISPATCH")
+        assert "DATABRICKS_TOKEN" not in child_env
+        return {"started": True, "exit_code": 0, "stdout": "safe", "stderr": ""}
+    monkeypatch.setattr("server.task_tools.run_command", fake_run)
+    env.approval.resolve(task_id, "allow")
+    assert env.manager.wait(task_id, 8).status.value == "done"
+    assert seen == [True]
+    assert "SENTINEL" not in repr(get_task_impl(env.manager, task_id))
 
 
 def test_disabled_skill_cannot_run(tmp_path, make_env):

@@ -150,6 +150,50 @@ def test_clean_env_drops_secrets():
     assert env["SYSTEMROOT"] == "s"
 
 
+# --- explicit network opt-in (synthetic values only) ---
+@pytest.mark.parametrize("mode", ["", "proxy-ca"])
+def test_clean_env_network_scope(mode):
+    network = {key: "synthetic" for key in runner._NETWORK_ENV_ALLOWLIST}
+    source = dict(network, PATH="p", SYSTEMROOT="s", API_TOKEN="secret",
+                  DATABRICKS_TOKEN="secret", DATABRICKS_SERVER_HOSTNAME="secret",
+                  DATABRICKS_HTTP_PATH="secret", CONDA_PREFIX="unused",
+                  PYTHONPATH="unused", PYTHONHOME="unused")
+    before = dict(source)
+    expected = {"PATH": "p", "SYSTEMROOT": "s",
+                "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
+    if mode:
+        expected.update(network)
+    assert clean_env(source, network_env=mode) == expected
+    assert source == before
+    assert clean_env(source) == clean_env(source, network_env="")
+
+
+def test_clean_env_opt_in_does_not_change_baseline():
+    source = {key: "baseline" for key in runner._ENV_ALLOWLIST}
+    source.update({key: "network" for key in runner._NETWORK_ENV_ALLOWLIST})
+    expected = {key: "baseline" for key in runner._ENV_ALLOWLIST}
+    expected.update(PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
+    assert clean_env(source) == expected
+    assert clean_env(source, network_env="proxy-ca") == dict(
+        expected, **{key: "network" for key in runner._NETWORK_ENV_ALLOWLIST})
+
+
+def test_clean_env_network_case_and_missing():
+    assert clean_env({}, network_env="proxy-ca") == clean_env({})
+    env = clean_env({"https_proxy": "synthetic", "Ssl_Cert_File": "synthetic",
+                     "api_token": "secret"}, network_env="proxy-ca")
+    assert env["https_proxy"] == env["Ssl_Cert_File"] == "synthetic"
+    assert "api_token" not in env
+    assert "https_proxy" not in clean_env({"https_proxy": "synthetic"})
+
+
+@pytest.mark.parametrize("mode", [None, True, 1, [], {}, "all", "PROXY-CA", " proxy-ca", "SECRET"])
+def test_clean_env_invalid_network_mode_fails_closed(mode):
+    with pytest.raises(ValueError) as caught:
+        clean_env({"HTTPS_PROXY": "SECRET_PROXY"}, network_env=mode)
+    assert "SECRET" not in str(caught.value)
+
+
 # --- truncate ---
 def test_truncate_stream():
     short, cut = truncate_stream("abc", "stdout")

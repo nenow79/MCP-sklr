@@ -21,6 +21,7 @@ from skills_engine.runner import (
     build_command,
     resolve_script,
     validate_timeout,
+    validate_network_env,
 )
 from skills_engine.trust import TrustStore, compute_skill_hash
 
@@ -43,6 +44,7 @@ class PreparedRun:
     offer_trust: bool
     approval_reason: str
     script_preview: str
+    network_env: str = ""  # Mode only, never environment values.
 
 
 def _not_found_error(registry: SkillRegistry, name: str) -> Dict[str, Any]:
@@ -190,6 +192,11 @@ def prepare_script_run(
         if record is None:
             return _not_found_error(registry, name)
 
+        network_env = record.metadata.get("network-env", "")
+        network_error = validate_network_env(network_env)
+        if network_error:
+            return {"success": False, "error": network_error}
+
         script_path = resolve_script(record.base_dir, script)
 
         # Interpreter: .py -> środowisko conda ze skilla albo python serwera.
@@ -209,6 +216,13 @@ def prepare_script_run(
         approved_hash = compute_skill_hash(record.base_dir)
         trusted = trust_store.is_trusted(record.name, approved_hash)
         decision = decide_confirmation(record.source, record.metadata, trusted)
+        approval_reason = decision.reason if decision.required else ""
+        if decision.required and network_env == "proxy-ca":
+            approval_reason += (
+                " Opt-in network-env=proxy-ca: skrypt otrzyma ustawienia proxy/CA "
+                "procesu serwera; proxy może zawierać dane uwierzytelniające. "
+                "Wartości nie są zapisywane w zadaniu."
+            )
 
         return PreparedRun(
             skill=record.name,
@@ -221,8 +235,9 @@ def prepare_script_run(
             skill_hash=approved_hash,
             approval_required=decision.required,
             offer_trust=decision.offer_trust,
-            approval_reason=decision.reason if decision.required else "",
+            approval_reason=approval_reason,
             script_preview=_script_preview(script_path),
+            network_env=network_env,
         )
     except (ValueError, FileNotFoundError) as e:
         return {"success": False, "error": str(e)}

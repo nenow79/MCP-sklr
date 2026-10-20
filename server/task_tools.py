@@ -92,8 +92,11 @@ def task_to_response(task: Task) -> Dict[str, Any]:
 
 def _make_executor(prepared: PreparedRun):
     def executor(cancel_event):
+        # Read at dispatch only; no values in PreparedRun, Task or payload.
+        env = (clean_env(network_env=prepared.network_env)
+               if prepared.network_env else clean_env())
         return run_command(prepared.command, prepared.base_dir, prepared.timeout,
-                           clean_env(), cancel_event)
+                           env, cancel_event)
     return executor
 
 

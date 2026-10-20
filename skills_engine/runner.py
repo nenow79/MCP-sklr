@@ -81,10 +81,35 @@ def build_command(script_path: Path, args: List[str], python_exe: str) -> List[s
     return [executable, str(script_path), *args]
 
 
-def clean_env(environ: Optional[Mapping[str, str]] = None) -> Dict[str, str]:
-    """Środowisko dla skryptu: tylko lista dozwolona (bez tokenów i sekretów) + UTF-8."""
+# Opt-in only; proxy URLs may contain credentials. Never log these values.
+_NETWORK_ENV_ALLOWLIST = frozenset({
+    "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+    "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "SSL_CERT_FILE", "SSL_CERT_DIR",
+})
+
+
+def validate_network_env(value: Any) -> Optional[str]:
+    if not isinstance(value, str) or value not in ("", "proxy-ca"):
+        # Invalid input itself might contain a secret: do not echo it.
+        return 'metadata.network-env musi być pominięte, puste albo równe "proxy-ca".'
+    return None
+
+
+def clean_env(environ: Optional[Mapping[str, str]] = None, *,
+              network_env: str = "") -> Dict[str, str]:
+    """Baseline unchanged; proxy/CA only with explicit opt-in.
+
+    Values must not be serialized. An opted-in script can read proxy credentials.
+    This is not a sandbox or a generic stdout/stderr redaction mechanism.
+    """
+    error = validate_network_env(network_env)
+    if error:
+        raise ValueError(error)
     source = os.environ if environ is None else environ
     env = {key: value for key, value in source.items() if key.upper() in _ENV_ALLOWLIST}
+    if network_env == "proxy-ca":
+        env.update({key: value for key, value in source.items()
+                    if key.upper() in _NETWORK_ENV_ALLOWLIST})
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONUTF8"] = "1"
     return env
