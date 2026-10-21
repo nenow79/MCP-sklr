@@ -107,6 +107,44 @@ Rozszerzenie automatycznych docs: AST zmienionych plików Python i `node --check
 
 Polityka formatu: AST 13 zmienionych/nowych plików Python, importy, `node --check panel/static/app.js` oraz zgodność identyfikatorów HTML/JS poprawne. Paczka użytkownika test_okf_write_policy, test_project_knowledge, test_file_changes, test_file_transaction, test_edit_tools, test_tree_tools, test_folder_tools i test_panel_static dała 331 passed, 1 błąd testu autoryzacji i 2 skipped (junction i case Windows). Po poprawce oczekiwania dla braku Origin użytkownik potwierdził zielony wynik ponowionego test_project_knowledge. Ręczny odbiór i scenariusze Windows pozostają otwarte. Agent nie uruchamiał pytest ani serwera. Wewnętrzne ścieżki rename/create_tree przekazywane względem przypiętego roota, zgodnie z guardem Windows także na POSIX.
 
+## Sesje pracy — fundament P1
+
+Kontrakt: [wstrzymanie i checkpointy](../specs/work-session-pause.md). W #787 zapisano `tasks/session_models.py`, `tasks/session_store.py` i `tests/test_session_store.py`. Osobny magazyn SQLite: metadane sesji, przypięte aliasy roots, rewizje, przejścia pauzy, niezmienne powiązania z task_id i jawne odzyskiwanie po restarcie. Bez treści checkpointów i wyników MCP. Nie podłączono do main.py, panelu ani TaskManager; istniejąca tasks.db bez zmian tej paczki.
+
+Użytkownik potwierdził dla `python -m pytest tests/test_session_store.py tests/test_tasks_store.py -q --tb=short`: **51 passed in 2.09s**. Agent nie uruchamiał pytest ani serwera. To odbiór fundamentu i paczki regresji magazynu zadań, nie pełnej regresji, dispatch gate, checkpointów, wznowienia ani zachowania harnessu. Pauza użytkowa nadal niedostępna.
+
+## Sesje pracy — kontroler P2a
+
+Użytkownik zaakceptował pierwszą wersję: jedna kontrolowana sesja pracy na instancję sklr, wybierana po stronie panelu, bez modelowego session_id. Pauza ma obejmować wszystkie rozmowy korzystające z tej instancji; nie deklarujemy izolacji rozmów przez identyfikator transportu MCP. W #793 zapisano odłączone `tasks/session_controller.py` i `tests/test_session_controller.py`: atomowe przyjęcie działania/pauza, domknięcie rozpoczętych działań bez cancel, licznik tokenów, blokada ponownego przypięcia/przełączenia jako obejścia pauzy oraz fail-closed przy błędzie magazynu. Przełączanie/wznowienie pozostaje do projektu P3.
+
+Użytkownik potwierdził `python -m pytest tests/test_session_controller.py tests/test_session_store.py tests/test_tasks_store.py -q --tb=short`: **62 passed in 3.08s**. Agent nie uruchamiał pytest ani serwera. Odbiór logiki kontrolera i regresji magazynów; bez integracji z TaskManager, main.py, panelem, komunikatu dla LLM ani rzeczywistego harnessu. Pauza użytkowa nadal niedostępna.
+
+## Sesje pracy — integracja kolejki P2b
+
+W #796 zapisano opcjonalną integrację `SessionController` z `TaskManager`; testy integracyjne w #797 (`tests/test_tasks_sessions.py`). Przypisanie zadania przed scheduling, kontrola sesji przy dispatch, zachowanie queued/zgody/context bez pętli ponowień i zajmowania workerów, tokeny zwalniane w finally. Błąd przypisania blokuje scheduling także przy nieudanym zapisie błędu w drugiej bazie; nie ma wspólnej transakcji dwóch baz. Błąd finalizacji pauzy nie nadpisuje wyniku zadania. Manager bez kontrolera zachowuje dotychczasowy tryb; main.py nie aktywuje integracji.
+
+Użytkownik potwierdził paczkę `test_tasks_sessions`, `test_tasks_manager`, `test_session_controller`, `test_session_store`, `test_tasks_store`, `test_external_result_channel`: **164 passed in 8.31s**. Agent nie uruchamiał pytest ani serwera. Testy integracji używają atrap executorów; nie potwierdzają rzeczywistego transportu MCP, komunikatu dla LLM, panelu, checkpointów, wznowienia ani pełnej regresji HEAD. Pauza użytkowa nadal niedostępna.
+
+## Sesje pracy — wrapper P2c
+
+W #800 zapisano odłączone `server/session_tools.py` i `tests/test_session_tools.py`: jawna klasyfikacja narzędzi roboczych/sterujących, blokada przed wykonaniem, osobne pole session_control poza wynikiem MCP, zachowanie sygnatur i poufnej telemetrii. Checkpoint dostępny=false; nie deklarować jego zapisu. #801 dodało reason do snapshot kontrolera i test przyczyny restartu. Wrapper nieaktywny w main.py.
+
+Pierwsza paczka użytkownika: **211 passed, 1 warning in 28.60s**; wyjątek workera mcp-telemetry wskutek niepełnej atrapy SimpleNamespace bez get. Nie jest czystym odbiorem. #802 poprawiło atrapy w test_session_tools i test_external_mcp_registration na pełny interfejs queue.Queue, bez enqueue rekordów testowych do logów; kod produkcyjny telemetrii bez zmian.
+
+Ponowienie użytkownika w nowym procesie pytest, paczka poprzedniego odbioru rozszerzona o test_session_tools, test_telemetry i test_external_mcp_registration, z `-W error::pytest.PytestUnhandledThreadExceptionWarning`: **214 passed in 479.62s (0:07:59)**. Odbiór poprawności tej paczki, bez zgłoszonego ostrzeżenia wątku; przyczyna nietypowego czasu nieustalona. Nie przypisywać zwolnienia poprawce bez pomiarów. Agent nie uruchamiał pytest ani serwera. Bez odbioru rzeczywistego harnessu, panelu, produkcyjnej rejestracji lub pełnej regresji HEAD.
+
+## Sesje pracy — adapter i API panelu P2d1
+
+#805: `server/session_admin.py` i testy adaptera; #806: opcjonalne endpointy GET /api/work-session, POST /api/work-session/start i /pause w panel/app.py; #807: `tests/test_panel_work_sessions.py`. Jawny wybór dostępnych roots, jedna przypięta sesja, brak wznowienia/przełączenia, kontrola rewizji, stałe błędy i istniejąca ochrona Host/Origin/sesji panelu. Roots opisują projekt; adapter nie nadaje uprawnień ani nie egzekwuje nowego zakresu argumentów narzędzi. Bez przekazanego adaptera endpointy nie istnieją; main.py nie aktywuje funkcji.
+
+Użytkownik potwierdził paczkę test_session_admin/test_panel_work_sessions/test_panel_api/test_panel_auth/test_tasks_sessions z wyjątkami wątków jako błędami: **107 passed in 5.25s**. Agent nie uruchamiał pytest ani serwera. Odbiór adaptera i API przez TestClient, nie UI, prawdziwego harnessu, bootstrap/restartu całej aplikacji ani pełnej regresji.
+
+Diagnostyka wcześniejszej paczki: ponownie 214 passed in 478.01s; największe call to concurrent_create 32.34s i concurrent_update 25.88s. Osobny pomiar 50 create: RAM 0.002s, plik tymczasowy WAL/synchronous=2 0.081s. Dwa testy współbieżności osobno: **2 passed in 0.89s** (call 0.34s/0.35s). Przyczyna spowolnienia pełnej paczki nieustalona; użytkownik polecił kontynuować. Nie zmieniono SQLite ani timeoutów.
+
 ## Następny krok
+
+Użytkownik zaakceptował kierunek: wstrzymanie z checkpointem → autopilot według kontraktu → automatyczne testy → osobno uprawnione automatyczne poprawki. Kontrakt zapisany, fundament P1 odebrany w opisanej wyżej paczce. P2b odebrane w opisanej paczce. P2c odebrane w opisanej paczce poprawności. Adapter/API P2d1 odebrane w opisanej paczce. Najbliższy krok: UI sesji (wybór roots/start/pauza, stan i licznik, ostrzeżenie całej instancji, brak checkpointu/wznowienia) i testy frontendowe. Następnie bootstrap/rejestracja; aktywacja w main.py wymaga osobnego uzgodnienia, aby pauza bez P3 nie zablokowała dalszego developmentu. Diagnostyka czasu pełnej paczki pozostaje otwarta, bez blokowania tej pracy na polecenie użytkownika. Zadania w [backlogu](backlog.md), sekcja „Wstrzymanie, autopilot i testowanie”. Funkcje użytkowe nie są wdrożone; obecne zgody, poufność i zasady uruchamiania pytest/serwera pozostają bez zmian. Dotychczasowe odbiory i zadania są nadal otwarte.
+
+Dotychczasowy następny krok dla indeksu (niezakończony):
 
 Po przerwie: podłączyć create_tree do zgłaszania committed konkretnych ścieżek, potem zaprojektować lekkie uzgodnienie zmian zewnętrznych (stat jako filtr, bez pełnego odczytu niezmienionych źródeł). Zachować dostępność RAM i ochronę przed spóźnioną publikacją. Osobno domknąć rename/usunięcia/retencję, ręczny smoke współbieżności oraz pełne regresje Windows. Smoke-test v3 pozostaje lokalnie do jawnego usunięcia; nie dodawać do Git. Jedyna lista prac: [backlog](backlog.md).

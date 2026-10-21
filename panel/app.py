@@ -25,6 +25,7 @@ from server.knowledge_admin import KnowledgeConflict
 from tasks.approval import ApprovalService
 from tasks.manager import TaskManager, TaskNotFoundError, TaskStateError
 from tasks.models import TaskStatus
+from tasks.session_models import SessionConflict
 
 DEFAULT_STATIC_DIR = Path(__file__).resolve().parent / "static"
 PANEL_DECISIONS = ("allow", "trust", "deny")  # "timeout" tylko wewnętrznie (wygaśnięcie)
@@ -113,9 +114,44 @@ def _opt_str(body: dict, key: str) -> Optional[str]:
 def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: PanelAuth,
                      static_dir: Optional[Path] = None, roots: Any = None,
                      skills: Any = None, knowledge: Any = None,
-                     external_mcp: Any = None) -> Starlette:
+                     external_mcp: Any = None, work_sessions: Any = None) -> Starlette:
     """`roots` (RootsRegistry) jest opcjonalne: bez niego endpointy /api/roots nie istnieją (404)."""
     static_path = Path(static_dir) if static_dir is not None else DEFAULT_STATIC_DIR
+
+    async def work_session_status(request):
+        try:
+            return _ok(await run_in_threadpool(work_sessions.status))
+        except Exception:
+            return _err("Nie można odczytać stanu sesji pracy.", 500)
+
+    async def work_session_start(request):
+        body = await _json_body(request)
+        if body is None or set(body) != {"roots"}:
+            return _err("Oczekiwano obiektu z polem roots.", 400)
+        try:
+            return _ok(await run_in_threadpool(work_sessions.start, body["roots"]), 201)
+        except SessionConflict:
+            return _err("Sesja jest już przypięta lub jej stan się zmienił.", 409)
+        except ValueError:
+            return _err("Nieprawidłowe lub niedostępne foldery sesji.", 400)
+        except Exception:
+            return _err("Nie udało się rozpocząć sesji pracy. Sprawdź jej stan.", 500)
+
+    async def work_session_pause(request):
+        body = await _json_body(request)
+        if (body is None or set(body) != {"session_id", "revision"}
+                or not isinstance(body["session_id"], str)
+                or type(body["revision"]) is not int or body["revision"] < 1):
+            return _err("Oczekiwano session_id i dodatniej rewizji całkowitej.", 400)
+        try:
+            return _ok(await run_in_threadpool(work_sessions.pause,
+                                              body["session_id"], body["revision"]))
+        except SessionConflict:
+            return _err("Sesja lub rewizja się zmieniła. Odśwież stan przed kolejną decyzją.", 409)
+        except ValueError:
+            return _err("Nieprawidłowe żądanie pauzy.", 400)
+        except Exception:
+            return _err("Nie udało się zapisać pauzy. Sprawdź stan blokady wykonania.", 500)
 
     async def knowledge_list(request):
         try:
@@ -427,6 +463,12 @@ def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: Pane
             Route("/api/external-mcp", external_add, methods=["POST"]),
             Route("/api/external-mcp/inspections/{token}", external_inspection, methods=["GET"]),
             Route("/api/external-mcp/{profile_id}/{action}", external_action, methods=["POST"]),
+        ])
+    if work_sessions is not None:
+        routes.extend([
+            Route("/api/work-session", work_session_status, methods=["GET"]),
+            Route("/api/work-session/start", work_session_start, methods=["POST"]),
+            Route("/api/work-session/pause", work_session_pause, methods=["POST"]),
         ])
     if static_path.is_dir():
         routes.append(Mount("/static", app=StaticFiles(directory=str(static_path)), name="static"))

@@ -1,5 +1,6 @@
 """M5b registration tested without importing production main.py."""
 import ast
+import queue
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict
@@ -54,7 +55,11 @@ def test_external_get_task_telemetry_never_serializes_payload(monkeypatch):
     monkeypatch.setattr(telemetry, '_json_size_bytes', forbidden)
     monkeypatch.setattr(telemetry, '_summarize_error', forbidden)
     records = []
-    monkeypatch.setattr(telemetry, '_RECORD_QUEUE', SimpleNamespace(put_nowait=records.append))
+    class CaptureQueue(queue.Queue):
+        # Full reader API for the live telemetry worker; no test records in logs.
+        def put_nowait(self, record):
+            records.append(record)
+    monkeypatch.setattr(telemetry, '_RECORD_QUEUE', CaptureQueue())
     task = Task(id=1, created_at='now', kind='external_mcp', sensitive=True, status=TaskStatus.DONE)
     manager = SimpleNamespace(get=lambda task_id: task,
         get_external_result=lambda task_id: {'state': 'available', 'data': {'content': 'PRIVATE'}})

@@ -5,6 +5,7 @@ Bez zależności od FastMCP, tkintera i skills. Wszystko zależne od skilla
 (uruchomienie, weryfikacja hasha, zapis zaufania) przychodzi jako funkcje.
 """
 import copy
+from contextlib import nullcontext
 import logging
 import queue
 import threading
@@ -14,6 +15,7 @@ from typing import Any, Callable, Dict, Optional, Union
 
 from tasks.approval import VALID_DECISIONS, ApprovalService
 from tasks.models import Task, TaskStatus
+from tasks.session_controller import SessionBlocked, SessionController
 from tasks.store import TaskStore, now_iso
 from tasks.volatile_results import VolatileResult, VolatileResultStore
 
@@ -70,9 +72,13 @@ class _Ctx:
 class TaskManager:
     def __init__(self, store: TaskStore, approval: ApprovalService, max_parallel: int = 2,
                  max_queued: int = 50, max_wait_s: float = 8,
-                 volatile_store: Optional[VolatileResultStore] = None):
+                 volatile_store: Optional[VolatileResultStore] = None,
+                 session_controller: Optional[SessionController] = None):
         self._store = store
         self._approval = approval
+        # Lock order: manager condition -> controller -> stores. Controller
+        # never calls manager. No session controller means legacy behavior.
+        self._sessions = session_controller
         self._max_parallel = max(1, int(max_parallel))
         self._max_queued = int(max_queued)
         self._max_wait_s = float(max_wait_s)
@@ -124,7 +130,28 @@ class TaskManager:
             if pending >= self._max_queued:
                 raise QueueFullError(f"Kolejka pełna ({self._max_queued} zadań oczekuje).")
             status = TaskStatus.AWAITING_APPROVAL if needs_approval else TaskStatus.QUEUED
-            task = self._store.create(**dict(fields), status=status)
+            # No executor/context/queue entry exists until association succeeds.
+            # Separate SQLite stores: on partial failure keep a safe terminal
+            # record if possible; never schedule even if cleanup also fails.
+            task = None
+            guard = (self._sessions.task_submission() if self._sessions is not None
+                     else nullcontext(None))
+            try:
+                with guard as associate:
+                    task = self._store.create(**dict(fields), status=status)
+                    if associate is not None:
+                        associate(task.id)
+            except Exception:
+                if task is not None:
+                    try:
+                        self._store.update(task.id, status=TaskStatus.FAILED,
+                                           finished_at=now_iso(),
+                                           error="Nie zapisano przypisania zadania do sesji.")
+                    except Exception:
+                        logger.error("Nie udało się zakończyć nieprzypisanego zadania %s", task.id)
+                if self._sessions is None:
+                    raise
+                raise TaskStateError("Sesja wstrzymana lub przypisanie zadania niedostępne.") from None
             self._ctx[task.id] = _Ctx(executor=executor, verify=verify, on_trust=on_trust,
                                       confidential=confidential, external=external,
                                       authorized=external and not needs_approval,
@@ -352,11 +379,42 @@ class TaskManager:
         with self._cond:
             task = self._store.get(task_id)
             ctx = self._ctx.get(task_id)
-            if task is None or ctx is None or task.status != TaskStatus.QUEUED:
+            if (self._sessions is not None and self._stopped
+                    or task is None or ctx is None or task.status != TaskStatus.QUEUED):
                 return  # np. anulowane w kolejce
-            self._store.update(task_id, status=TaskStatus.RUNNING, started_at=now_iso())
+            token = None
+            if self._sessions is not None:
+                try:
+                    token = self._sessions.begin_task(task_id)
+                except SessionBlocked:
+                    # Preserve status, consent, ctx and queue-limit accounting.
+                    # Consume this queue entry; no retry loop or parked worker.
+                    self._cond.notify_all()
+                    return
+            try:
+                self._store.update(task_id, status=TaskStatus.RUNNING, started_at=now_iso())
+            except Exception:
+                self._release_session_token(token)
+                raise
             self._cond.notify_all()
 
+        try:
+            self._execute_task(task_id, task, ctx)
+        finally:
+            # Also covers verify failure, executor error, timeout/cancel,
+            # confidential publication and return-to-approval transitions.
+            self._release_session_token(token)
+
+    def _release_session_token(self, token) -> None:
+        if token is not None:
+            try:
+                self._sessions.finish_action(token)
+            except Exception:
+                # Do not overwrite a completed task/result or leak exception
+                # details. Controller stays blocked; panel can retry finalization.
+                logger.error("Nie udało się domknąć stanu pauzy sesji.")
+
+    def _execute_task(self, task_id: int, task: Task, ctx: _Ctx) -> None:
         started = time.monotonic()
         try:
             if ctx.confidential:
