@@ -33,6 +33,15 @@ STOP_INSTRUCTION = (
 )
 
 
+SESSION_SELECTION_INSTRUCTION = (
+    'Nie wybrano sesji pracy. Użytkownik musi wybrać Start albo jawnie odzyskać '
+    'zapisaną sesję w panelu sklr. Do tego czasu praca jest zablokowana. '
+    'Nie ponawiaj wywołań roboczych, nie używaj innych narzędzi ani nowej sesji '
+    'do obejścia blokady. Bez wybranej sesji nie zapisuj checkpointu i nie '
+    'deklaruj jego zapisu. Zakończ odpowiedź i czekaj na użytkownika.'
+)
+
+
 CHECKPOINT_STOP_INSTRUCTION = (
     'Użytkownik wstrzymał pracę. Nie ponawiaj wywołań roboczych i nie używaj '
     'innych narzędzi ani nowej sesji do kontynuowania zadania. Zapisz bezpieczny '
@@ -100,7 +109,9 @@ def session_control(controller):
     instruction = ''
     if state['execution_blocked']:
         instruction = STOP_INSTRUCTION
-        if available and state['state'] in ('pause_requested', 'paused'):
+        if code == 'session_not_selected':
+            instruction = SESSION_SELECTION_INSTRUCTION
+        elif available and state['state'] in ('pause_requested', 'paused'):
             instruction = SAVED_STOP_INSTRUCTION if content_available else CHECKPOINT_STOP_INSTRUCTION
         if state.get('resume_pending') is True:
             instruction = RESUME_INSTRUCTION

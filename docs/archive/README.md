@@ -1,6 +1,22 @@
+---
+type: Reference
+title: Archiwum dokumentacji sklr
+description: Nawigacja po historycznych stanach, planach i wynikach projektu.
+tags: [sklr, documentation, archive]
+---
 # Archiwum dokumentacji
 
 Historia nie jest instrukcją bieżącej pracy ani aktywnym backlogiem. Aktualny stan: [CURRENT](../plan/CURRENT.md); zadania: [backlog](../plan/backlog.md); mapa: [docs](../README.md).
+
+## Przegląd stanu 2026-10-21
+
+[Poprzedni CURRENT z wynikami paczek](state-review-2026-10-21/CURRENT.md) i [poprzedni backlog](state-review-2026-10-21/backlog.md) zachowują historię etapów sesji, zewnętrznych MCP i OKF. Opisy odłączonej integracji, dawne priorytety i checkboxy nie wyznaczają bieżącej pracy.
+
+[Raport przeglądu](state-review-2026-10-21/review.md) wyjaśnia rozstrzygnięcia i proponowaną pierwszą paczkę poprawek.
+
+[A2b1 — zakres i odbiór fundamentu budżetu](state-review-2026-10-21/A2b1.md) zachowuje zakończony plan paczki i wynik 149 passed in 0.55s; nie oznacza odbioru działającego autopilota.
+
+[A2b2 — zakres i odbiór reguł](state-review-2026-10-21/A2b2.md) zachowuje zakończony plan walidacji/dopasowania i wynik 298 passed in 0.73s. Moduł pozostaje odłączony od wykonania.
 
 ## Stan sprzed porządków 2026-10-15
 

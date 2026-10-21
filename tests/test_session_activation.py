@@ -81,7 +81,17 @@ def test_control_registration_confidentiality_and_single_wrapper(runtime):
         return {'success': True}
     tool = reg(read_file)
     assert inspect.signature(tool) == inspect.signature(read_file)
-    assert tool('a')['session_control']['code'] == 'session_not_selected'
+    control = tool('a')['session_control']
+    assert control['code'] == 'session_not_selected'
+    assert control['checkpoint_available'] is True
+    assert 'Start' in control['instruction'] and 'panelu' in control['instruction']
+    assert 'Bez wybranej sesji nie zapisuj checkpointu' in control['instruction']
+    assert 'nie jest jeszcze dostępne' not in control['instruction']
+    checkpoint = confidential['save_session_checkpoint'](
+        {'goal': 'Safe', 'next_step': 'Wait'}, 1)
+    assert checkpoint['success'] is False and checkpoint['error'] == 'checkpoint_conflict'
+    assert checkpoint['session_control']['code'] == 'session_not_selected'
+    assert checkpoint['session_control']['checkpoint_content_available'] is False
     assert calls == []
     assert regular['get_session_state']()['success']
     active = runtime.admin.start(['sklr'])
