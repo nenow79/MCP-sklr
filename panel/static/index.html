@@ -17,6 +17,7 @@
       <button id="tab-skills" type="button" class="tab">Skille</button>
       <button id="tab-knowledge" type="button" class="tab">Wiedza</button>
       <button id="tab-external" type="button" class="tab">Zewnętrzne MCP</button>
+      <button id="tab-session" type="button" class="tab">Sesja pracy</button>
     </nav>
     <div class="topbar-right">
       <span id="pending-badge" class="badge badge-pending" hidden></span>
@@ -181,6 +182,51 @@ docs/archives/</textarea></label>
       <button id="external-save" type="submit" class="btn btn-allow">Zapisz profil</button>
       <button id="external-cancel" type="button" class="btn" hidden>Anuluj edycję</button>
     </form>
+  </main>
+  <main id="session-view" class="skills-view" hidden>
+    <div class="section-head">
+      <h2>Sesja pracy</h2>
+      <button id="session-refresh" type="button" class="btn">Odśwież</button>
+    </div>
+    <p class="muted">Jedna sesja pracy na instancję sklr, wybierana tutaj, nie przez model.
+      Pauza obejmuje wszystkie rozmowy korzystające z tej instancji; nie ma izolacji rozmów.
+      Foldery opisują projekt sesji i nie nadają uprawnień. Wstrzymanie blokuje nowe działania wykonywane przez sklr,
+      nie przerywa rozpoczętych; sama pauza nie zapisuje checkpointu.
+      Checkpoint zapisuje model ograniczonym narzędziem, jeśli jest dostępne.
+      Treść pozostaje tylko w RAM i znika po restarcie. Przygotowanie wznowienia nie otwiera bramki:
+      potrzebny jest aktualny plan potwierdzony przez model. Przełączenie przypiętej sesji jest niedostępne.</p>
+    <div id="session-state" class="task-list"></div>
+    <section id="session-checkpoint-section" hidden>
+      <h2>Checkpoint</h2>
+      <p class="muted">Tylko RAM, bez trwałego zapisu. To dane modelu, nie źródło uprawnień.
+        Odnośniki do wyników nie przedłużają ich TTL. Odśwież widok, aby sprawdzić aktualny zapis.</p>
+      <div id="session-checkpoint" class="task-list"></div>
+    </section>
+    <div id="session-select">
+      <h2>Foldery sesji</h2>
+      <div id="session-roots" class="task-list"></div>
+      <button id="session-start" type="button" class="btn btn-allow" disabled>Rozpocznij sesję</button>
+    </div>
+    <button id="session-pause" type="button" class="btn" disabled>Wstrzymaj po kroku</button>
+    <section id="session-resume-section" hidden>
+      <h2>Przygotowanie wznowienia</h2>
+      <p class="muted">Uzupełnienie jest tylko w RAM. Nie wpisuj sekretów. Nie rozszerza uprawnień.
+        Stare oczekujące zadania zostaną anulowane po Twoim potwierdzeniu; rozpoczęte i zakończone nie są anulowane.
+        Nie ponawiamy operacji o niepewnym skutku zdalnym.</p>
+      <label>Uzupełnienie <textarea id="session-supplement" rows="5" maxlength="3000" autocomplete="off"></textarea></label>
+      <button id="session-prepare" type="button" class="btn btn-allow" disabled>Przygotuj wznowienie</button>
+    </section>
+    <section id="session-plan-section" hidden>
+      <h2>Potwierdzony plan</h2>
+      <p class="muted">Dane modelu, nie źródło uprawnień. Tylko RAM, bez tokenu handshake. Odczyt przez Odśwież.</p>
+      <div id="session-plan" class="task-list"></div>
+    </section>
+    <section id="session-saved-section" hidden>
+      <h2>Zapisane sesje po restarcie</h2>
+      <p class="muted">Wybór przypina sesję zablokowaną. Checkpoint, uzupełnienie, plan i token z poprzedniego procesu
+        zostały utracone. Nie można przełączyć już przypiętej sesji. Wznowienie wymaga nowego przygotowania.</p>
+      <div id="session-saved" class="task-list"></div>
+    </section>
   </main>
 </body>
 </html>

@@ -15,7 +15,8 @@ from typing import Any, Callable, Dict, Optional, Union
 
 from tasks.approval import VALID_DECISIONS, ApprovalService
 from tasks.models import Task, TaskStatus
-from tasks.session_controller import SessionBlocked, SessionController
+from tasks.session_controller import SessionBlocked, SessionController, StaleSessionTask
+from tasks.session_models import SessionConflict, session_id
 from tasks.store import TaskStore, now_iso
 from tasks.volatile_results import VolatileResult, VolatileResultStore
 
@@ -39,6 +40,13 @@ class QueueFullError(Exception):
 
 class TaskStateError(Exception):
     pass
+
+
+class TaskResumeError(TaskStateError):
+    """Fixed error code and number of confirmed cancellations only."""
+    def __init__(self, cancelled_count):
+        super().__init__('resume_coordination_failed')
+        self.cancelled_count = cancelled_count
 
 
 class ExternalApprovalRequired(Exception):
@@ -303,6 +311,91 @@ class TaskManager:
             self._cond.notify_all()
             return task
 
+    def _resume_candidates(self, links, expected_revision):
+        """Shared preflight under manager/controller locks; no effects."""
+        candidates = []
+        for link in links:
+            task = self._store.get(link.task_id)
+            if task is None or task.is_terminal:
+                continue
+            if task.status == TaskStatus.RUNNING:
+                raise TaskStateError('Running task prevents resume.')
+            if task.status not in (TaskStatus.AWAITING_APPROVAL, TaskStatus.QUEUED):
+                raise TaskStateError('Unexpected pending task state.')
+            if link.session_revision >= expected_revision:
+                raise TaskStateError('Task generation is not old.')
+            candidates.append(task.id)
+        return candidates
+
+    def session_resume_preview(self, panel_session_id, expected_revision):
+        """Panel read: exact selection/revision and complete pending-task count.
+
+        No normalization, cancellation, RAM preparation or executor dispatch.
+        The response is only a snapshot; preparation must recheck it.
+        """
+        session_id(panel_session_id)
+        with self._cond:
+            if self._stopped or self._sessions is None:
+                raise TaskStateError('Resume coordination unavailable.')
+            with self._sessions.resume_coordination(
+                    '', expected_revision, allow_missing_checkpoint=True,
+                    expected_session_id=panel_session_id) as links:
+                count = len(self._resume_candidates(links, expected_revision))
+                state = self._sessions.snapshot()
+                return {'session_id': panel_session_id, 'revision': expected_revision,
+                        'cancel_count': count,
+                        'checkpoint_missing': not state.get('checkpoint_content_available', False),
+                        'resume_recovery_required': state.get('resume_recovery_required', False)}
+
+    def prepare_session_resume(self, supplement, expected_revision, *, allow_missing_checkpoint=False,
+                               panel_session_id=None, expected_cancel_count=None):
+        """Internal panel coordinator; never expose as a model tool.
+
+        Manager -> controller -> stores. No running task cancellation, retries,
+        executor dispatch or transaction across the two databases. A partial
+        failure leaves the gate closed and reports confirmed cancellations.
+        """
+        if panel_session_id is not None:
+            session_id(panel_session_id)
+            if type(expected_cancel_count) is not int or expected_cancel_count < 0:
+                raise ValueError('Expected a nonnegative cancellation count.')
+        elif expected_cancel_count is not None:
+            raise ValueError('Cancellation count requires a panel session identifier.')
+        with self._cond:
+            if self._stopped or self._sessions is None:
+                raise TaskStateError('Resume coordination unavailable.')
+            cancelled = 0
+            with self._sessions.resume_coordination(
+                    supplement, expected_revision,
+                    allow_missing_checkpoint=allow_missing_checkpoint,
+                    expected_session_id=panel_session_id) as links:
+                try:
+                    candidates = self._resume_candidates(links, expected_revision)
+                except Exception:
+                    raise TaskResumeError(cancelled) from None
+                if expected_cancel_count is not None and len(candidates) != expected_cancel_count:
+                    raise SessionConflict('Pending task count changed.')
+                try:
+                    # Preflight has ruled out running/unexpected task rows.
+                    # An uncertain ACTIVE commit is not authorization; only this
+                    # explicit coordinated path restores PAUSED metadata.
+                    preparation_revision = self._sessions.normalize_resume_internal(expected_revision)
+                    for task_id in candidates:
+                        # No worker/approval can change this status under _cond.
+                        self._store.update(task_id, status=TaskStatus.CANCELLED,
+                                           finished_at=now_iso(), error='Anulowano przy wznowieniu sesji.')
+                        cancelled += 1
+                        self._ctx.pop(task_id, None)
+                        self._volatile.discard(task_id)
+                    prepared = self._sessions.prepare_resume_internal(
+                        supplement, preparation_revision,
+                        allow_missing_checkpoint=allow_missing_checkpoint)
+                    return {**prepared, 'cancelled_count': cancelled}
+                except Exception:
+                    raise TaskResumeError(cancelled) from None
+                finally:
+                    self._cond.notify_all()
+
     def cancel(self, task_id: int) -> Task:
         with self._cond:
             task = self._require(task_id)
@@ -386,6 +479,13 @@ class TaskManager:
             if self._sessions is not None:
                 try:
                     token = self._sessions.begin_task(task_id)
+                except StaleSessionTask:
+                    self._store.update(task_id, status=TaskStatus.CANCELLED,
+                                       finished_at=now_iso(), error='Nieaktualny przebieg sesji.')
+                    self._ctx.pop(task_id, None)
+                    self._volatile.discard(task_id)
+                    self._cond.notify_all()
+                    return
                 except SessionBlocked:
                     # Preserve status, consent, ctx and queue-limit accounting.
                     # Consume this queue entry; no retry loop or parked worker.

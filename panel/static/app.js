@@ -519,7 +519,12 @@
 
   function showTab(name) {
     state.tab = name;
-    ["tasks", "roots", "skills", "knowledge", "external"].forEach(function (tab) {
+    if (name !== "session" && $("session-checkpoint")) {
+      clearSessionCheckpoint();
+      clearSessionResume();
+      $("session-supplement").value = "";
+    }
+    ["tasks", "roots", "skills", "knowledge", "external", "session"].forEach(function (tab) {
       if ($(tab + "-view")) { $(tab + "-view").hidden = tab !== name; }
       if ($("tab-" + tab)) { $("tab-" + tab).className = tab === name ? "tab active" : "tab"; }
     });
@@ -527,6 +532,7 @@
     if (name === "skills") { refreshSkills(); }
     if (name === "knowledge") { refreshKnowledge(); }
     if (name === "external") { refreshExternal(); }
+    if (name === "session") { refreshSession(); }
   }
 
   function rootsResult(res, okMessage) {
@@ -1493,9 +1499,365 @@
     externalTransportChanged();
   }
 
+  // --- sesja pracy: jedna na instancję sklr; RAM i ręczne wznowienie ---
+
+  var sessionData = null;
+  var sessionSelected = {};
+  var sessionBusy = false;
+  var sessionCheckpointGeneration = 0;
+  var sessionGeneration = 0;
+
+  function clearSessionResume() {
+    sessionGeneration += 1;
+    $("session-plan").textContent = "";
+    $("session-plan-section").hidden = true;
+    $("session-saved").textContent = "";
+    $("session-saved-section").hidden = true;
+    $("session-resume-section").hidden = true;
+  }
+
+  function sessionCurrent(generation) {
+    return generation === sessionGeneration && state.tab === "session" && !state.stopped;
+  }
+
+  function sessionCanPrepare() {
+    return sessionData && sessionData.session_id && sessionData.resume_available &&
+      sessionData.execution_blocked && !sessionData.resume_pending && sessionData.running_actions === 0 &&
+      (sessionData.state === "paused" || sessionData.resume_recovery_required);
+  }
+
+  function refreshSessionResume(generation) {
+    var data = sessionData;
+    if (!data || !sessionCurrent(generation)) { return Promise.resolve(); }
+    if (!data.session_id) {
+      return api("GET", "/api/work-session/saved").then(function (res) {
+        if (!sessionCurrent(generation) || !sessionData || sessionData.session_id) { return; }
+        if (res.status === 401) { clearSessionResume(); authFailed(); return; }
+        var box = $("session-saved");
+        box.textContent = "";
+        $("session-saved-section").hidden = false;
+        if (res.status !== 200 || !res.json.success || !res.json.data) {
+          box.textContent = "Nie można odczytać zapisanych sesji. Odśwież stan."; return;
+        }
+        var saved = res.json.data;
+        (saved.sessions || []).forEach(function (item) {
+          var button = el("button", { type: "button", className: "btn", text: "Wybierz zapisaną sesję" });
+          button.disabled = sessionBusy || !item.recoverable;
+          button.addEventListener("click", function () {
+            if (!sessionCurrent(generation) || sessionBusy || !item.recoverable || sessionData.session_id) { return; }
+            sessionPost("/api/work-session/recover", {
+              session_id: item.session_id, revision: item.revision, confirmed: true
+            }, "Przypiąć zapisaną sesję " + visibleText(item.session_id) + " jako zablokowaną? " +
+              "RAM został utracony. Nie będzie można przełączyć sesji; potrzebne jest nowe przygotowanie wznowienia.");
+          });
+          box.appendChild(sessionLine("Sesja", item.session_id));
+          box.appendChild(sessionLine("Foldery", (item.roots || []).join(", ")));
+          box.appendChild(sessionLine("Rewizja", item.revision));
+          box.appendChild(sessionLine("Stan / powód", (item.state || "") + " / " + (item.reason || "")));
+          box.appendChild(button);
+        });
+        if (!(saved.sessions || []).length) { box.textContent = "Brak zapisanych sesji."; }
+        if (saved.truncated) { box.appendChild(sessionLine("Lista", "Skrócona do 200 sesji.")); }
+      });
+    }
+    if (data.state !== "active" || data.execution_blocked || !data.resume_available) { return Promise.resolve(); }
+    var sid = data.session_id;
+    var revision = data.revision;
+    return api("GET", "/api/work-session/resume-plan").then(function (res) {
+      if (!sessionCurrent(generation) || !sessionData || sessionData.session_id !== sid || sessionData.revision !== revision) { return; }
+      if (res.status === 401) { clearSessionResume(); authFailed(); return; }
+      var box = $("session-plan");
+      box.textContent = "";
+      if (res.status !== 200 || !res.json.success) {
+        $("session-plan-section").hidden = false;
+        box.textContent = "Nie można odczytać planu. Odśwież stan."; return;
+      }
+      var plan = res.json.data;
+      if (!plan || !plan.available) { return; }
+      $("session-plan-section").hidden = false;
+      if (plan.session_id !== sid || plan.revision !== revision) {
+        box.textContent = "Plan dotyczy innego stanu. Odśwież sesję."; return;
+      }
+      box.appendChild(sessionLine("Plan", plan.plan));
+    });
+  }
+
+  function prepareSessionResume() {
+    if (sessionBusy || !sessionCanPrepare()) { return Promise.resolve(); }
+    var data = sessionData;
+    var generation = sessionGeneration;
+    var supplement = $("session-supplement").value;
+    if (supplement.length > 3000) { showBanner("Uzupełnienie przekracza 3000 znaków.", false); return Promise.resolve(); }
+    sessionBusy = true;
+    sessionButtons();
+    return api("GET", "/api/work-session/resume-preview?session_id=" + encodeURIComponent(data.session_id) +
+      "&revision=" + encodeURIComponent(data.revision)).then(function (res) {
+      if (!sessionCurrent(generation)) { return; }
+      if (res.status === 401) { authFailed(); return; }
+      if (res.status !== 200 || !res.json.success) {
+        showBanner("Nie można przygotować wznowienia. Odśwież stan przed nową decyzją.", false);
+        return refreshSession();
+      }
+      var view = res.json.data;
+      if (!view || view.session_id !== data.session_id || view.revision !== data.revision ||
+          !Number.isInteger(view.cancel_count) || view.cancel_count < 0) {
+        showBanner("Podgląd dotyczy innego stanu. Odśwież sesję.", false); return;
+      }
+      var missing = view.checkpoint_missing === true;
+      if (missing && !window.confirm("Brak potwierdzonego checkpointu w RAM. Przygotować wznowienie bez checkpointu? " +
+          "Model musi uwzględnić utratę kontekstu.")) { return; }
+      if (!window.confirm("Przygotować wznowienie? Anulujemy " + view.cancel_count +
+          " starych zadań oczekujących/queued. Rozpoczęte i zakończone pozostają bez zmian. " +
+          "Sesja pozostanie zablokowana do potwierdzenia aktualnego planu przez model.")) { return; }
+      return api("POST", "/api/work-session/prepare-resume", {
+        session_id: view.session_id, revision: view.revision, supplement: supplement,
+        cancel_count: view.cancel_count, allow_missing_checkpoint: missing, confirmed: true
+      }).then(function (posted) {
+        if (!sessionCurrent(generation)) { return; }
+        if (posted.status === 401) { authFailed(); return; }
+        if (posted.status === 200 && posted.json.success) {
+          $("session-supplement").value = "";
+          hideBanner();
+        } else {
+          showBanner(visibleText((posted.json && posted.json.error) || "Przygotowanie nie powiodło się. Odśwież stan."), false);
+        }
+        return refreshSession();
+      });
+    }).catch(function () {
+      if (sessionCurrent(generation)) { showBanner("Niepewny wynik przygotowania. Odśwież stan; nie ponawiaj automatycznie.", false); }
+    }).then(function () { sessionBusy = false; sessionButtons(); });
+  }
+
+  function clearSessionCheckpoint() {
+    sessionCheckpointGeneration += 1;
+    $("session-checkpoint").textContent = "";
+    $("session-checkpoint-section").hidden = true;
+  }
+
+  function refreshSessionCheckpoint() {
+    clearSessionCheckpoint();
+    var data = sessionData;
+    if (!data || !data.checkpoint_content_available || state.tab !== "session" || state.stopped) {
+      return Promise.resolve();
+    }
+    var generation = sessionCheckpointGeneration;
+    var sid = data.session_id;
+    var revision = data.revision;
+    $("session-checkpoint-section").hidden = false;
+    $("session-checkpoint").textContent = "Odczyt checkpointu…";
+    return api("GET", "/api/work-session/checkpoint").then(function (res) {
+      if (generation !== sessionCheckpointGeneration || state.tab !== "session") { return; }
+      if (res.status === 401) { clearSessionCheckpoint(); authFailed(); return; }
+      if (!sessionData || sessionData.session_id !== sid || sessionData.revision !== revision || state.stopped) {
+        clearSessionCheckpoint(); return;
+      }
+      var box = $("session-checkpoint");
+      box.textContent = "";
+      if (res.status !== 200 || !res.json.success) {
+        box.textContent = "Nie można odczytać checkpointu. Odśwież stan."; return;
+      }
+      var record = res.json.data;
+      if (!record || !record.available || record.session_revision !== revision) {
+        box.textContent = "Treść niedostępna lub stan się zmienił. Odśwież stan."; return;
+      }
+      var checkpoint = record.checkpoint;
+      box.appendChild(sessionLine("Rewizja zapisu", record.revision));
+      box.appendChild(sessionLine("Czas zapisu", record.saved_at));
+      box.appendChild(sessionLine("Cel", checkpoint.goal));
+      box.appendChild(sessionLine("Etap", checkpoint.stage));
+      (checkpoint.findings || []).forEach(function (finding) {
+        box.appendChild(sessionLine("Ustalenie", finding.text));
+        box.appendChild(sessionLine("Źródło", finding.source));
+      });
+      box.appendChild(sessionLine("Zadania", (checkpoint.done_task_ids || []).join(", ")));
+      (checkpoint.open_questions || []).forEach(function (question) {
+        box.appendChild(sessionLine("Pytanie", question));
+      });
+      (checkpoint.uncertain || []).forEach(function (uncertain) {
+        box.appendChild(sessionLine("Niepewny wynik", uncertain));
+      });
+      box.appendChild(sessionLine("Następny krok", checkpoint.next_step));
+    }).catch(function () {
+      if (generation === sessionCheckpointGeneration && state.tab === "session") {
+        $("session-checkpoint").textContent = "Nie można odczytać checkpointu. Odśwież stan.";
+      }
+    });
+  }
+
+  function sessionChosen() {
+    return Object.keys(sessionSelected).filter(function (alias) { return sessionSelected[alias] === true; });
+  }
+
+  function sessionButtons() {
+    $("session-start").disabled = sessionBusy || !sessionData || !!sessionData.session_id ||
+      sessionChosen().length === 0;
+    $("session-pause").disabled = sessionBusy || !sessionData || sessionData.state !== "active";
+    $("session-prepare").disabled = sessionBusy || !sessionCanPrepare();
+    $("session-supplement").disabled = sessionBusy || !sessionCanPrepare();
+    $("session-refresh").disabled = sessionBusy;
+  }
+
+  function sessionLine(label, value) {
+    return el("p", { text: label + ": " + visibleText(value) });
+  }
+
+  function renderSession() {
+    clearSessionCheckpoint();
+    var box = $("session-state");
+    var data = sessionData;
+    box.textContent = "";
+    if (!data) {
+      box.appendChild(el("p", { className: "muted", text: "Sesje pracy są wyłączone w tej wersji serwera." }));
+    } else if (!data.session_id) {
+      box.appendChild(el("p", { className: "muted", text: "Brak przypiętej sesji. Wybierz foldery i rozpocznij sesję." }));
+    } else {
+      box.appendChild(sessionLine("Stan", data.state));
+      box.appendChild(sessionLine("Wykonanie zablokowane", data.execution_blocked ? "tak" : "nie"));
+      box.appendChild(sessionLine("Rozpoczęte działania", data.running_actions));
+      box.appendChild(sessionLine("Rewizja", data.revision));
+      box.appendChild(sessionLine("Foldery", (data.roots || []).join(", ")));
+      if (data.reason) { box.appendChild(sessionLine("Powód", data.reason)); }
+      var checkpointInfo = " — funkcja zapisu niedostępna; zapis nie jest deklarowany";
+      if (data.checkpoint_available) {
+        checkpointInfo = data.checkpoint_content_available ?
+          " — treść dostępna tylko w RAM" : " — brak potwierdzonej treści w RAM";
+      }
+      box.appendChild(sessionLine("Checkpoint", (data.checkpoint_state || "brak") + checkpointInfo));
+      if (data.ram_lost) { box.appendChild(sessionLine("Restart", "RAM poprzedniego procesu został utracony.")); }
+      if (data.resume_pending) {
+        box.appendChild(sessionLine("Wznowienie", "Oczekiwanie na model. Przekaż modelowi polecenie pobrania get_resume_context " +
+          "i potwierdzenia aktualnego planu. sklr nie budzi modelu. Stan sprawdzisz ręcznie przez Odśwież."));
+      } else if (data.resume_recovery_required) {
+        box.appendChild(sessionLine("Wznowienie", "Niepewne potwierdzenie; bramka zamknięta. Wymagane nowe jawne przygotowanie."));
+      }
+      box.appendChild(el("p", { className: "muted", text: (data.resume_available ?
+        "Wznowienie wymaga jawnego przygotowania i planu modelu. Przełączenie sesji jest niedostępne. " :
+        "Wznowienie i przełączenie sesji są niedostępne w tej wersji. ") +
+        "Pauza obejmuje wszystkie rozmowy tej instancji sklr." }));
+    }
+    $("session-select").hidden = !data || !!data.session_id;
+    $("session-resume-section").hidden = !sessionCanPrepare();
+    sessionButtons();
+  }
+
+  function renderSessionRoots(aliases) {
+    var list = $("session-roots");
+    var keep = {};
+    list.textContent = "";
+    aliases.forEach(function (alias) {
+      var box = el("input", { type: "checkbox" });
+      box.value = alias;
+      box.checked = sessionSelected[alias] === true;
+      keep[alias] = box.checked;
+      box.addEventListener("change", function () {
+        sessionSelected[alias] = box.checked;
+        sessionButtons();
+      });
+      list.appendChild(el("label", { className: "check" }, [box, el("span", { text: " " + visibleText(alias) })]));
+    });
+    sessionSelected = keep;
+    if (!aliases.length) {
+      list.appendChild(el("p", { className: "muted", text: "Brak dostępnych folderów. Dodaj je w zakładce Foldery." }));
+    }
+  }
+
+  function refreshSession() {
+    clearSessionCheckpoint();
+    clearSessionResume();
+    var generation = sessionGeneration;
+    return api("GET", "/api/work-session").then(function (res) {
+      if (!sessionCurrent(generation)) { return null; }
+      if (res.status === 401) { authFailed(); return null; }
+      if (res.status === 404) { sessionData = null; renderSession(); return null; }
+      if (res.status !== 200 || !res.json.success) {
+        sessionData = null; renderSession();
+        showBanner("Błąd pobierania stanu sesji (HTTP " + res.status + ").", false);
+        return null;
+      }
+      var previous = sessionData;
+      sessionData = res.json.data;
+      if (!previous || previous.session_id !== sessionData.session_id || previous.revision !== sessionData.revision) {
+        $("session-supplement").value = "";
+      }
+      if (sessionData.session_id) {
+        renderSession();
+        return Promise.all([refreshSessionCheckpoint(), refreshSessionResume(generation)]);
+      }
+      return api("GET", "/api/roots").then(function (rootsRes) {
+        if (!sessionCurrent(generation)) { return; }
+        if (rootsRes.status === 401) { authFailed(); return; }
+        var aliases = [];
+        if (rootsRes.status === 200 && rootsRes.json.success) {
+          aliases = rootsRes.json.data.roots.filter(function (root) { return root.valid === true; })
+            .map(function (root) { return root.alias; });
+        }
+        renderSessionRoots(aliases);
+        renderSession();
+        return refreshSessionResume(generation);
+      });
+    }).catch(function () {
+      if (sessionCurrent(generation)) {
+        sessionData = null; renderSession();
+        showBanner("Brak połączenia z serwerem panelu.", false);
+      }
+    });
+  }
+
+  function sessionPost(path, body, question) {
+    if (sessionBusy) { return Promise.resolve(false); }
+    if (!window.confirm(question)) { return Promise.resolve(false); }
+    sessionBusy = true;
+    var generation = sessionGeneration;
+    sessionButtons();
+    return api("POST", path, body).then(function (res) {
+      if (!sessionCurrent(generation)) { return null; }
+      if (res.status === 401) { authFailed(); return null; }
+      if ((res.status === 200 || res.status === 201) && res.json.success) {
+        sessionData = res.json.data;
+        hideBanner();
+        renderSession();
+        return null;
+      }
+      if (res.status === 409) {
+        showBanner("Stan sesji się zmienił. Sprawdź odświeżony stan przed kolejną decyzją.", false);
+      } else {
+        showBanner(visibleText((res.json && res.json.error) || ("Błąd HTTP " + res.status)), false);
+      }
+      return refreshSession();
+    }).catch(function () {
+      showBanner("Brak połączenia z serwerem panelu. Odśwież stan sesji.", false);
+    }).then(function () {
+      sessionBusy = false;
+      sessionButtons();
+    });
+  }
+
+  function initSession() {
+    if (!$("tab-session")) { return; }
+    $("tab-session").addEventListener("click", function () { showTab("session"); });
+    $("session-refresh").addEventListener("click", function () { if (!sessionBusy) { refreshSession(); } });
+    $("session-prepare").addEventListener("click", prepareSessionResume);
+    $("session-start").addEventListener("click", function () {
+      var chosen = sessionChosen();
+      if (!chosen.length || !sessionData || sessionData.session_id) { return; }
+      sessionPost("/api/work-session/start", { roots: chosen },
+        "Rozpocząć sesję pracy dla folderów: " + chosen.join(", ") + "? Pauza obejmie wszystkie rozmowy " +
+        "całej instancji sklr. Checkpoint jest tylko w RAM. Wznowienie wymaga przygotowania i planu modelu; przełączenie jest niedostępne.");
+    });
+    $("session-pause").addEventListener("click", function () {
+      if (!sessionData || sessionData.state !== "active") { return; }
+      sessionPost("/api/work-session/pause", { session_id: sessionData.session_id, revision: sessionData.revision },
+        "Wstrzymać sesję? Nowe działania sklr zostaną zablokowane we wszystkich rozmowach tej instancji. " +
+        "Rozpoczęte działania dokończą się w swoich limitach. Checkpoint jest tylko w RAM. " +
+        "Dalsza praca pozostanie zablokowana do przygotowania wznowienia i potwierdzenia aktualnego planu modelu.");
+    });
+    sessionButtons();
+  }
+
   function init() {
     initSkillFilters();
     initExternal();
+    initSession();
     $("notify-btn").addEventListener("click", enableNotifications);
     $("status-filter").addEventListener("change", function () { refresh(); });
     $("tab-tasks").addEventListener("click", function () { showTab("tasks"); });

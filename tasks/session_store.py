@@ -94,6 +94,17 @@ class SessionStore:
                 'SELECT * FROM work_sessions WHERE id=?', (sid,)).fetchone()
             return _session(row) if row else None
 
+    def list_saved_sessions(self, limit=200):
+        """Bounded panel metadata listing; explicit truncation, never free text."""
+        positive_int(limit)
+        if limit > 200:
+            raise ValueError('Session list limit exceeded.')
+        with self._lock:
+            rows = self._conn.execute(
+                'SELECT * FROM work_sessions ORDER BY updated_at DESC, id LIMIT ?',
+                (limit + 1,)).fetchall()
+            return [_session(row) for row in rows[:limit]], len(rows) > limit
+
     def _require(self, sid, revision):
         positive_int(revision)
         item = self.get(sid)
@@ -133,6 +144,58 @@ class SessionStore:
                 (state.value, checkpoint.value, 'user_requested_pause', now_iso(), sid))
             return self.get(sid)
 
+    def mark_checkpoint_saved(self, sid, expected_revision):
+        """Metadata only; no checkpoint content enters SQLite.
+
+        Caller owns RAM publication and must report missing content separately.
+        Every accepted save advances the session revision, even a replacement.
+        """
+        with self._lock, self._conn:
+            self._conn.execute('BEGIN IMMEDIATE')
+            item = self._require(sid, expected_revision)
+            if item.state not in (SessionState.PAUSE_REQUESTED, SessionState.PAUSED):
+                raise SessionConflict('Checkpoint requires a paused session.')
+            self._conn.execute(
+                'UPDATE work_sessions SET checkpoint_state=?, revision=revision+1, '
+                'updated_at=? WHERE id=?',
+                (CheckpointState.SAVED.value, now_iso(), sid))
+            return self.get(sid)
+
+    def prepare_resume(self, sid, expected_revision):
+        """Internal metadata transition; preparation remains durably PAUSED.
+
+        Caller must keep admission closed and first enforce panel decision,
+        zero running actions and old-task cancellation. No token or free text
+        enters SQLite. RAM handshake is owned by the controller, not this API.
+        """
+        with self._lock, self._conn:
+            self._conn.execute('BEGIN IMMEDIATE')
+            item = self._require(sid, expected_revision)
+            if item.state != SessionState.PAUSED:
+                raise SessionConflict('Resume preparation requires a paused session.')
+            self._conn.execute(
+                'UPDATE work_sessions SET revision=revision+1, updated_at=? WHERE id=?',
+                (now_iso(), sid))
+            return self.get(sid)
+
+    def confirm_resume(self, sid, expected_revision):
+        """Internal metadata commit AFTER the controller validates RAM handshake.
+
+        This method alone does not authorize dispatch. The controller must
+        publish a matching confirmed RAM generation before opening admission;
+        uncertain commits remain blocked. Restart recovery always pauses it.
+        """
+        with self._lock, self._conn:
+            self._conn.execute('BEGIN IMMEDIATE')
+            item = self._require(sid, expected_revision)
+            if item.state != SessionState.PAUSED:
+                raise SessionConflict('Resume confirmation requires a paused session.')
+            self._conn.execute(
+                'UPDATE work_sessions SET state=?, revision=revision+1, reason=?, '
+                'updated_at=? WHERE id=?',
+                (SessionState.ACTIVE.value, '', now_iso(), sid))
+            return self.get(sid)
+
     def link_task(self, sid, task_id, expected_revision):
         """Immutable association, not permission to submit/run an actual task.
 
@@ -164,6 +227,20 @@ class SessionStore:
             if row is None:
                 return None
             return SessionTaskLink(row['session_id'], row['task_id'], row['session_revision'])
+
+    def list_task_links(self, sid):
+        """All links of exactly one session, ordered by task id; metadata only.
+
+        No recent-task limit: resume coordination must not overlook old pending
+        tasks. Missing task rows after retention are resolved by TaskManager.
+        """
+        session_id(sid)
+        with self._lock:
+            rows = self._conn.execute(
+                'SELECT session_id, task_id, session_revision FROM session_task_links '
+                'WHERE session_id=? ORDER BY task_id', (sid,)).fetchall()
+            return [SessionTaskLink(row['session_id'], row['task_id'], row['session_revision'])
+                    for row in rows]
 
     def recover_after_restart(self):
         """Bootstrap only: invalidate stale generations, never resume execution.

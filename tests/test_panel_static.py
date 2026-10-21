@@ -131,6 +131,29 @@ def test_js_has_no_external_urls():
     assert not re.search(r"https?://(?!127\.0\.0\.1:8102)", js.replace("http://127.0.0.1:8102/#token", ""))
 
 
+def test_session_tab_static():
+    html = read("index.html")
+    js = read("app.js")
+    for element_id in ("tab-session", "session-view", "session-state", "session-select", "session-roots",
+                       "session-start", "session-pause", "session-refresh"):
+        assert f'id="{element_id}"' in html, element_id
+    assert "wszystkie rozmowy" in html and "Przygotowanie wznowienia nie otwiera bramki" in html
+    assert "Przełączenie przypiętej sesji jest niedostępne" in html
+    assert "tylko w RAM" in html and "/api/work-session/checkpoint" in js
+    for element_id in ("session-checkpoint", "session-checkpoint-section"):
+        assert f'id="{element_id}"' in html
+    assert "/api/work-session/start" in js and "/api/work-session/pause" in js
+    assert "work-session/switch" not in js
+    for suffix in ("resume-preview", "prepare-resume", "resume-plan", "saved", "recover"):
+        assert "/api/work-session/" + suffix in js
+    for element_id in ("session-resume-section", "session-supplement", "session-prepare",
+                       "session-plan-section", "session-plan", "session-saved-section", "session-saved"):
+        assert f'id="{element_id}"' in html
+    assert 'maxlength="3000" autocomplete="off"' in html
+    session_code = js.split("  // --- sesja pracy:", 1)[1].split("  function init()", 1)[0]
+    assert not re.search(r"setTimeout|setInterval|localStorage|innerHTML", session_code)
+
+
 def test_css_has_no_external_imports():
     css = read("style.css")
     assert "@import" not in css

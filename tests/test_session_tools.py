@@ -38,7 +38,8 @@ def test_all_production_registered_tools_explicitly_classified():
     }
     assert not CONTROL_TOOLS & WORK_TOOLS
     assert registered <= CONTROL_TOOLS | WORK_TOOLS
-    assert CONTROL_TOOLS - registered == {'get_session_state'}
+    assert CONTROL_TOOLS - registered == {
+        'get_session_state', 'save_session_checkpoint', 'get_resume_context', 'confirm_resume_plan'}
     with pytest.raises(ValueError):
         tool_role('new_unclassified_tool')
 

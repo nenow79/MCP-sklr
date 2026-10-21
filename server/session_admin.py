@@ -1,13 +1,14 @@
 """Panel-only work-session adapter. Not registered as a model tool.
 
 Caller must use authenticated panel endpoints (Host/Origin/session checks).
-The adapter never resumes/switches sessions or changes root permissions.
+Resume preparation uses only the shared TaskManager; no session switching
+or root permission changes are allowed.
 Roots describe project membership, not a new argument-level authorization scope.
 No production wiring in this stage.
 """
 import threading
 
-from tasks.session_models import SessionConflict, root_aliases
+from tasks.session_models import SessionConflict, SessionState, root_aliases, session_id
 
 
 class SessionAdmin:
@@ -16,6 +17,68 @@ class SessionAdmin:
         self._controller = controller
         self._roots = roots
         self._lock = threading.RLock()
+        self._manager = None
+
+    def attach_manager(self, manager):
+        """Composition only: reject a different controller or manager."""
+        with self._lock:
+            if (getattr(manager, '_sessions', None) is not self._controller
+                    or (self._manager is not None and self._manager is not manager)):
+                raise ValueError('Work-session manager mismatch.')
+            self._manager = manager
+
+    def resume_preview(self, sid, revision):
+        with self._lock:
+            if self._manager is None:
+                raise ValueError('Resume coordinator unavailable.')
+            return self._manager.session_resume_preview(sid, revision)
+
+    def prepare_resume(self, sid, revision, supplement, cancel_count,
+                       allow_missing_checkpoint, confirmed):
+        with self._lock:
+            if confirmed is not True:
+                raise ValueError('Explicit panel confirmation required.')
+            if self._manager is None:
+                raise ValueError('Resume coordinator unavailable.')
+            return self._manager.prepare_session_resume(
+                supplement, revision, panel_session_id=sid,
+                expected_cancel_count=cancel_count,
+                allow_missing_checkpoint=allow_missing_checkpoint)
+
+    def resume_plan(self):
+        with self._lock:
+            return self._controller.get_confirmed_resume_plan()
+
+    def saved_sessions(self):
+        with self._lock:
+            selected = self._controller.snapshot()['session_id']
+            available = {entry['alias'] for entry in self._roots.list_status()
+                         if entry.get('valid') is True}
+            items, truncated = self._store.list_saved_sessions()
+            return {'sessions': [
+                {'session_id': item.id, 'revision': item.revision,
+                 'roots': list(item.roots), 'state': item.state.value,
+                 'reason': item.reason, 'updated_at': item.updated_at,
+                 'ram_lost': item.reason == 'server_restarted',
+                 'recoverable': selected is None and item.state == SessionState.PAUSED
+                     and item.reason == 'server_restarted'
+                     and all(alias in available for alias in item.roots)}
+                for item in items], 'truncated': truncated}
+
+    def recover(self, sid, revision, confirmed):
+        session_id(sid)
+        with self._lock:
+            if confirmed is not True:
+                raise ValueError('Explicit panel confirmation required.')
+            item = self._store.get(sid)
+            if item is None:
+                raise SessionConflict('Saved session changed.')
+            available = {entry['alias'] for entry in self._roots.list_status()
+                         if entry.get('valid') is True}
+            if any(alias not in available for alias in item.roots):
+                raise ValueError('Session roots unavailable.')
+            self._controller.recover_selection(sid, revision)
+            return self.status()
 
     def status(self):
         with self._lock:
@@ -24,11 +87,23 @@ class SessionAdmin:
             return {
                 **state,
                 'roots': list(item.roots) if item else [],
-                'checkpoint_available': False,
-                'resume_available': False,
+                'checkpoint_available': state.get('checkpoint_available') is True,
+                'checkpoint_content_available': state.get('checkpoint_content_available') is True,
+                'resume_available': self._manager is not None
+                    and self._controller._resumes is not None,
+                'ram_lost': bool(item and item.reason == 'server_restarted'),
                 'switch_available': False,
                 'warning': 'Pauza obejmuje wszystkie rozmowy tej instancji sklr.',
             }
+
+    def checkpoint(self):
+        """Authenticated panel read only; no logging, persistence or task results.
+
+        Availability is checked by the controller under its own lock. Durable
+        saved metadata alone does not mean content is present in RAM.
+        """
+        with self._lock:
+            return self._controller.get_checkpoint()
 
     def start(self, roots):
         """Explicit panel user action only. Starts at most one session per instance.

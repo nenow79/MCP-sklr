@@ -29,6 +29,9 @@ from server.external_mcp_admin import ExternalMCPAdmin
 from server.external_mcp_tools import ExternalMCPTools
 from external_mcp.registry import ExternalMCPRegistry
 from server.project_tools import ProjectTools, call_project
+from server.session_activation import (
+    configured_work_session, session_registrars, verify_session_registration, stop_work_session,
+)
 from skills_engine import SkillRegistry
 from skills_engine.content import DEFAULT_READ_CHARS
 from skills_engine.runner import DEFAULT_TIMEOUT
@@ -44,6 +47,7 @@ CONFIG = load_config()
 
 MAX_WAIT_LIMIT_S = 8  # twardy limit harnessa (ADR 0002)
 TASKS_DB = Path(__file__).resolve().parent / "tasks.db"
+WORK_SESSIONS_DB = TASKS_DB.with_name("work_sessions.db")
 
 
 def _positive_int(value: Any, default: int) -> int:
@@ -111,6 +115,9 @@ PURGED_ON_START = TASK_STORE.purge(
     _positive_int(_TASKS_CFG.get("retention_days"), 30),
     _positive_int(_TASKS_CFG.get("retention_max"), 500),
 )
+# Strict opt-in. Invalid flag/bootstrap aborts startup, never falls back to
+# unguarded work. Bootstrap recovery does not select or resume any session.
+WORK_SESSION = configured_work_session(CONFIG, WORK_SESSIONS_DB, ROOTS)
 APPROVAL = ApprovalService()
 MAX_PARALLEL = _positive_int(_TASKS_CFG.get("max_parallel"), 2)
 TASK_MANAGER = TaskManager(
@@ -119,7 +126,10 @@ TASK_MANAGER = TaskManager(
     max_parallel=MAX_PARALLEL,
     max_queued=_positive_int(_TASKS_CFG.get("max_queued"), 50),
     max_wait_s=MAX_WAIT_S,
+    session_controller=WORK_SESSION.controller if WORK_SESSION is not None else None,
 )
+if WORK_SESSION is not None:
+    WORK_SESSION.admin.attach_manager(TASK_MANAGER)
 _PANEL_CFG = CONFIG.get("panel", {})
 PANEL_PORT = _positive_int(_PANEL_CFG.get("port"), 8102)
 PANEL_AUTH = PanelAuth(port=PANEL_PORT)
@@ -155,7 +165,8 @@ def start_approval_ui() -> str:
     app = create_panel_app(TASK_MANAGER, APPROVAL, PANEL_AUTH, roots=ROOTS,
                            skills=SkillsAdmin(REGISTRY, CONFIG_STORE),
                            knowledge=KnowledgeAdmin(CONFIG_STORE, ROOTS, KNOWLEDGE),
-                           external_mcp=ExternalMCPAdmin(EXTERNAL_MCP_REGISTRY, TASK_MANAGER))
+                           external_mcp=ExternalMCPAdmin(EXTERNAL_MCP_REGISTRY, TASK_MANAGER),
+                           work_sessions=WORK_SESSION.admin if WORK_SESSION is not None else None)
     server = PanelServer(app, PANEL_PORT)
     if not server.start():
         raise PanelRequiredError(
@@ -175,6 +186,10 @@ def start_approval_ui() -> str:
     return f"panel zatwierdzeń: {url}"
 
 mcp = FastMCP("Vibecoder_Skills", instructions=(
+    "Jeśli sesje pracy są włączone, użytkownik musi najpierw rozpocząć lub odzyskać sesję w panelu. "
+    "Respektuj session_control; przy pauzie nie ponawiaj działań i nie obchodź bramki. "
+    "Checkpoint zapisuj tylko bezpieczną ścieżką RAM, a wznowienie potwierdzaj aktualnym planem "
+    "dopiero po przygotowaniu przez użytkownika. Nie ponawiaj operacji o niepewnym skutku zdalnym. "
     "Przed pracą w projekcie wywołaj prepare_project. Przeczytaj zwrócone AGENTS.md; "
     "jeśli instructions_complete=false, pobierz brakujące fragmenty przez read_file. "
     "Brak AGENTS: zaproponuj szablon i prepare_project(create_agents=true), zapis wymaga zgody w panelu. "
@@ -195,6 +210,12 @@ def register_tool(function):
 def register_confidential_tool(function):
     """Rejestruje narzędzie, którego wejścia/wyniku telemetria nie może przetwarzać."""
     return mcp.tool(track_mcp_tool(function, _default_root_alias, confidential=True))
+
+
+# Factories register their already-wrapped control tools through the original
+# telemetry registrars; all ordinary decorators below get one session wrapper.
+register_tool, register_confidential_tool, SESSION_TOOL_NAMES = session_registrars(
+    register_tool, register_confidential_tool, WORK_SESSION)
 
 
 @register_tool
@@ -614,6 +635,9 @@ def knowledge_convert(changes: List[Dict[str, Any]], root: Optional[str] = None,
     return call_project(PROJECTS.convert, changes, root, description)
 
 
+verify_session_registration(WORK_SESSION, SESSION_TOOL_NAMES)
+
+
 def get_middleware():
     return [
         Middleware(
@@ -650,9 +674,17 @@ if __name__ == "__main__":
           f"usunięte (retencja): {PURGED_ON_START}, max równolegle: {MAX_PARALLEL}")
     try:
         print(f"Zatwierdzenia: {start_approval_ui()}")
-    except PanelRequiredError as exc:
-        print(f"BŁĄD: {exc}")
-        TASK_MANAGER.shutdown()
+    except Exception as exc:
+        if isinstance(exc, PanelRequiredError):
+            print(f"BŁĄD: {exc}")
+        else:
+            print("BŁĄD: inicjalizacja panelu nie powiodła się; serwer MCP nie wystartuje.")
+        if EXPIRY_WATCHER is not None:
+            EXPIRY_WATCHER.stop()
+        if PANEL_SERVER is not None:
+            PANEL_SERVER.stop()
+        if not stop_work_session(TASK_MANAGER, WORK_SESSION, budget=5):
+            print("UWAGA: rozpoczęte działania nadal używają sesji; zamknięcie niepotwierdzone.")
         sys.exit(1)
     print("=" * 50 + "\n")
 
@@ -686,4 +718,5 @@ if __name__ == "__main__":
             EXPIRY_WATCHER.stop()
         if PANEL_SERVER is not None:
             PANEL_SERVER.stop()
-        TASK_MANAGER.shutdown()
+        if not stop_work_session(TASK_MANAGER, WORK_SESSION, budget=5):
+            print("UWAGA: rozpoczęte działania nadal używają sesji; zamknięcie niepotwierdzone.")

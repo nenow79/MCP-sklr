@@ -47,6 +47,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "port": 8102,
         "open_browser": True,
     },
+    # Explicit opt-in; changing the flag requires application restart.
+    "work_sessions": {"enabled": False},
     "references": {},
     "external_mcp": {},
     # Ręczne bundles plus automatyczne <root>/docs; wyłączenia przypięte do ścieżki projektu.

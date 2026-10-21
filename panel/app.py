@@ -117,12 +117,23 @@ def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: Pane
                      external_mcp: Any = None, work_sessions: Any = None) -> Starlette:
     """`roots` (RootsRegistry) jest opcjonalne: bez niego endpointy /api/roots nie istnieją (404)."""
     static_path = Path(static_dir) if static_dir is not None else DEFAULT_STATIC_DIR
+    if work_sessions is not None:
+        work_sessions.attach_manager(manager)
 
     async def work_session_status(request):
         try:
             return _ok(await run_in_threadpool(work_sessions.status))
         except Exception:
             return _err("Nie można odczytać stanu sesji pracy.", 500)
+
+    async def work_session_checkpoint(request):
+        try:
+            response = _ok(await run_in_threadpool(work_sessions.checkpoint))
+        except Exception:
+            response = _err("Nie można odczytać checkpointu sesji pracy.", 500)
+        # Free-form RAM content must not become a browser/proxy cache entry.
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     async def work_session_start(request):
         body = await _json_body(request)
@@ -152,6 +163,66 @@ def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: Pane
             return _err("Nieprawidłowe żądanie pauzy.", 400)
         except Exception:
             return _err("Nie udało się zapisać pauzy. Sprawdź stan blokady wykonania.", 500)
+
+    def work_session_identity(body):
+        from tasks.session_models import session_id
+        session_id(body['session_id'])
+        if type(body['revision']) is not int or body['revision'] < 1:
+            raise ValueError('Invalid revision.')
+
+    async def work_session_read(request):
+        try:
+            action = request.url.path.rsplit('/', 1)[-1]
+            if action == 'resume-preview':
+                query = request.query_params
+                if set(query) != {'session_id', 'revision'} or len(query.multi_items()) != 2:
+                    raise ValueError('Invalid preview query.')
+                body = {'session_id': query['session_id'], 'revision': int(query['revision'])}
+                work_session_identity(body)
+                data = await run_in_threadpool(work_sessions.resume_preview,
+                                              body['session_id'], body['revision'])
+            elif action == 'resume-plan':
+                data = await run_in_threadpool(work_sessions.resume_plan)
+            else:
+                data = await run_in_threadpool(work_sessions.saved_sessions)
+            return _ok(data)
+        except SessionConflict:
+            return _err('Sesja lub rewizja się zmieniła. Odśwież stan.', 409)
+        except (ValueError, KeyError):
+            return _err('Nieprawidłowe żądanie odczytu sesji.', 400)
+        except Exception:
+            return _err('Nie można odczytać danych wznowienia. Sprawdź stan.', 500)
+
+    async def work_session_resume_action(request):
+        body = await _json_body(request)
+        recover = request.url.path.endswith('/recover')
+        fields = {'session_id', 'revision', 'confirmed'}
+        if not recover:
+            fields |= {'supplement', 'cancel_count', 'allow_missing_checkpoint'}
+        if body is None or set(body) != fields:
+            return _err('Nieprawidłowe pola decyzji panelowej.', 400)
+        try:
+            work_session_identity(body)
+            if body['confirmed'] is not True:
+                raise ValueError('Explicit confirmation required.')
+            if recover:
+                data = await run_in_threadpool(work_sessions.recover,
+                    body['session_id'], body['revision'], body['confirmed'])
+            else:
+                if (type(body['supplement']) is not str
+                        or type(body['cancel_count']) is not int or body['cancel_count'] < 0
+                        or type(body['allow_missing_checkpoint']) is not bool):
+                    raise ValueError('Invalid preparation fields.')
+                data = await run_in_threadpool(work_sessions.prepare_resume,
+                    body['session_id'], body['revision'], body['supplement'],
+                    body['cancel_count'], body['allow_missing_checkpoint'], body['confirmed'])
+            return _ok(data)
+        except SessionConflict:
+            return _err('Sesja, rewizja, liczba zadań lub checkpoint się zmieniły. Odśwież stan.', 409)
+        except ValueError:
+            return _err('Nieprawidłowa decyzja lub odrzucona treść. Niczego nie ponawiaj automatycznie.', 400)
+        except Exception:
+            return _err('Przygotowanie lub odzyskanie nie powiodło się. Sprawdź stan przed nową decyzją.', 500)
 
     async def knowledge_list(request):
         try:
@@ -467,8 +538,14 @@ def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: Pane
     if work_sessions is not None:
         routes.extend([
             Route("/api/work-session", work_session_status, methods=["GET"]),
+            Route("/api/work-session/checkpoint", work_session_checkpoint, methods=["GET"]),
             Route("/api/work-session/start", work_session_start, methods=["POST"]),
             Route("/api/work-session/pause", work_session_pause, methods=["POST"]),
+            Route("/api/work-session/resume-preview", work_session_read, methods=["GET"]),
+            Route("/api/work-session/resume-plan", work_session_read, methods=["GET"]),
+            Route("/api/work-session/saved", work_session_read, methods=["GET"]),
+            Route("/api/work-session/prepare-resume", work_session_resume_action, methods=["POST"]),
+            Route("/api/work-session/recover", work_session_resume_action, methods=["POST"]),
         ])
     if static_path.is_dir():
         routes.append(Mount("/static", app=StaticFiles(directory=str(static_path)), name="static"))

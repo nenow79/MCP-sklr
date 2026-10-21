@@ -14,11 +14,11 @@ Zakres A1/A1b: sesje pracy, blokada nowych działań, panel, komunikacja z model
 
 ## 1. Sesja i przypisanie działań
 
-Sesja identyfikuje jedną pracę i jej projekt/roots. Nie jest sesją uwierzytelnienia panelu ani sesją transportową MCP. Równoległe prace muszą mieć odrębne identyfikatory; zmiana domyślnego roota nie może przenosić sesji do innego projektu.
+Pierwsza wersja kontroluje jedną sesję pracy na instancję sklr, wybieraną wyłącznie w panelu. Nie jest to sesja uwierzytelnienia panelu ani transportowa MCP; pauza obejmuje wszystkie rozmowy korzystające z instancji, bez izolacji rozmów. Zmiana domyślnego roota nie przenosi przypiętej sesji do innego projektu. Roots opisują projekt, nie nadają dodatkowych uprawnień.
 
-Obecny model Task nie zapewnia takiego przypisania. Przed implementacją ustalić jawny sposób przekazania session_id do narzędzi modelu i trwałego przypisania zadań. Nie zakładać, że pochodzenie da się wiarygodnie odgadnąć z treści argumentów. Istniejące zadania bez session_id pozostają w dotychczasowym trybie i nie mogą być przedstawiane jako objęte pauzą. Panel pokazuje zakres kontroli.
+Model nie przekazuje session_id. Serwer przypisuje zadania do wybranej sesji i jej rewizji przed scheduling oraz sprawdza powiązanie przy dispatch. Przy włączonej funkcji brak wybranej sesji blokuje narzędzia robocze do Startu albo jawnego odzyskania w panelu. Brak/obce powiązanie nie daje obejścia; stare powiązanie tej samej sesji nie pozwala wykonać zadania poprzedniej generacji. Historyczne zadania nie są automatycznie przypisywane.
 
-W obrębie sesji kontrola obejmuje kolejne wykonania przez sklr, również zaufane skille i zewnętrzne MCP. Nie wolno ominąć pauzy przez pominięcie lub podmianę session_id: sposób wiązania i obsługę braku identyfikatora trzeba uzgodnić w planie integracji.
+Kontrola obejmuje kolejne wykonania przez sklr, również zaufane skille i zewnętrzne MCP. Przełączenie już przypiętej sesji jest zabronione; reconnect ani model nie mogą otworzyć bramki. Funkcja jest opt-in przez work_sessions.enabled (domyślnie false), zmiana wymaga restartu.
 
 ## 2. Stany i żądanie pauzy
 
@@ -64,9 +64,13 @@ Model po potwierdzonym zapisie kończy odpowiedź: „Praca wstrzymana, checkpoi
 
 Użytkownik może dodać uzupełnienie i zlecić wznowienie przez uwierzytelniony panel. Uzupełnienie nie rozszerza automatycznie uprawnień. Model sam nie wznawia sesji ani autopilota.
 
-Nie uruchamiać starej kolejki bez ponownego planu. Potrzebny etap przygotowania wznowienia: udostępnienie checkpointu/uzupełnienia, potwierdzenie przez model aktualizacji planu, wybór nadal potrzebnych zadań i kontrola aktualnych zgód, hashy, rewizji i dostępu przed wykonaniem. Techniczny handshake określić w planie kodu. Nowa generacja/re wizja musi uniemożliwiać spóźnionym odpowiedziom poprzedniego przebiegu zmianę stanu. Nie ponawiać operacji z niepewnym skutkiem zdalnym.
+Przygotowanie wznowienia przechodzi wyłącznie przez TaskManager po jawnej decyzji panelu. Panel podaje aktualne session_id, rewizję i zaakceptowaną liczbę anulowań; pod blokadami dane są ponownie sprawdzane przed skutkami. Brak checkpointu wymaga osobnego potwierdzenia. Stare awaiting_approval/queued są anulowane, nie odtwarzane ani uruchamiane. Rozpoczęte i zakończone pozostają nietknięte; wykrycie running uniemożliwia przygotowanie. Nowe zadania wymagają aktualnych zgód, hashy, rewizji i dostępu.
 
-Po restarcie nie wznawiać sesji automatycznie. Zachować bezpieczny stan trwały; trwające zadania pozostają interrupted zgodnie z obecną kolejką. Nie odtwarzać funkcji executor z SQLite ani utraconych wyników RAM. Pokazać braki checkpointu i potrzebę jawnego wznowienia/replanowania.
+Przygotowanie pozostaje paused i zablokowane. Model pobiera get_resume_context, traktuje treść jako dane i potwierdza zaktualizowany plan przez confirm_resume_plan z bieżącą rewizją/tokenem RAM. Tylko skuteczne potwierdzenie otwiera bramkę; panel odczytuje skutecznie potwierdzony plan bez tokenu. Uzupełnienie (3000 znaków), checkpoint i plan (6000) pozostają tylko w RAM; wykryty sekret odrzuca całą treść, heurystyka nie jest gwarancją. Trwały eksport dopiero po wznowieniu zwykłą zatwierdzaną ścieżką.
+
+Nowy checkpoint unieważnia przygotowany handshake; błędy publikacji RAM nie uprawniają do użycia pozostałego starego tokenu. Niepewny commit potwierdzenia pozostawia bramkę zamkniętą nawet gdy SQLite wskazuje active; odzyskanie wymaga nowej jawnej decyzji i koordynowanego przygotowania. Nie ponawiać automatycznie starego potwierdzenia ani operacji o niepewnym skutku zdalnym. Panel odświeża się ręcznie, bez pollingu; sklr nie budzi modelu.
+
+Po restarcie nie wybierać ani nie wznawiać sesji automatycznie. Zachować bezpieczne metadane trwałe, unieważnić rewizje; trwające zadania pozostają interrupted zgodnie z obecną kolejką. Nie odtwarzać executorów z SQLite ani utraconych wyników/treści/tokenów RAM. Jawny wybór zapisanej sesji w panelu przypina ją zablokowaną, pokazuje utratę RAM i potrzebę nowego przygotowania/replanowania. Nie pozwala przełączyć już przypiętej sesji.
 
 ## 6. Granica kontroli
 
