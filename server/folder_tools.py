@@ -224,6 +224,8 @@ def _acquire(lock: Any, event: threading.Event) -> None:
 
 def _make_executor(registry: RootsRegistry, config_lock: Any, args: Tuple[Any, ...], plan: FolderPlan):
     """Wykonanie pod WRITE_LOCK i config_lock; nigdy nie rzuca."""
+    from autopilot.context import local_write
+    @local_write(verify=lambda: _conflict(registry, args, plan))
     def executor(cancel_event) -> Dict[str, Any]:
         started = time.monotonic()
         write_locked = config_locked = False

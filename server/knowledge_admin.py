@@ -6,6 +6,7 @@ import secrets
 from dataclasses import asdict
 
 from okf_engine.bundles import BundleError, evaluate_bundles, parse_entry
+from okf_engine.coordination import coordinate_refresh
 from okf_engine.discovery import effective_knowledge, project_key
 from okf_engine.public_view import mask_text
 from okf_engine.write_policy import parse_policy, policy_view
@@ -130,6 +131,7 @@ class KnowledgeAdmin:
             self.store.update(mutate)
             return self.list()
 
+    @coordinate_refresh
     def change(self, key, action, enabled, revision):
         with self.store.lock:
             self._check(revision)

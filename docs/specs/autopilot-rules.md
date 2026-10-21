@@ -9,7 +9,7 @@ status: accepted
 
 ## Status i odpowiedzialność
 
-Szczegóły techniczne zaakceptowane wraz z planem A2b2 w [backlogu](../plan/backlog.md). Dokument uściśla [zaakceptowany kontrakt A2](autopilot-contract.md); nie nadaje nowych uprawnień. Implementacja A2b2 pozostaje odłączona: bez rejestracji MCP, panelu, I/O, zegarów, dispatch i zmiany dotychczasowych zgód. Zakres potwierdzeń wyłącznie w [CURRENT](../plan/CURRENT.md).
+Szczegóły techniczne zaakceptowane wraz z planem A2b2; dalsze prace w [backlogu](../plan/backlog.md). Dokument uściśla [zaakceptowany kontrakt A2](autopilot-contract.md); nie nadaje nowych uprawnień. Moduł walidacji i dopasowania nie odpowiada za rejestrację MCP, panel, I/O, zegary ani dispatch. Stan jego integracji i zakres potwierdzeń opisuje wyłącznie [CURRENT](../plan/CURRENT.md).
 
 Walidator odpowiada za poprawność zamkniętego formatu i niemutowalną reprezentację. Matcher odpowiada za zgodność przygotowanej operacji z regułami i dostarczonym aktualnym kontekstem dostępu. Budżet A2b1, uwierzytelnienie panelu, rzeczywiste rozwiązywanie ścieżek, kontrola snapshotów, dziennik i synchronizacja przed skutkiem są osobnymi obowiązkami integracji A2b3.
 

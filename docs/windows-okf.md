@@ -9,13 +9,13 @@ tags: [sklr, okf, sessions, windows, testing]
 Development: Linux. System docelowy: Windows. To kandydat do końcowych testów,
 nie deklaracja zweryfikowanego wdrożenia na Windows.
 
-Stan dokumentu: 2026-10-21. Priorytetem są sesje i dalsza autonomia według kontraktu; dostępne funkcje nie obejmują jeszcze autopilota ani automatycznego wykonawcy testów/poprawek. Zadania przygotowania wydania są wyłącznie w [backlogu](plan/backlog.md), stan potwierdzeń w [CURRENT](plan/CURRENT.md).
+Stan dokumentu: 2026-10-21. Priorytetem są sesje i autonomia według kontraktu; lokalny kod zawiera A2b3 i podłączenie opt-in A2b4, z zaliczonymi testami A2b4 i wskazaną regresją Linux; bez odbioru rzeczywistego MCP/panelu i Windows. Automatyczny wykonawca testów/poprawek pozostaje niewdrożony. Zadania przygotowania wydania są wyłącznie w [backlogu](plan/backlog.md), stan potwierdzeń w [CURRENT](plan/CURRENT.md).
 
 ## Zakres przekazania bety
 
-Obecny kod zawiera działające opt-in sesje/pauzę/wznowienie oraz odłączone fundamenty A2b1/A2b2. Paczka 298 passed in 0.73s potwierdza logikę autopilotowych modeli/reguł, nie użytkowy autopilot.
+Obecny kod zawiera opt-in sesje/pauzę/wznowienie, fundamenty A2b1/A2b2, runtime A2b3 i lokalne podłączenie API/UI/bootstrapu A2b4. Paczka 820 passed in 24.67s jest wcześniejszym wynikiem wskazanej regresji A2b3 na Linux; A2b4: 48 passed in 1.50s, szersza regresja: 941 passed in 59.45s, DOM Node: 4/4 na Linux. Dokładny zakres w CURRENT i raporcie A2b4; pełnej regresji repo nie powtarzano. Włączenie wymaga w lokalnym configu obu flag work_sessions.enabled=true i autopilot.enabled=true oraz restartu; nie zmieniono config.json i nie uruchomiono docelowej aplikacji. Sama flaga nie zatwierdza delegacji: potrzebna decyzja w panelu i handshake planu.
 
-Betę z działającym A2 można przekazać po integracji kontroli wykonania/dziennika/generacji zasobów (A2b3), panelu/aktywacji (A2b4), dostępnej regresji i przygotowaniu konfiguracji/publikacji (W1–W4). Pierwszy pełny odbiór prawdziwego MCP/panelu i mechanizmów Windows pozostaje pracą na maszynie docelowej (A2b5, S2–S5, W5). Numerów etapów używamy zgodnie z backlogiem; ta procedura nie jest dodatkową listą zadań.
+Betę z działającym A2 można przekazać po walidacji lokalnej integracji A2b3/A2b4, dostępnej regresji i przygotowaniu konfiguracji/publikacji (W1–W4). Pierwszy pełny odbiór prawdziwego MCP/panelu i mechanizmów Windows pozostaje pracą na maszynie docelowej (A2b5, S2–S5, W5). Numerów etapów używamy zgodnie z backlogiem; ta procedura nie jest dodatkową listą zadań.
 
 A3/A3b i A4 nie muszą blokować bety samego A2, ale taka beta nie obejmuje automatycznego uruchamiania długich testów ani cykli poprawek. Jeśli te funkcje mają być celem pierwszego odbioru na Windows, ich kontrakty i implementacje muszą wejść przed publikacją tego kandydata. Nie określać bety A2 jako zakończenia całej autonomii A2–A4.
 
@@ -70,19 +70,81 @@ Baza przeglądu: `9176967` (`feat: enable work-session pause and resume`), obejm
 
 Aktualny zakres potwierdzeń: [CURRENT](plan/CURRENT.md). Wcześniejsze cache ready/35→36 i start z cache odebrano; nie są bieżącą liczbą dokumentów na Windows. Przed odbiorem odczytaj aktualny stan/reasons i diagnostykę zamiast zakładać kompletność.
 
-**Konfiguracja wymaga przygotowania przed wydaniem:** obecnie config.json jest śledzony przez Git, wbrew zasadzie lokalnej konfiguracji. Nie wykonywać bezwarunkowego pull z założeniem, że zachowa ustawienia Windows. Paczka ma rozdzielić lokalny config od repo i podać procedurę migracji z zachowaniem kopii; usunięcie pliku ze śledzenia może usunąć jego dotychczasową kopię przy aktualizacji. Nie publikować ani nie przywracać konfiguracji z innej maszyny.
+**Konfiguracja po W1:** repo zawiera przenośny `config.example.json`, a lokalny
+`config.json`, jego plik tymczasowy i kopie `.bak*` są ignorowane. Nazwa, lokalizacja,
+odczyt, zapis oraz uzupełnianie brakujących kluczy domyślnymi pozostają zgodne.
+Istniejący config zachowujemy w całości; przykładu nie kopiujemy na jego miejsce.
+Usunięcie ze śledzenia nie usuwa dawnych wersji configu z historii Git.
 
 ## Aktualizacja na Windows
 
-1. Zatrzymaj stary proces MCP i panel. Zachowaj poza checkoutem kopię lokalnego config.json oraz lokalnych danych tasks/work_sessions/cache z kluczem (nie dodawaj ich do Git).
-2. W checkout main wykonaj git pull --ff-only po publikacji na origin/main.
-   Nie kopiuj configu, venv, tasks.db ani katalogu wiedzy z Linuksa.
-3. Zastosuj procedurę migracji configu dostarczoną z kandydatem; porównaj i zachowaj Windows roots/profile/trust, nie nadpisuj ich Linuksem. Aktywuj lokalny venv Windows. Sprawdź requirements.txt i zgodność zainstalowanych wersji; stare zapewnienie o niezmienionych zależnościach dotyczyło dawnej paczki OKF. Instalacje i tworzenie środowisk wymagają osobnej decyzji.
-4. Uruchom testy, następnie serwer jak dotychczas, a w panelu wykonaj Ctrl+F5.
-   Nowe narzędzia MCP mogą wymagać ponownego połączenia klienta.
+Pierwsze przejście z wersji śledzącej config wymaga poniższej migracji.
+Wykonaj ją dopiero po publikacji uzgodnionego kandydata zawierającego W1.
+Zatrzymaj MCP i panel, przejdź do katalogu repo, sprawdź gałąź i `git status`.
+Zachowaj lokalne zmiany kodu przed aktualizacją; nie używaj `reset --hard` ani
+wymuszonego pull. Osobno zachowaj lokalne bazy tasks/work_sessions/autopilot
+oraz cache wiedzy z kluczem. Nie kopiuj środowiska ani konfiguracji z Linuksa.
+
+Blok PowerShell tworzy unikalną kopię configu w sąsiednim katalogu poza checkoutem,
+weryfikuje ją przez SHA-256 i odmawia działania przy staged zmianach configu.
+Po sprawdzeniu kopii przywraca wyłącznie roboczy config do bieżącej wersji Git,
+aby lokalne ustawienia nie blokowały usunięcia pliku ze śledzenia podczas pull.
+`finally` odtwarza własny config także po nieudanej aktualizacji.
+Błąd zatrzymuje procedurę; nie uruchamiaj aplikacji przed sprawdzeniem pliku.
 
 ```powershell
-git pull --ff-only
+$ErrorActionPreference = 'Stop'
+$repoDirectory = (Get-Location).Path
+$configPath = Join-Path $repoDirectory 'config.json'
+if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
+    throw 'Brak lokalnego config.json; sprawdź kopię przed migracją.'
+}
+git diff --cached --quiet -- config.json
+if ($LASTEXITCODE -ne 0) { throw 'Config ma staged zmiany; rozstrzygnij je przed migracją.' }
+$backupDirectory = Join-Path (Split-Path -Parent $repoDirectory) ('sklr-config-backup-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $backupDirectory | Out-Null
+$backupPath = Join-Path $backupDirectory 'config.json'
+$originalHash = (Get-FileHash -LiteralPath $configPath -Algorithm SHA256).Hash
+Copy-Item -LiteralPath $configPath -Destination $backupPath
+if ((Get-FileHash -LiteralPath $backupPath -Algorithm SHA256).Hash -ne $originalHash) {
+    throw 'Kopia configu różni się od oryginału; aktualizacja zatrzymana.'
+}
+Write-Host "Kopia konfiguracji: $backupPath"
+try {
+    $trackedConfig = git ls-files -- config.json
+    if ($LASTEXITCODE -ne 0) { throw 'Nie udało się sprawdzić indeksu Git.' }
+    if ($trackedConfig) {
+        git restore --worktree -- config.json
+        if ($LASTEXITCODE -ne 0) { throw 'Nie udało się przygotować configu do aktualizacji.' }
+    }
+    git pull --ff-only
+    if ($LASTEXITCODE -ne 0) { throw 'Aktualizacja nie powiodła się; sprawdź Git przed dalszą pracą.' }
+}
+finally {
+    Copy-Item -LiteralPath $backupPath -Destination $configPath -Force
+    if ((Get-FileHash -LiteralPath $configPath -Algorithm SHA256).Hash -ne $originalHash) {
+        throw "Config nie został poprawnie przywrócony; zachowana kopia: $backupPath"
+    }
+}
+$trackedConfig = git ls-files -- config.json
+if ($LASTEXITCODE -ne 0) { throw 'Nie udało się sprawdzić indeksu po aktualizacji.' }
+if ($trackedConfig) { throw 'Pobrana wersja nadal śledzi config.json; W1 nie jest zastosowane.' }
+git check-ignore -- config.json
+if ($LASTEXITCODE -ne 0) { throw 'Config nie jest ignorowany; sprawdź pobraną wersję.' }
+git log -1 --oneline
+```
+
+Zachowaj zewnętrzną kopię do zakończenia odbioru. Porównaj pobrany commit
+z raportem publikacji; sukces pull bez właściwego commita nie potwierdza migracji.
+Przy kolejnych aktualizacjach config pozostaje ignorowany; wystarczy kopia zapasowa
+oraz zwykłe `git pull --ff-only`, bez przywracania configu z Git.
+
+Aktywuj istniejący venv Windows. Sprawdź zależności i ich wersje; instalacje i nowe
+środowiska wymagają osobnej decyzji. Następnie wykonaj uzgodnione testy i uruchom
+MCP jak dotychczas. Odśwież panel przez Ctrl+F5 oraz połączenie klienta MCP.
+Poniższe komendy testowe wykonuj po migracji, nie przed zachowaniem configu.
+
+```powershell
 .\venv\Scripts\Activate.ps1
 python --version
 python -m pip check
@@ -119,7 +181,58 @@ Pracuj na testowym roocie i niepoufnych danych. W lokalnym configu ustaw work_se
 6. Dodaj uzupełnienie i przygotuj wznowienie. Bramka pozostaje zamknięta; model pobiera get_resume_context i potwierdza zaktualizowany plan bieżącą rewizją/tokenem. Sprawdź plan w panelu, active i udany odczyt. Nowe zadania wymagają obecnych zgód.
 7. Zrestartuj MCP: brak automatycznego wyboru/wznowienia. Jawnie odzyskaj zapisaną sesję: paused, brak RAM checkpointu. Przygotuj wznowienie z osobnym potwierdzeniem brakującego checkpointu, potem potwierdź plan przez model. Nie odtwarzaj automatycznie poufnych wyników ani nie ponawiaj operacji o niepewnym skutku.
 
-Zapisz commit, wersje Python/SDK, wynik każdej próby i ograniczenia w raporcie odbioru; do CURRENT przenieś zwięzłe potwierdzenia. Błędy trafiają wyłącznie do backlogu. Te próby odbierają fundament sesji, nie niewdrożone A2–A4.
+Zapisz commit, wersje Python/SDK, wynik każdej próby i ograniczenia w raporcie odbioru; do CURRENT przenieś zwięzłe potwierdzenia. Błędy trafiają wyłącznie do backlogu. Te próby odbierają fundament sesji; delegację A2 sprawdza następna procedura, A3/A3b i A4 pozostają niewdrożone.
+
+## Odbiór delegacji A2 przez MCP i panel
+
+Procedura A2b5 realizuje sekcję 10 [kontraktu A2](specs/autopilot-contract.md).
+Nie jest raportem wykonania. Na Windows użyj osobnego testowego roota rw poza
+katalogiem działającego sklr. Przygotuj w nim istniejące katalogi `allowed` i `outside`.
+Włącz lokalnie work_sessions.enabled=true oraz autopilot.enabled=true i zrestartuj
+aplikację jak dotychczas; zachowaj pozostałe ustawienia. Decyzje podejmuje użytkownik
+w uwierzytelnionym panelu. Nie rozszerzaj delegacji na repo sklr ani jego instrukcje.
+
+1. Przed Startem potwierdź odmowę read_file i brak nowego zadania. Wybierz testowy
+   root, Start, następnie pauzę i poczekaj na zero rozpoczętych działań. W delegacji
+   wybierz ten root, wyłącznie read_file/create_file, zakres tree=`allowed`,
+   overwrite=false, cel i konkretny plan utworzenia sztucznego pliku.
+   Przygotuj podgląd, sprawdź przypięcia i limity, zatwierdź. Bramka pozostaje zamknięta.
+2. Przygotuj wznowienie; przy braku checkpointu potwierdź go osobno. Model pobiera
+   get_resume_context i potwierdza aktualny plan przez confirm_resume_plan.
+   Utwórz `allowed/first.txt` z niepoufną treścią: oczekuj zadania done, rzeczywistego
+   pliku i jednej zużytej operacji bez osobnego Allow. Obserwacja kolejki zgodnie
+   z AGENTS: jedno wait_task(seconds=8), bez pętli; awaiting_approval oznacza STOP.
+3. Spróbuj utworzyć `outside/denied.txt`: oczekuj odmowy, braku pliku i wstrzymania
+   autopilota/sesji. Nie ponawiaj innym narzędziem ani z innym aliasem.
+   Przed dalszą próbą jawnie potwierdź delegację i wykonaj nowy handshake.
+4. Sprawdź overwrite=false na istniejącym pliku; treść ma pozostać bez zmian.
+   W osobnym przebiegu sprawdź batch obejmujący allowed i outside: odmowa całej
+   operacji, bez częściowego odczytu. Na Windows uwzględnij case, aliasy, UNC
+   i junction poza zakresem; brak możliwości próby zapisz jako nieodebrany scenariusz.
+5. Po dozwolonym działaniu wstrzymaj sesję, zapisz checkpoint i odśwież delegację.
+   Samo potwierdzenie planu nie zastępuje ponownej decyzji panelowej. Potwierdź ten sam
+   zakres i pozostałe limity, przygotuj wznowienie i potwierdź nowy plan. Licznik
+   zużycia nie maleje, a czas pauzy zmniejsza pozostały czas delegacji.
+6. W osobnych delegacjach sprawdź max_operations=1 i ważność 1 minuty. Po zużyciu
+   jednej operacji kolejne działanie jest blokowane. Przy wygaśnięciu nie wywołuj
+   narzędzi modelu przez minutę; ręczne odświeżenie panelu ma pokazać expired i pauzę.
+7. Dla znanego, wcześniej zaufanego centralnego skilla lub MCP wykonaj osobny
+   przebieg z wąską regułą skryptu/narzędzia, argumentów i timeoutu (MCP także discovery).
+   Cofnij delegację podczas rozpoczętej operacji: nowe działania zablokowane,
+   rozpoczęta może zakończyć się w swoim limicie z wynikiem i metainformacją pauzy.
+   Sprawdź utratę trust lub zmianę hash/schema bez automatycznego fallbacku i retry.
+   Bez odpowiedniego testowego wykonawcy pozostaw ten scenariusz otwarty.
+8. Sprawdź konflikt dwóch kart i zmianę zasobów po podglądzie: stara decyzja nie
+   nadpisuje nowszej zgody. Cofnięcie podczas resume_pending unieważnia stary plan.
+   Przejście do ręcznych zgód wymaga osobnego wyboru w panelu i nowego wznowienia.
+9. Zrestartuj aplikację: brak wybranej sesji, reguł i delegacji. Odzyskanie sesji
+   nie przywraca zgody. Jeśli panel pokazuje nierozstrzygniętą operację, najpierw
+   sprawdź jej rzeczywisty skutek; jawne rozstrzygnięcie nie wykonuje jej ponownie.
+
+Raportuj commit i lokalne zmiany, wersje środowiska, nazwy narzędzi, statusy,
+liczniki, rzeczywistą zawartość plików i scenariusze niewykonane. Nie wpisuj do
+raportu sekretów, tokenów panelu ani tokenu handshake. Potwierdzenia krótko do
+CURRENT, usterki wyłącznie do backlogu. Odbiór A2 nie obejmuje runnera A3b ani A4.
 
 ## Ręczny odbiór po uruchomieniu
 

@@ -9,7 +9,7 @@ status: accepted
 
 ## Status i granice
 
-**Kontrakt zaakceptowany, niewdrożony.** Użytkownik zaakceptował dalszą pracę po korekcie rozdzielającej oczekiwanie narzędzia, timeout zadania i ważność delegacji. Przyjęty zakres i limity opisuje sekcja 11. Akceptacja kontraktu nie włącza autopilota, nie zmienia AGENTS ani obecnych zasad zgód; plan konkretnej paczki kodu nadal wymaga akceptacji przed edycją.
+**Kontrakt zaakceptowany.** Stan implementacji i odbioru opisuje [CURRENT](../plan/CURRENT.md). Użytkownik zaakceptował dalszą pracę po korekcie rozdzielającej oczekiwanie narzędzia, timeout zadania i ważność delegacji. Przyjęty zakres i limity opisuje sekcja 11. Akceptacja kontraktu nie włącza autopilota, nie zmienia AGENTS ani obecnych zasad zgód; plan konkretnej paczki kodu nadal wymaga akceptacji przed edycją.
 
 A2 pozwala kontynuować pracę przez sklr w jawnie zatwierdzonym zakresie bez osobnej decyzji dla każdego dopuszczonego zapisu. Nie uruchamia samodzielnie modelu i nie zapewnia nieprzerwanej pętli agenta. A3/A3b (konfiguracja i wykonawca testów), A4 (automatyczne cykle poprawek) i ogólny shell pozostają poza A2.
 

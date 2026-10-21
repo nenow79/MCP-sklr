@@ -232,13 +232,16 @@ class ExternalMCPTools:
             trusted = trusted_decision(profile, tool_name, digest)['trusted']
             def executor(event):
                 approval_needed = False
+                guard_passed = False
                 def guard(name, schema_sha256):
-                    nonlocal approval_needed
+                    nonlocal approval_needed, guard_passed
                     if not self.panel_available():
                         raise ExternalError('panel_unavailable')
                     current = self._current(alias, snapshot)
                     if name != tool_name or schema_sha256 != digest:
                         raise ExternalError('schema_changed')
+                    from autopilot.context import recheck_current
+                    recheck_current()
                     # Public manager query checks the actual task decision for
                     # THIS executor event. Never infer consent from attempt count.
                     if self.manager.external_approval_granted(event):
@@ -248,6 +251,9 @@ class ExternalMCPTools:
                     if not self.limiter.allow(current['id']):
                         approval_needed = True
                         raise ExternalError('approval_required')
+                    guard_passed = True
+                    from autopilot.context import mark_dispatched
+                    mark_dispatched()
                     return None
                 try:
                     current = self._current(alias, snapshot)
@@ -260,6 +266,9 @@ class ExternalMCPTools:
                     result = result_view(response['result'])
                     return self._result({'result': result, 'schemaSha256': digest}, alias, profile, 'call')
                 except ProfileError as exc:
+                    if guard_passed or exc.code in {'call_failed_uncertain', 'call_timeout_uncertain', 'call_cancelled_uncertain'}:
+                        from autopilot.context import mark_uncertain
+                        mark_uncertain()
                     if approval_needed and exc.code == 'approval_required':
                         # Client proved pre-dispatch refusal, closed session/worker.
                         raise ExternalApprovalRequired() from None
@@ -267,6 +276,9 @@ class ExternalMCPTools:
                 except ExternalApprovalRequired:
                     raise
                 except Exception:
+                    if guard_passed:
+                        from autopilot.context import mark_uncertain
+                        mark_uncertain()
                     raise OperationError('client_failed') from None
             fields = dict(kind=EXTERNAL_KIND, sensitive=True, offer_trust=False, timeout=timeout,
                           title='Zewnętrzne MCP: ' + alias + ' / ' + tool_name,

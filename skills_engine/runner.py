@@ -159,6 +159,8 @@ def run_command(
         flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
     started = time.monotonic()
+    from autopilot.context import recheck_current
+    recheck_current()
     try:
         process = subprocess.Popen(
             command,

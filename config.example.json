@@ -1,0 +1,65 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8101,
+    "cors_allow_origins": [
+      "*"
+    ]
+  },
+  "workspace": {
+    "path": null
+  },
+  "skills": {
+    "central_dir": "~/.agents/skills",
+    "disabled": [],
+    "dev_dirs": [],
+    "dev_enabled": [],
+    "trust": {}
+  },
+  "conda": {
+    "base": null,
+    "envs": {}
+  },
+  "tasks": {
+    "max_parallel": 2,
+    "max_queued": 50,
+    "max_wait_s": 8,
+    "retention_days": 30,
+    "retention_max": 500,
+    "approval_expiry_min": 60
+  },
+  "panel": {
+    "enabled": true,
+    "port": 8102,
+    "open_browser": true
+  },
+  "work_sessions": {
+    "enabled": false
+  },
+  "autopilot": {
+    "enabled": false
+  },
+  "references": {},
+  "external_mcp": {},
+  "knowledge": {
+    "central_dir": "~/.agents/okf",
+    "bundles": [],
+    "project_docs_disabled": [],
+    "project_write_policies": [],
+    "limits": {
+      "max_bundles": 20,
+      "max_documents_per_bundle": 5000,
+      "max_depth": 20,
+      "max_document_bytes": 1048576,
+      "max_frontmatter_bytes": 65536,
+      "max_yaml_nodes": 10000,
+      "max_yaml_depth": 32,
+      "max_alias_references": 32,
+      "max_index_text_bytes": 67108864,
+      "refresh_after_s": 30,
+      "scan_budget_s": 6,
+      "search_budget_s": 2
+    }
+  },
+  "roots": []
+}

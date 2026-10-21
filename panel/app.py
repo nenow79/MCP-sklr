@@ -114,7 +114,8 @@ def _opt_str(body: dict, key: str) -> Optional[str]:
 def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: PanelAuth,
                      static_dir: Optional[Path] = None, roots: Any = None,
                      skills: Any = None, knowledge: Any = None,
-                     external_mcp: Any = None, work_sessions: Any = None) -> Starlette:
+                     external_mcp: Any = None, work_sessions: Any = None,
+                     autopilot: Any = None) -> Starlette:
     """`roots` (RootsRegistry) jest opcjonalne: bez niego endpointy /api/roots nie istnieją (404)."""
     static_path = Path(static_dir) if static_dir is not None else DEFAULT_STATIC_DIR
     if work_sessions is not None:
@@ -547,6 +548,9 @@ def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: Pane
             Route("/api/work-session/prepare-resume", work_session_resume_action, methods=["POST"]),
             Route("/api/work-session/recover", work_session_resume_action, methods=["POST"]),
         ])
+    if autopilot is not None:
+        from panel.autopilot import autopilot_routes
+        routes.extend(autopilot_routes(autopilot))
     if static_path.is_dir():
         routes.append(Mount("/static", app=StaticFiles(directory=str(static_path)), name="static"))
 

@@ -21,6 +21,7 @@ class ResumePreparation:
     supplement: ResumeText = field(repr=False)
     checkpoint: object = field(repr=False)
     plan: object = field(default=None, repr=False)
+    contract_binding: object = field(default=None, repr=False)
 
     def to_context(self):
         # Confidential response only. Fresh containers, no mutable aliases.
@@ -37,7 +38,7 @@ class ResumeStore:
         self._lock = threading.RLock()
         self._item = None
 
-    def prepare(self, sid, revision, supplement, checkpoint=None):
+    def prepare(self, sid, revision, supplement, checkpoint=None, *, contract_binding=None):
         session_id(sid)
         positive_int(revision)
         if type(supplement) is not ResumeText or (
@@ -46,7 +47,12 @@ class ResumeStore:
         with self._lock:
             if self._item is not None:
                 raise SessionConflict('Resume preparation already exists.')
-            item = ResumePreparation(sid, revision, secrets.token_hex(32), supplement, checkpoint)
+            if contract_binding is not None:
+                from autopilot.models import ContractBinding
+                if type(contract_binding) is not ContractBinding or contract_binding.session_id != sid:
+                    raise ValueError('invalid_resume_contract')
+            item = ResumePreparation(sid, revision, secrets.token_hex(32), supplement, checkpoint,
+                                     contract_binding=contract_binding)
             self._item = item
             return item
 

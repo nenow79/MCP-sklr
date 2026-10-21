@@ -6,6 +6,7 @@ local action start, not completion or authorization. Callers must release each
 accepted token in finally. No lock may be held across actual tool execution.
 P2 integration must define lock ordering with TaskManager before using this API.
 """
+import copy
 import threading
 from contextlib import contextmanager
 
@@ -44,6 +45,8 @@ class SessionController:
         self._resume_recovery_required = False
         self._resume_coordination_active = False
         self._confirmed_plan_revision = None
+        self._autopilot = None
+        self._stopping = False
 
     def _invalidate_resume(self):
         """Logical invalidation precedes best-effort RAM cleanup.
@@ -80,7 +83,8 @@ class SessionController:
                 # Rebinding/reconnecting can never clear the pause latch.
                 return self.snapshot()
             self._selected = sid
-            self._blocked = item.state != SessionState.ACTIVE
+            self._blocked = item.state != SessionState.ACTIVE or (
+                self._autopilot is not None and self._autopilot._recovery)
             return self.snapshot()
 
     def recover_selection(self, sid, expected_revision):
@@ -111,7 +115,7 @@ class SessionController:
         submits a queued task does not authorize that task's later dispatch.
         """
         with self._lock:
-            if self._selected is None or self._blocked:
+            if self._selected is None or self._blocked or self._stopping:
                 raise SessionBlocked('Session execution is blocked.')
             try:
                 item = self._store.get(self._selected)
@@ -179,6 +183,21 @@ class SessionController:
                 raise SessionBlocked('Task session association is not current.')
             return self.begin_action()
 
+    def stop_admissions(self):
+        """Irreversible process shutdown latch; started actions may still finish."""
+        with self._lock:
+            self._stopping = self._blocked = True
+            self._invalidate_resume()
+            if self._selected is not None:
+                try:
+                    state = self.snapshot()
+                    if state['state'] == 'active':
+                        self.request_pause(state['revision'])
+                except Exception:
+                    # Keep the RAM latch closed even if durable pause fails.
+                    return False
+            return True
+
     def finish_action(self, token):
         """Release exactly once, including failed/cancelled actions.
 
@@ -200,6 +219,8 @@ class SessionController:
             # Close admission before I/O. Even conflicts leave admission closed;
             # user must inspect status and retry with the current revision.
             self._blocked = True
+            if self._autopilot is not None:
+                self._autopilot.session_paused_internal()
             self._resume_pending_revision = None
             self._confirmed_plan_revision = None
             if self._resumes is not None:
@@ -427,8 +448,14 @@ class SessionController:
             if record is not None:
                 self._checkpoint_current_revision = prepared.revision
             try:
-                self._resumes.prepare(prepared.id, prepared.revision, text,
-                                      record.checkpoint if record else None)
+                binding = (self._autopilot.resume_prepared_internal(prepared.revision)
+                           if self._autopilot is not None else None)
+                if binding is None:
+                    self._resumes.prepare(prepared.id, prepared.revision, text,
+                                          record.checkpoint if record else None)
+                else:
+                    self._resumes.prepare(prepared.id, prepared.revision, text,
+                                          record.checkpoint if record else None, contract_binding=binding)
             except Exception:
                 self._invalidate_resume()
                 raise ResumeOperationError('resume_prepare_failed') from None
@@ -465,7 +492,11 @@ class SessionController:
             if (prepared is None or prepared.session_id != item.id
                     or prepared.revision != item.revision or prepared.plan is not None):
                 return {'available': False}
-            return {'available': True, **prepared.to_context()}
+            response = {'available': True, **prepared.to_context()}
+            if self._autopilot is not None:
+                response['autopilot_control'] = self._autopilot.snapshot()
+                response['autopilot_scope'] = copy.deepcopy(self._autopilot.resume_scope)
+            return response
 
     def confirm_resume_plan(self, plan, expected_revision, preparation_token):
         """Confirm the user-prepared generation; cannot initiate a resume.
@@ -485,11 +516,17 @@ class SessionController:
                 raise SessionConflict('Resume preparation is not paused.')
             validated = validate_resume_plan(plan)
             try:
+                preparation = self._resumes.get()
                 self._resumes.confirm(item.id, item.revision, preparation_token, validated)
+                if self._autopilot is not None:
+                    self._autopilot.confirm_internal(
+                        preparation.contract_binding if preparation is not None else None)
             except (SessionConflict, ValueError):
                 raise
             except Exception:
                 self._invalidate_resume()
+                if self._autopilot is not None:
+                    self._autopilot.session_paused_internal()
                 raise ResumeOperationError('resume_ram_failed') from None
             try:
                 confirmed = self._store.confirm_resume(item.id, item.revision)
@@ -497,6 +534,8 @@ class SessionController:
                 self._resume_recovery_required = True
                 self._checkpoint_current_revision = None
                 self._invalidate_resume()
+                if self._autopilot is not None:
+                    self._autopilot.stop('recovery_required', uncertain=True)
                 raise ResumeOperationError('resume_confirm_failed') from None
             self._resume_pending_revision = None
             self._checkpoint_current_revision = None
@@ -550,7 +589,7 @@ class SessionController:
                 **resume_fields,
                 'scope': 'instance',
                 'session_id': self._selected,
-                'execution_blocked': self._blocked,
+                'execution_blocked': self._blocked or self._stopping,
                 'running_actions': len(self._tokens),
                 'state': item.state.value if item else None,
                 'reason': item.reason if item else '',

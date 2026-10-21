@@ -23,8 +23,8 @@ Zacznij od [AGENTS](../AGENTS.md) i krótkiego [CURRENT](plan/CURRENT.md). Otwar
 | Skills i zaufanie | [Obsługa skills](specs/skills-support.md) |
 | Pliki, roots, zgody i sekrety | [Bezpieczeństwo narzędzi](specs/files-and-approvals.md) |
 | Sesje pracy — pauza, checkpoint RAM i wznowienie (opt-in) | [Kontrakt sesji](specs/work-session-pause.md) |
-| Autopilot A2 — kontrakt zaakceptowany, niewdrożony | [Kontrakt autonomii](specs/autopilot-contract.md) |
-| Reguły A2b2 — zaakceptowany format, moduł odłączony od wykonania | [Format reguł i ocena operacji](specs/autopilot-rules.md) |
+| Autopilot A2 — zaakceptowany kontrakt delegacji | [Kontrakt autonomii](specs/autopilot-contract.md); implementacja i odbiór w CURRENT |
+| Reguły A2 — zaakceptowany format i ocena operacji | [Format reguł i ocena operacji](specs/autopilot-rules.md) |
 | Autonomia — dalszy zakres i przygotowanie Windows | [Priorytety i warunki przekazania](plan/backlog.md) |
 | Zewnętrzne MCP — wdrożony kontrakt v1, odbiór częściowy | [Profile, panel i zgody](specs/external-mcp-support.md) |
 | Proponowane wykonywanie komend | [Propozycja i model zagrożeń](specs/command-execution-proposal.md) |

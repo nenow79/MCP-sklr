@@ -1,4 +1,4 @@
-"""Detached P2c wrapper. No production registration or panel mutation here.
+"""Session wrapper with an optional A2b3 execution bridge; no panel mutation.
 
 Compose as: telemetry(session_wrapper(tool)), with the existing confidential
 flag unchanged. MCP sees the original signature through functools.wraps.
@@ -6,6 +6,7 @@ Only synchronous dict-returning tools are supported by this version.
 """
 import inspect
 import logging
+from contextlib import nullcontext
 from functools import wraps
 
 from tasks.session_controller import SessionBlocked
@@ -137,16 +138,34 @@ def wrap_session_tool(function, controller):
     @wraps(function)
     def wrapped(*args, **kwargs):
         token = None
+        autopilot = getattr(controller, '_autopilot', None)
+        runtime = autopilot.runtime if autopilot is not None else None
         if role == 'work':
             try:
                 token = controller.begin_action()
             except SessionBlocked:
-                return {
+                response = {
                     'success': False, 'error': 'Wykonanie zablokowane przez sesję sklr.',
                     'session_control': session_control(controller),
                 }
+                if autopilot is not None:
+                    response['autopilot_control'] = autopilot.snapshot()
+                return response
         try:
-            result = function(*args, **kwargs)
+            from autopilot.controller import AutopilotBlocked
+            try:
+                if role == 'work' and autopilot is not None and autopilot.engaged and runtime is None:
+                    raise AutopilotBlocked('recovery_required')
+                scope_context = (runtime.invocation(function, args, kwargs)
+                                 if role == 'work' and runtime is not None else nullcontext(None))
+                with scope_context as scope:
+                    result = (function(*scope.call_args, **scope.call_kwargs) if scope is not None
+                              else function(*args, **kwargs))
+                    if scope is not None:
+                        scope.result = result
+            except AutopilotBlocked as exc:
+                result = {'success': False, 'error': 'Wykonanie zablokowane przez autopilota sklr.',
+                          'code': exc.code}
         finally:
             if token is not None:
                 try:
@@ -159,6 +178,8 @@ def wrap_session_tool(function, controller):
         # or mutated. Caller-owned result retains identity of nested data.
         response = dict(result)
         response['session_control'] = session_control(controller)
+        if autopilot is not None:
+            response['autopilot_control'] = autopilot.snapshot()
         return response
 
     return wrapped

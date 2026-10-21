@@ -34,27 +34,35 @@ class SkillRegistry:
         self._dev_dirs = tuple(Path(p).expanduser() for p in dev_dirs)
         self._dev_enabled = set(dev_enabled)
         self._result = ScanResult()
+        self._change_listeners = []
+
+    def add_change_listener(self, listener):
+        """Leaf generation invalidators only, no task/session control callbacks."""
+        with self._lock:
+            self._change_listeners.append(listener)
+
+    def _set(self, name, value):
+        with self._lock:
+            if getattr(self, name) != value:
+                setattr(self, name, value)
+                for listener in self._change_listeners:
+                    listener()
 
     # --- konfiguracja ---
     def set_central_dir(self, central_dir: Optional[Path]) -> None:
-        with self._lock:
-            self._central_dir = central_dir
+        self._set('_central_dir', central_dir)
 
     def set_project_root(self, project_root: Optional[Path]) -> None:
-        with self._lock:
-            self._project_root = project_root
+        self._set('_project_root', project_root)
 
     def set_disabled(self, disabled: Iterable[str]) -> None:
-        with self._lock:
-            self._disabled = set(disabled)
+        self._set('_disabled', set(disabled))
 
     def set_dev_dirs(self, dev_dirs: Iterable[Path]) -> None:
-        with self._lock:
-            self._dev_dirs = tuple(Path(p).expanduser() for p in dev_dirs)
+        self._set('_dev_dirs', tuple(Path(p).expanduser() for p in dev_dirs))
 
     def set_dev_enabled(self, enabled: Iterable[str]) -> None:
-        with self._lock:
-            self._dev_enabled = set(enabled)
+        self._set('_dev_enabled', set(enabled))
 
     def _enabled(self, record: SkillRecord) -> bool:
         # Wywoływane tylko pod self._lock. Flagi dev są niezależne od central/project.

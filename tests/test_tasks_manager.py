@@ -59,6 +59,12 @@ def make_manager(tmp_path):
     yield factory
     for mgr, store in created:
         mgr.shutdown()
+        # shutdown intentionally does not join running work. Tests must not
+        # close SQLite underneath the preceding test's finalization, or its
+        # traceback can contaminate the next test's confidentiality assertions.
+        for worker in mgr._workers:
+            worker.join(timeout=5)
+        assert not any(worker.is_alive() for worker in mgr._workers)
         store.close()
 
 

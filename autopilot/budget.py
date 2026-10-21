@@ -105,6 +105,31 @@ class BudgetLedger:
             if self._state in {'prepared', 'active'}:
                 self._state = 'suspended'
 
+    def bind_run(self, binding):
+        """Internal resume coordination; preserve deadline and all usage.
+
+        Old reservations must first be cancelled. This does not activate a
+        delegation or accept panel consent; the coordinator supplies both.
+        """
+        with self._lock:
+            self._refresh()
+            old = self._binding
+            if (type(binding) is not ContractBinding
+                    or binding.contract_id != old.contract_id
+                    or binding.contract_revision != old.contract_revision
+                    or binding.session_id != old.session_id
+                    or binding.rules_digest != old.rules_digest
+                    or binding.run_revision <= old.run_revision
+                    or self._state not in {'prepared', 'suspended'}
+                    or self._running or self._reserved):
+                raise BudgetError('binding_mismatch')
+            self._binding = binding
+
+    def block(self):
+        """Irreversible RAM latch after uncertain journal/accounting failure."""
+        with self._lock:
+            self._state = 'recovery_required'
+
     def revoke(self, binding):
         with self._lock:
             self._check_binding(binding)

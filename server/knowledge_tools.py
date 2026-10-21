@@ -71,10 +71,12 @@ class RefreshQueue:
                 return {"started": False, "exit_code": 1, "error": "Odświeżanie OKF nie powiodło się."}
 
         try:
+            from autopilot.context import MAINTENANCE
             task = self.manager.submit(
                 {"kind": "knowledge_refresh", "title": "Odświeżanie indeksu OKF",
                  "payload": {"bundle_id": bundle_id}, "offer_trust": False,
-                 "sensitive": True}, executor, needs_approval=False)
+                 "sensitive": True}, executor, needs_approval=False,
+                internal_maintenance=MAINTENANCE)
         except QueueFullError:
             raise KnowledgeError("QUEUE_FULL") from None
         except TaskStateError:

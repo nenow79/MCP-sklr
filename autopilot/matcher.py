@@ -108,7 +108,7 @@ def _changed(rules, resource):
 
 def _protected_file(path):
     parts = path.casefold().split('/')
-    return any(part in {'.git', '.ssh', '.aws', '.azure', '.kube', '.gnupg'} for part in parts) or parts[-1] in {
+    return any(part in {'.git', '.ssh', '.aws', '.azure', '.kube', '.gnupg', '.agents', '.codex'} for part in parts) or parts[-1] in {
         'agents.md', 'skill.md', 'config.json', '.env', '.npmrc', 'pip.ini', 'pip.conf',
         'autopilot-contract.md', 'autopilot-rules.md',
     }

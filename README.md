@@ -19,6 +19,17 @@ python main.py
 ```
 Serwer: `http://127.0.0.1:8101/mcp` (host, port i CORS w `config.json`).
 
+`config.json` pozostaje lokalnie obok `main.py` i jest ignorowany przez Git.
+Istniejącą konfigurację zachowaj; nie zastępuj jej przykładem. Przy nowej instalacji
+możesz skopiować `config.example.json` do `config.json` i ustawić własne roots,
+profile oraz środowiska. Przykład ma pustą listę roots/trust/profili i wyłączone
+sesje/autopilota. Brakujące klucze istniejącego configu uzupełniają wartości domyślne
+z `state.py`; aplikacja nie odczytuje automatycznie pliku przykładowego.
+
+Przy pierwszej aktualizacji wersji ze śledzonym configiem wykonaj
+[migrację z kopią poza checkoutem](docs/windows-okf.md#aktualizacja-na-windows).
+Samo dodanie do `.gitignore` nie chroni pliku, który starszy commit nadal śledzi.
+
 ## Narzędzia MCP
 - `ping`, `list_skills`, `activate_skill`, `read_skill_resource`.
 - `run_skill_script(name, script, args, timeout, wait)` - skrypt jako zadanie w kolejce (SQLite `tasks.db`).

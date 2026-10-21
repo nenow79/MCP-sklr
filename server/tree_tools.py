@@ -122,6 +122,8 @@ def _verify(registry, args, plan):
 
 
 def _executor(registry, config_lock, args, plan):
+    from autopilot.context import local_write
+    @local_write(verify=lambda: _verify(registry, args, plan))
     def execute(cancel_event):
         started = time.monotonic()
         created_dirs, created_files = [], []
@@ -189,6 +191,8 @@ def _executor(registry, config_lock, args, plan):
                 except Exception:
                     rollback_ok = False
             if not rollback_ok:
+                from autopilot.context import mark_uncertain
+                mark_uncertain()
                 return {"started": False, "error": "Niepełny rollback struktury; sprawdź pliki i katalogi przed ponowieniem."}
             if cancel_event.is_set():
                 return {"cancelled": True}

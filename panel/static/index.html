@@ -7,6 +7,7 @@
   <title>Vibecoder - zatwierdzenia</title>
   <link rel="stylesheet" href="/static/style.css">
   <script src="/static/app.js" defer></script>
+  <script src="/static/autopilot.js" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -196,6 +197,56 @@ docs/archives/</textarea></label>
       Treść pozostaje tylko w RAM i znika po restarcie. Przygotowanie wznowienia nie otwiera bramki:
       potrzebny jest aktualny plan potwierdzony przez model. Przełączenie przypiętej sesji jest niedostępne.</p>
     <div id="session-state" class="task-list"></div>
+    <section id="autopilot-section" hidden>
+      <h2>Delegacja autopilota</h2>
+      <p>Obejmuje wszystkie rozmowy tej instancji. Po zatwierdzeniu przygotuj wznowienie;
+        model musi potwierdzić aktualny plan. Każda pauza wymaga ponownej decyzji tutaj.
+        Reguły, cel i plan pozostają tylko w RAM; restart odbiera zgodę. Nie wpisuj sekretów.</p>
+      <p>Wyłączone: sekrety, instrukcje, kod i zabezpieczenia działającego sklr, konfiguracja/trust,
+        usuwanie, testy, instalacje, shell, publikacja, produkcja i płatności.
+        Zewnętrzny skill/MCP działa z uprawnieniami użytkownika i nie jest ograniczony do roots.
+        Discovery stdio może uruchomić proces. Wybieraj znanego wykonawcę i konkretne działanie.</p>
+      <button id="ap-refresh" type="button" class="btn">Odśwież delegację</button>
+      <div id="ap-state" role="status"></div><p id="ap-error" role="alert"></p>
+      <fieldset id="ap-editor"><legend>Nowa delegacja — tylko podczas pełnej pauzy</legend>
+        <label>Cel <textarea id="ap-goal" maxlength="500" autocomplete="off"></textarea></label>
+        <label>Zaakceptowany plan <textarea id="ap-plan" maxlength="6000" autocomplete="off"></textarea></label>
+        <label>Ważność (minuty) <input id="ap-minutes" type="number" min="1" max="120" value="30"></label>
+        <label>Operacje <input id="ap-operations" type="number" min="1" max="500" value="100"></label>
+        <p>Jedno rozpoczęte działanie naraz. Pauzy wliczają się do czasu. Timeout zadania jest osobny;
+          wait_task do 8 sekund nie przerywa zadania. Wywołanie MCP wymaga też osobnej reguły discovery
+          tego profilu z co najmniej takim samym timeoutem. Katalog wymaga objęcia wszystkich zwracanych zasobów.</p>
+        <label>Rodzaj <select id="ap-kind">
+          <option value="files">Pliki</option><option value="knowledge">Wiedza</option>
+          <option value="skill_read">Odczyt skilla</option><option value="skill_run">Skrypt skilla</option>
+          <option value="mcp_discovery">Discovery MCP</option><option value="mcp_call">Wywołanie MCP</option>
+          <option value="catalog">Katalog zasobów</option>
+        </select></label>
+        <label>Zasób (w katalogu można wybrać wiele) <select id="ap-resource" multiple size="5"></select></label>
+        <fieldset id="ap-tools"><legend>Jawnie delegowane narzędzia</legend></fieldset>
+        <label>Zakres <select id="ap-scope-kind"><option value="file">Plik</option><option value="tree">Poddrzewo</option></select>
+          <input id="ap-scope" placeholder="np. src; kropka oznacza cały wybrany zasób" autocomplete="off"></label>
+        <label><input id="ap-overwrite" type="checkbox"> Pełne nadpisanie przez create_file</label>
+        <label>Skrypt pod scripts/ <input id="ap-script" autocomplete="off"></label>
+        <label>Dokładna lista argumentów skryptu (JSON) <textarea id="ap-args" autocomplete="off">[]</textarea></label>
+        <label>Narzędzie MCP z aktualnego katalogu <input id="ap-mcp-tool" list="ap-mcp-tools" autocomplete="off"></label>
+        <datalist id="ap-mcp-tools"></datalist>
+        <label>Selektor argumentów MCP (JSON, format A2b2) <textarea id="ap-selector" autocomplete="off">{"type":"object","properties":{},"required":[]}</textarea></label>
+        <label>Timeout wykonawcy (sekundy) <input id="ap-timeout" type="number" min="1" max="300" value="60"></label>
+        <button id="ap-add" type="button" class="btn">Dodaj regułę</button>
+        <button id="ap-clear" type="button" class="btn">Wyczyść reguły</button><pre id="ap-rules"></pre>
+        <button id="ap-preview" type="button" class="btn">Przygotuj podgląd</button>
+      </fieldset>
+      <pre id="ap-preview-content"></pre>
+      <button id="ap-approve" type="button" class="btn btn-allow" disabled>Zatwierdź podgląd</button>
+      <button id="ap-reconfirm" type="button" class="btn">Potwierdź ten sam zakres i pozostałe limity</button>
+      <button id="ap-revoke" type="button" class="btn">Cofnij zgodę autopilota</button>
+      <button id="ap-manual" type="button" class="btn">Wybierz zwykły tryb ręcznych zgód</button>
+      <div id="ap-unresolved"></div>
+      <button id="ap-acknowledge-recovery" type="button" class="btn">Potwierdź rozstrzygnięcie awarii magazynu</button>
+      <p>Cofnięcie blokuje nowe działania i wstrzymuje sesję. Rozpoczęte kończą się w swoich limitach;
+        ich skutki nie są cofane. Rozstrzygnięcie niepewności nie ponawia operacji ani nie wznawia pracy.</p>
+    </section>
     <section id="session-checkpoint-section" hidden>
       <h2>Checkpoint</h2>
       <p class="muted">Tylko RAM, bez trwałego zapisu. To dane modelu, nie źródło uprawnień.

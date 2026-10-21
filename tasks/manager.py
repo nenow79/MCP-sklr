@@ -75,6 +75,8 @@ class _Ctx:
     allow_external_reapproval: bool = False
     reapproval_used: bool = False
     approval_preview: Optional[Dict[str, Any]] = None
+    autopilot_ticket: object = field(default=None, repr=False)
+    maintenance: bool = False
 
 
 class TaskManager:
@@ -107,10 +109,31 @@ class TaskManager:
                verify: Optional[Callable[[], Optional[str]]] = None,
                on_trust: Optional[Callable[[], None]] = None,
                *, allow_external_reapproval: bool = False,
-               approval_preview: Optional[Dict[str, Any]] = None) -> Task:
+               approval_preview: Optional[Dict[str, Any]] = None,
+               internal_maintenance=None) -> Task:
         with self._cond:
             if self._stopped:
                 raise TaskStateError("Menedżer zadań jest zatrzymany.")
+            from autopilot.context import CURRENT, MAINTENANCE
+            scope = CURRENT.get()
+            autopilot = getattr(self._sessions, '_autopilot', None)
+            maintenance = internal_maintenance is MAINTENANCE
+            ticket = None
+            if autopilot is not None and not maintenance and autopilot.engaged:
+                if (scope is None or scope.runtime.controller is not autopilot or not scope.queued
+                        or scope.ticket is None or scope.submitted):
+                    autopilot.stop('manual_required')
+                    raise TaskStateError('autopilot_manual_required')
+                ticket = scope.ticket
+                from autopilot.adapters.files import WRITES
+                if (needs_approval and ticket.tool not in WRITES
+                        or ticket.tool in WRITES and fields.get('sensitive')):
+                    autopilot.stop('manual_required')
+                    raise TaskStateError('autopilot_manual_required')
+                needs_approval = False
+                on_trust = None
+                allow_external_reapproval = False
+                approval_preview = None
             external = fields.get("kind") == EXTERNAL_KIND
             confidential = fields.get("kind") == SECRET_KIND or external
             if approval_preview is not None:
@@ -149,6 +172,8 @@ class TaskManager:
                     task = self._store.create(**dict(fields), status=status)
                     if associate is not None:
                         associate(task.id)
+                    if ticket is not None:
+                        autopilot.associate(ticket, task.id)
             except Exception:
                 if task is not None:
                     try:
@@ -164,7 +189,10 @@ class TaskManager:
                                       confidential=confidential, external=external,
                                       authorized=external and not needs_approval,
                                       allow_external_reapproval=allow_external_reapproval,
-                                      approval_preview=copy.deepcopy(approval_preview))
+                                      approval_preview=copy.deepcopy(approval_preview),
+                                      autopilot_ticket=ticket, maintenance=maintenance)
+            if ticket is not None:
+                scope.submitted = True
             self._ensure_workers()
             if not needs_approval:
                 self._queue.put(task.id)
@@ -307,7 +335,7 @@ class TaskManager:
                 task = self._store.update(
                     task_id, status=TaskStatus.REJECTED, decision=decision,
                     decided_at=now_iso(), finished_at=now_iso(), error=error)
-                self._ctx.pop(task_id, None)
+                self._discard_context(task_id)
             self._cond.notify_all()
             return task
 
@@ -385,7 +413,7 @@ class TaskManager:
                         self._store.update(task_id, status=TaskStatus.CANCELLED,
                                            finished_at=now_iso(), error='Anulowano przy wznowieniu sesji.')
                         cancelled += 1
-                        self._ctx.pop(task_id, None)
+                        self._discard_context(task_id)
                         self._volatile.discard(task_id)
                     prepared = self._sessions.prepare_resume_internal(
                         supplement, preparation_revision,
@@ -405,7 +433,7 @@ class TaskManager:
                 task = self._store.update(
                     task_id, status=TaskStatus.CANCELLED, finished_at=now_iso(),
                     error="Anulowano.")
-                self._ctx.pop(task_id, None)
+                self._discard_context(task_id)
                 self._cond.notify_all()
                 return task
             ctx = self._ctx.get(task_id)
@@ -422,7 +450,23 @@ class TaskManager:
     def shutdown(self) -> None:
         """Zatrzymuje workery (zadania w toku nie są ubijane; po restarcie -> interrupted)."""
         with self._cond:
+            if self._stopped:
+                return
             self._stopped = True
+            if self._sessions is not None:
+                self._sessions.stop_admissions()
+            autopilot = getattr(self._sessions, '_autopilot', None)
+            if autopilot is not None and autopilot.engaged:
+                try:
+                    autopilot.stop('shutdown')
+                except Exception:
+                    logger.error('Nie udało się zapisać zamknięcia autopilota; bramka pozostaje zamknięta.')
+                for task_id, ctx in list(self._ctx.items()):
+                    if ctx.autopilot_ticket is not None and ctx.autopilot_ticket.phase == 'reserved':
+                        try:
+                            self._discard_context(task_id)
+                        except Exception:
+                            logger.error('Nie udało się rozliczyć rezerwacji przy zamknięciu autopilota.')
             for _ in self._workers:
                 self._queue.put(None)
             self._cond.notify_all()
@@ -476,13 +520,20 @@ class TaskManager:
                     or task is None or ctx is None or task.status != TaskStatus.QUEUED):
                 return  # np. anulowane w kolejce
             token = None
+            autopilot = getattr(self._sessions, '_autopilot', None)
+            if autopilot is not None and autopilot.engaged and ctx.autopilot_ticket is None and not ctx.maintenance:
+                autopilot.stop('manual_required')
+                self._store.update(task_id, status=TaskStatus.CANCELLED,
+                                   finished_at=now_iso(), error='autopilot_manual_required')
+                self._discard_context(task_id)
+                return
             if self._sessions is not None:
                 try:
                     token = self._sessions.begin_task(task_id)
                 except StaleSessionTask:
                     self._store.update(task_id, status=TaskStatus.CANCELLED,
                                        finished_at=now_iso(), error='Nieaktualny przebieg sesji.')
-                    self._ctx.pop(task_id, None)
+                    self._discard_context(task_id)
                     self._volatile.discard(task_id)
                     self._cond.notify_all()
                     return
@@ -495,15 +546,72 @@ class TaskManager:
                 self._store.update(task_id, status=TaskStatus.RUNNING, started_at=now_iso())
             except Exception:
                 self._release_session_token(token)
+                if ctx.autopilot_ticket is not None:
+                    autopilot.stop('storage_error', uncertain=True)
+                    self._discard_context(task_id)
                 raise
             self._cond.notify_all()
 
         try:
-            self._execute_task(task_id, task, ctx)
+            if ctx.autopilot_ticket is None:
+                self._execute_task(task_id, task, ctx)
+            else:
+                self._execute_autopilot(task_id, task, ctx)
         finally:
             # Also covers verify failure, executor error, timeout/cancel,
             # confidential publication and return-to-approval transitions.
             self._release_session_token(token)
+
+    def _execute_autopilot(self, task_id, task, ctx):
+        from autopilot.context import CURRENT
+        from autopilot.adapters.files import WRITES
+        from autopilot.controller import AutopilotBlocked
+        runtime = self._sessions._autopilot.runtime
+        scope = runtime.task_invocation(ctx.autopilot_ticket)
+        marker = CURRENT.set(scope)
+        failed = False
+        try:
+            if scope.ticket.tool in WRITES:
+                # Admission occurs inside the transaction before local mutation.
+                self._execute_task(task_id, task, ctx)
+            else:
+                with runtime.effect(scope.ticket, cancel_event=ctx.cancel_event):
+                    self._execute_task(task_id, task, ctx)
+        except Exception:
+            failed = True
+            try:
+                self._finish(task_id, TaskStatus.FAILED, error='autopilot_execution_blocked')
+            except Exception:
+                pass
+            runtime.controller.stop('recovery_required' if scope.ticket.phase == 'started' else 'session_blocked',
+                                    uncertain=scope.ticket.phase == 'started')
+        finally:
+            CURRENT.reset(marker)
+            try:
+                current = self._store.get(task_id)
+                uncertain = (scope.ticket.phase == 'started' and (scope.uncertain or failed or current is None
+                    or scope.dispatched and current.status != TaskStatus.DONE
+                    or current.status in {TaskStatus.TIMED_OUT, TaskStatus.CANCELLED, TaskStatus.INTERRUPTED}
+                    or ctx.safe_error is not None and 'uncertain' in ctx.safe_error))
+                outcome_failed = failed or current is None or current.status != TaskStatus.DONE
+                # Close admission BEFORE returning the running budget slot.
+                # Otherwise another admitted waiter can win the gap between
+                # finish() and stop(), even though this attempt has failed.
+                if uncertain or outcome_failed and not runtime.controller.snapshot()['execution_blocked']:
+                    runtime.controller.stop('recovery_required' if uncertain else 'failed', uncertain=uncertain)
+                runtime.complete(scope, uncertain=uncertain,
+                                 failed=outcome_failed)
+            except Exception:
+                runtime.controller.stop('storage_error', uncertain=True)
+            with self._cond:
+                self._cond.notify_all()
+
+    def _discard_context(self, task_id):
+        """Manager lock held. Release only an unstarted delegation reservation."""
+        ctx = self._ctx.pop(task_id, None)
+        if ctx is not None and ctx.autopilot_ticket is not None and ctx.autopilot_ticket.phase == 'reserved':
+            self._sessions._autopilot.release(ctx.autopilot_ticket)
+        return ctx
 
     def _release_session_token(self, token) -> None:
         if token is not None:
@@ -534,6 +642,16 @@ class TaskManager:
                 ctx.on_trust()
             result = ctx.executor(ctx.cancel_event)
         except Exception as exc:
+            if ctx.autopilot_ticket is not None:
+                # Do not let an adapter exception enter the legacy traceback or
+                # Task.error path. Results retain their existing separate channel.
+                from autopilot.context import mark_uncertain
+                if type(exc) is ExternalApprovalRequired:
+                    self._sessions._autopilot.stop('limiter')
+                elif not ctx.external and ctx.autopilot_ticket.phase == 'started':
+                    mark_uncertain()
+                self._finish(task_id, TaskStatus.FAILED, error='autopilot_executor_failed')
+                return
             if type(exc) is ExternalApprovalRequired and self._return_external_to_approval(task_id, ctx):
                 return
             if ctx.external:

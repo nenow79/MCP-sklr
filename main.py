@@ -32,6 +32,7 @@ from server.project_tools import ProjectTools, call_project
 from server.session_activation import (
     configured_work_session, session_registrars, verify_session_registration, stop_work_session,
 )
+from server.autopilot_activation import configured_autopilot
 from skills_engine import SkillRegistry
 from skills_engine.content import DEFAULT_READ_CHARS
 from skills_engine.runner import DEFAULT_TIMEOUT
@@ -149,6 +150,14 @@ EXTERNAL_MCP_TOOLS = ExternalMCPTools(
     EXTERNAL_MCP_REGISTRY, TASK_MANAGER,
     panel_available=lambda: PANEL_SERVER is not None and PANEL_SERVER.running,
 )
+try:
+    AUTOPILOT = configured_autopilot(
+        CONFIG, TASKS_DB.with_name('autopilot.db'), WORK_SESSION, CONFIG_STORE, ROOTS, TASK_MANAGER,
+        knowledge=KNOWLEDGE, skills=REGISTRY, trust=TRUST_STORE, external=EXTERNAL_MCP_TOOLS,
+    )
+except Exception:
+    stop_work_session(TASK_MANAGER, WORK_SESSION, budget=5)
+    raise
 
 
 class PanelRequiredError(RuntimeError):
@@ -166,13 +175,16 @@ def start_approval_ui() -> str:
                            skills=SkillsAdmin(REGISTRY, CONFIG_STORE),
                            knowledge=KnowledgeAdmin(CONFIG_STORE, ROOTS, KNOWLEDGE),
                            external_mcp=ExternalMCPAdmin(EXTERNAL_MCP_REGISTRY, TASK_MANAGER),
-                           work_sessions=WORK_SESSION.admin if WORK_SESSION is not None else None)
+                           work_sessions=WORK_SESSION.admin if WORK_SESSION is not None else None,
+                           autopilot=AUTOPILOT)
     server = PanelServer(app, PANEL_PORT)
     if not server.start():
         raise PanelRequiredError(
             f"panel nie wystartował (port {PANEL_PORT} zajęty?): zatwierdzenia działają "
             "wyłącznie przez panel web, więc serwer nie zostanie uruchomiony.")
     PANEL_SERVER = server
+    if AUTOPILOT is not None:
+        AUTOPILOT.controller.start_watchdog()
     expiry_min = _TASKS_CFG.get("approval_expiry_min", 60)
     if isinstance(expiry_min, (int, float)) and not isinstance(expiry_min, bool) and expiry_min > 0:
         EXPIRY_WATCHER = ExpiryWatcher(TASK_MANAGER, expiry_min * 60)
@@ -712,6 +724,7 @@ if __name__ == "__main__":
             log_level="info",
         )
     finally:
+        TASK_MANAGER.shutdown()
         if not KNOWLEDGE.close(5):
             print("UWAGA: worker wiedzy nadal kończy operację I/O; nie potwierdzono zamknięcia.")
         if EXPIRY_WATCHER is not None:

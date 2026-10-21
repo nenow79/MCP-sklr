@@ -17,6 +17,16 @@ class ConfigStore:
         self._data = data
         self._path = Path(path) if path else None
         self._lock = threading.RLock()
+        self._change_listeners = []
+
+    def add_change_listener(self, listener) -> None:
+        """Leaf invalidators only; called under config lock, never controllers."""
+        with self._lock:
+            self._change_listeners.append(listener)
+
+    def _changed(self) -> None:
+        for listener in self._change_listeners:
+            listener()
 
     @property
     def lock(self) -> "threading.RLock":
@@ -34,6 +44,9 @@ class ConfigStore:
 
     def save(self) -> None:
         with self._lock:
+            # Invalidate even if persistence is uncertain or a legacy writer
+            # later restores RAM. Never resurrect authorization after failure.
+            self._changed()
             save_config(self._data, self._path)
 
     def update(self, mutator: Callable[[Dict[str, Any]], Any]) -> Any:
@@ -46,6 +59,8 @@ class ConfigStore:
             before = copy.deepcopy(self._data)
             try:
                 result = mutator(self._data)
+                if self._data != before:
+                    self._changed()
                 save_config(self._data, self._path)
             except BaseException:
                 self._data.clear()

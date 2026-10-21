@@ -206,6 +206,12 @@ class FileTransaction:
 
     def execute(self, plan: PreparedChanges, cancel_event: Optional[threading.Event] = None,
                 *, guard: Optional[Callable[[], None]] = None) -> Dict[str, Any]:
+        from autopilot.context import local_effect
+        with local_effect(cancel_event, verify=lambda: self.verify(plan, guard=guard)):
+            return self._execute(plan, cancel_event, guard=guard)
+
+    def _execute(self, plan: PreparedChanges, cancel_event: Optional[threading.Event] = None,
+                 *, guard: Optional[Callable[[], None]] = None) -> Dict[str, Any]:
         """Bezpieczny wynik operacji, do adaptacji przez executor z paczki B.
 
         Bez stdout, hashy, bajtów, nazw temp i surowych wyjątków. Przy cleanup

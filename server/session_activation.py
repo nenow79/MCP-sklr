@@ -68,9 +68,14 @@ def stop_work_session(manager, runtime, budget=5):
     if runtime is None:
         return True
     deadline = time.monotonic() + budget
+    autopilot = getattr(runtime.controller, '_autopilot', None)
+    if autopilot is not None and not autopilot.stop_watchdog(timeout=max(0, deadline - time.monotonic())):
+        return False
     for worker in manager._workers:
         worker.join(timeout=max(0, deadline - time.monotonic()))
     if any(worker.is_alive() for worker in manager._workers):
+        return False
+    if autopilot is not None and not autopilot.close():
         return False
     with runtime.controller._lock:
         if runtime.controller._tokens:

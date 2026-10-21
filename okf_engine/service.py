@@ -22,6 +22,7 @@ from .revisions import RevisionSigner
 from .scanner import scan_bundle
 from .search import parse_request, prepare_document, search
 from .textlines import split_lines
+from .coordination import coordinate_refresh
 
 
 class KnowledgeError(ValueError):
@@ -169,6 +170,7 @@ class KnowledgeService:
                 result[bundle_id] = 0
         return result
 
+    @coordinate_refresh
     def refresh_available_background(self):
         """Planuje uzgodnienie po przywróceniu cache, bez oczekiwania na pełne skany."""
         with self._lock:
@@ -277,6 +279,7 @@ class KnowledgeService:
             if state.path != context.bundle.path or state.entry != context.bundle.entry:
                 raise KnowledgeError("BUNDLE_UNAVAILABLE")
 
+    @coordinate_refresh
     def after_write(self, bundle_id, concepts=None):
         """Po committed: cele przyrostowe lub pełna invalidacja dla niepewnego zakresu."""
         if concepts is not None and callable(getattr(self._refresh_backend, 'update', None)):
@@ -298,6 +301,7 @@ class KnowledgeService:
                 # Żadnego wyjątku po committed do ogólnego loggera kolejki.
                 return {"index_state": "error", "index_error": "REFRESH_UNAVAILABLE"}
 
+    @coordinate_refresh
     def _after_documents(self, bundle_id, concepts):
         from .models import DocumentIdentity
         with self._lock:
@@ -332,12 +336,14 @@ class KnowledgeService:
     def write_time(self):
         return self._now()
 
+    @coordinate_refresh
     def refresh_bundle(self, bundle_id):
         with self._lock:
             self._sync()
             self._select(bundle_id, "all")
             return {"task_id": self._request_refresh(bundle_id, "force")}
 
+    @coordinate_refresh
     def after_file_write(self, paths, *, uncertain=False):
         """Powiadomienie zwykłego create/edit: rzeczywiste ścieżki, bez treści plików.
 
@@ -373,6 +379,7 @@ class KnowledgeService:
                     raise KnowledgeError('REFRESH_UNAVAILABLE')
             return result
 
+    @coordinate_refresh
     def after_project_write(self, root_alias, relatives=None):
         with self._lock:
             self._sync()
@@ -444,6 +451,8 @@ class KnowledgeService:
     def bundles(self):
         with self._lock:
             self._sync()
+            from autopilot.context import check_knowledge_scope
+            check_knowledge_scope()
             result = []
             for bundle_id, state in sorted(self._states.items()):
                 result.append(dict(id=bundle_id, scope=state.entry.scope, writable=state.writable,
@@ -577,6 +586,7 @@ class KnowledgeService:
                     self._retry_at[bundle_id] = self._clock() + 5
             return {"error": code, "cancelled": cancelled}
 
+    @coordinate_refresh
     def search(self, query="", bundle_id=None, scope="all", type=None, tags=None,
                status=None, query_mode="terms", browse=False, include_deprecated=False,
                limit=10, max_total_chars=12000, refresh="auto"):
@@ -588,6 +598,8 @@ class KnowledgeService:
         with self._lock:
             self._sync()
             selected = self._select(bundle_id, scope)
+            from autopilot.context import check_knowledge_scope
+            check_knowledge_scope()
             reader = self._reader()
             tasks, failures = [], {}
             for selected_id in selected:
@@ -633,6 +645,8 @@ class KnowledgeService:
         with self._lock:
             self._sync()
             self._select(bundle_id, "all")
+            from autopilot.context import check_knowledge_scope
+            check_knowledge_scope()
             reader = self._reader()
             document = reader.read(bundle_id, concept_id)
             if expected_revision is not None and not hmac.compare_digest(

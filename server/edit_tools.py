@@ -124,6 +124,8 @@ def _make_executor(transaction: FileTransaction, plan: PreparedChanges, count: i
             cancelled = bool(data.get("cancelled"))
             success = bool(result.get("success"))
         except Exception:  # surowy wyjątek nie trafia do error/logów menedżera
+            from autopilot.context import mark_uncertain
+            mark_uncertain()
             if after_write is not None:
                 try:
                     after_write(tuple(item.path for item in plan.files if item.changed), uncertain=True)
@@ -142,6 +144,9 @@ def _make_executor(transaction: FileTransaction, plan: PreparedChanges, count: i
         summary = (f"committed={str(committed).lower()}, published={published}, "
                    f"rollback_complete={str(rollback_ok).lower()}, cleanup_complete={str(cleanup_ok).lower()}")
         if not rollback_ok or not cleanup_ok:
+            if not rollback_ok:
+                from autopilot.context import mark_uncertain
+                mark_uncertain()
             error = ROLLBACK_ERROR if not rollback_ok else CLEANUP_ERROR
             if not rollback_ok and not cleanup_ok:
                 error += " " + CLEANUP_ERROR

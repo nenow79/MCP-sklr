@@ -4,6 +4,10 @@ __pycache__/
 logs/
 tasks.db*
 work_sessions.db*
+autopilot.db*
 knowledge_index.sqlite3*
 knowledge_cache.key*
-config.json.bak
+/config.json
+/config.json.tmp
+/config.json.bak*
+/kills) panel i trustcls

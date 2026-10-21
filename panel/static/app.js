@@ -70,6 +70,9 @@
 
   function authFailed() {
     state.stopped = true;
+    if (typeof window.dispatchEvent === "function") {
+      window.dispatchEvent(new Event("panel-auth-failed"));
+    }
     showBanner("Sesja nieważna. Otwórz ponownie link z konsoli serwera sklr " +
                "(http://127.0.0.1:8102/#token=...).", false);
   }
