@@ -11,6 +11,7 @@ function node() {
     _text: '', value: '', childNodes: [], listeners: {}, hidden: false, disabled: false, checked: false,
     appendChild(child) { this.childNodes.push(child); return child; },
     addEventListener(name, fn) { this.listeners[name] = fn; },
+    click() { if (!this.disabled && this.listeners.click) this.listeners.click(); },
     get textContent() { return this._text; },
     set textContent(value) { this._text = String(value); this.childNodes = []; }
   };
@@ -72,7 +73,7 @@ function harness(server) {
       } else if (url === '/api/work-session/pause') {
         out = server.pauseResponse;
       } else if (url === '/api/roots') {
-        out = { status: 200, json: rootsPayload() };
+        out = server.rootsResponse || { status: 200, json: rootsPayload() };
       } else {
         out = { status: 200, json: { success: true, data: { tasks: [] } } };
       }
@@ -466,4 +467,45 @@ test('odswiezenie zmienionej rewizji usuwa uzupelnienie', async () => {
   h.server.status = resumable({ revision: 4 });
   await h.click('session-refresh');
   assert.equal(h.get('session-supplement').value, '');
+});
+
+test('powrot z konfiguracji folderow zachowuje wybor i usuwa niedostepne zaznaczenia', async () => {
+  const h = harness({ status: status() });
+  await h.open(); await h.check('docs');
+  await h.click('session-manage-roots');
+  assert.equal(h.get('roots-view').hidden, false);
+  assert.equal(h.get('roots-return-session').hidden, false);
+  await h.click('roots-return-session');
+  assert.equal(h.get('session-view').hidden, false);
+  assert.equal(h.boxes().find(box => box.value === 'docs').checked, true);
+  assert.equal(h.get('session-start').disabled, false);
+  h.server.rootsResponse = { status: 200, json: { success: true, data: { roots: [{ alias: 'sklr', valid: true }] } } };
+  await h.click('session-refresh');
+  assert.equal(h.get('session-start').disabled, true);
+  assert.equal(h.posts().length, 0);
+});
+
+test('przypiete foldery maja aktualne metadane bez mozliwosci zmiany wyboru', async () => {
+  const h = harness({ status: active(), rootsResponse: { status: 200, json: { success: true, data: { roots: [
+    { alias: 'sklr', path: 'C:\\projekty\\sklr', mode: 'ro', description: '<projekt>', valid: true }
+  ] } } } });
+  await h.open();
+  const shown = text(h.get('session-roots'));
+  assert(shown.includes('C:\\projekty\\sklr') && shown.includes('tylko odczyt') && shown.includes('<projekt>'));
+  assert.equal(h.boxes().length, 0);
+  assert(text(h.get('session-summary')).includes('Sesja aktywna'));
+  assert.equal(h.get('session-pause').hidden, false);
+  h.server.status = active({ state: 'pause_requested', execution_blocked: true });
+  await h.click('session-refresh');
+  assert(text(h.get('session-summary')).includes('Trwa wstrzymywanie'));
+  assert.equal(h.get('session-pause').hidden, true);
+});
+
+test('blad pobrania folderow blokuje start ze starym wyborem', async () => {
+  const h = harness({ status: status() });
+  await h.open(); await h.check('docs');
+  h.server.rootsResponse = { status: 500, json: {} };
+  await h.click('session-refresh');
+  assert.equal(h.get('session-start').disabled, true);
+  assert(text(h.get('session-roots')).includes('niedostępna'));
 });

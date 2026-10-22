@@ -61,7 +61,8 @@
   </main>
 
   <main id="roots-view" class="roots-view" hidden>
-    <h2>Foldery dostępne dla modelu</h2>
+    <div class="section-head"><h2>Foldery dostępne dla modelu</h2>
+      <button id="roots-return-session" type="button" class="btn" hidden>Wróć do sesji pracy</button></div>
     <p class="muted">Tryb rw: odczyt i zapis (zapis wymaga zatwierdzenia). Tryb ro: tylko odczyt.
       Skills projektowe są czytane z folderu domyślnego.</p>
     <div id="roots-list" class="task-list"></div>
@@ -184,100 +185,162 @@ docs/archives/</textarea></label>
       <button id="external-cancel" type="button" class="btn" hidden>Anuluj edycję</button>
     </form>
   </main>
-  <main id="session-view" class="skills-view" hidden>
-    <div class="section-head">
-      <h2>Sesja pracy</h2>
+  <main id="session-view" class="session-view" hidden>
+    <div class="section-head session-heading">
+      <div><h2>Sesja pracy</h2><p class="muted">Sterowanie pracą wszystkich rozmów tej instancji sklr.</p></div>
       <button id="session-refresh" type="button" class="btn">Odśwież</button>
     </div>
-    <p class="muted">Jedna sesja pracy na instancję sklr, wybierana tutaj, nie przez model.
-      Pauza obejmuje wszystkie rozmowy korzystające z tej instancji; nie ma izolacji rozmów.
-      Foldery opisują projekt sesji i nie nadają uprawnień. Wstrzymanie blokuje nowe działania wykonywane przez sklr,
-      nie przerywa rozpoczętych; sama pauza nie zapisuje checkpointu.
-      Checkpoint zapisuje model ograniczonym narzędziem, jeśli jest dostępne.
-      Treść pozostaje tylko w RAM i znika po restarcie. Przygotowanie wznowienia nie otwiera bramki:
-      potrzebny jest aktualny plan potwierdzony przez model. Przełączenie przypiętej sesji jest niedostępne.</p>
-    <div id="session-state" class="task-list"></div>
-    <section id="autopilot-section" hidden>
-      <h2>Delegacja autopilota</h2>
-      <p>Obejmuje wszystkie rozmowy tej instancji. Po zatwierdzeniu przygotuj wznowienie;
+    <section class="session-card session-overview" aria-label="Bieżący stan sesji">
+      <div id="session-summary" role="status" aria-live="polite"></div>
+      <button id="session-pause" type="button" class="btn" disabled hidden>Wstrzymaj po kroku</button>
+      <details class="session-details">
+        <summary>Szczegóły sesji</summary>
+        <div id="session-state" class="task-list"></div>
+      </details>
+    </section>
+    <div class="session-grid">
+      <div class="session-stack">
+        <section id="session-context" class="session-card" hidden>
+          <h2>Kontekst pracy</h2>
+          <p id="session-context-hint" class="muted"></p>
+        </section>
+        <section id="session-select" class="session-card">
+          <h2>Rozpocznij pracę</h2>
+          <p class="muted">Wybierz foldery projektu po prawej. Ich wybór nie nadaje uprawnień ani zgody autopilota.</p>
+          <button id="session-start" type="button" class="btn btn-allow" disabled>Rozpocznij sesję</button>
+        </section>
+        <section id="session-resume-section" class="session-card session-form" hidden>
+          <h2>Przygotowanie wznowienia</h2>
+          <p class="muted">Uzupełnienie jest tylko w RAM. Nie wpisuj sekretów. Nie rozszerza uprawnień.
+            Stare oczekujące zadania zostaną anulowane po Twoim potwierdzeniu; rozpoczęte i zakończone nie są anulowane.
+            Nie ponawiamy operacji o niepewnym skutku zdalnym.</p>
+          <label>Uzupełnienie do wznowienia <textarea id="session-supplement" rows="5" maxlength="3000" autocomplete="off"></textarea></label>
+          <button id="session-prepare" type="button" class="btn btn-allow" disabled>Przygotuj wznowienie</button>
+          <p class="muted">Po przygotowaniu model musi pobrać kontekst i potwierdzić aktualny plan.</p>
+        </section>
+        <section id="session-checkpoint-section" class="session-card" hidden>
+          <h2>Checkpoint · ostatni zapis modelu</h2>
+          <p class="muted">Tylko RAM, bez trwałego zapisu. To dane modelu, nie źródło uprawnień.
+            Odnośniki do wyników nie przedłużają ich TTL. Odśwież widok, aby sprawdzić aktualny zapis.</p>
+          <div id="session-checkpoint" class="task-list"></div>
+        </section>
+        <section id="session-plan-section" class="session-card" hidden>
+          <h2>Potwierdzony plan</h2>
+          <p class="muted">Dane modelu, nie źródło uprawnień. Tylko RAM, bez tokenu handshake. Odczyt przez Odśwież.</p>
+          <div id="session-plan" class="task-list"></div>
+        </section>
+        <section id="session-saved-section" class="session-card" hidden>
+          <h2>Zapisane sesje po restarcie</h2>
+          <p class="muted">Wybór przypina sesję zablokowaną. Checkpoint, uzupełnienie, plan i token z poprzedniego procesu
+            zostały utracone. Nie można przełączyć już przypiętej sesji. Wznowienie wymaga nowego przygotowania.</p>
+          <div id="session-saved" class="task-list"></div>
+        </section>
+      </div>
+      <aside class="session-card session-folders" aria-labelledby="session-folders-title">
+        <h2 id="session-folders-title">Foldery projektu</h2>
+        <p id="session-folders-hint" class="muted">Wybierz foldery do nowej sesji.</p>
+        <div id="session-roots" class="task-list"></div>
+        <button id="session-manage-roots" type="button" class="btn">Zarządzaj folderami</button>
+      </aside>
+    </div>
+    <section id="autopilot-section" class="session-card" hidden>
+      <div class="section-head"><h2>Tryb pracy i delegacja</h2>
+        <button id="ap-refresh" type="button" class="btn">Odśwież delegację</button></div>
+      <div id="ap-state" class="session-metrics" role="status" aria-live="polite"></div>
+      <p id="ap-error" class="session-error" role="alert"></p>
+      <div class="task-actions">
+        <button id="ap-manual" type="button" class="btn">Wybierz zwykły tryb ręcznych zgód</button>
+        <button id="ap-reconfirm" type="button" class="btn">Potwierdź ten sam zakres i pozostałe limity</button>
+        <button id="ap-revoke" type="button" class="btn btn-deny">Cofnij zgodę autopilota</button>
+      </div>
+      <p class="muted">Delegacja obejmuje wszystkie rozmowy tej instancji. Po zatwierdzeniu przygotuj wznowienie;
         model musi potwierdzić aktualny plan. Każda pauza wymaga ponownej decyzji tutaj.
         Reguły, cel i plan pozostają tylko w RAM; restart odbiera zgodę. Nie wpisuj sekretów.</p>
-      <p>Wyłączone: sekrety, instrukcje, kod i zabezpieczenia działającego sklr, konfiguracja/trust,
-        usuwanie, testy, instalacje, shell, publikacja, produkcja i płatności.
-        Zewnętrzny skill/MCP działa z uprawnieniami użytkownika i nie jest ograniczony do roots.
-        Discovery stdio może uruchomić proces. Wybieraj znanego wykonawcę i konkretne działanie.</p>
-      <button id="ap-refresh" type="button" class="btn">Odśwież delegację</button>
-      <div id="ap-state" role="status"></div><p id="ap-error" role="alert"></p>
-      <fieldset id="ap-editor"><legend>Nowa delegacja — tylko podczas pełnej pauzy</legend>
-        <label>Cel <textarea id="ap-goal" maxlength="500" autocomplete="off"></textarea></label>
-        <label>Zaakceptowany plan <textarea id="ap-plan" maxlength="6000" autocomplete="off"></textarea></label>
-        <label>Ważność (minuty) <input id="ap-minutes" type="number" min="1" max="120" value="30"></label>
-        <label>Operacje <input id="ap-operations" type="number" min="1" max="500" value="100"></label>
-        <p>Jedno rozpoczęte działanie naraz. Pauzy wliczają się do czasu. Timeout zadania jest osobny;
-          wait_task do 8 sekund nie przerywa zadania. Wywołanie MCP wymaga też osobnej reguły discovery
-          tego profilu z co najmniej takim samym timeoutem. Katalog wymaga objęcia wszystkich zwracanych zasobów.</p>
-        <label>Rodzaj <select id="ap-kind">
-          <option value="files">Pliki</option><option value="knowledge">Wiedza</option>
-          <option value="skill_read">Odczyt skilla</option><option value="skill_run">Skrypt skilla</option>
-          <option value="mcp_discovery">Discovery MCP</option><option value="mcp_call">Wywołanie MCP</option>
-          <option value="catalog">Katalog zasobów</option>
-        </select></label>
-        <label>Zasób (w katalogu można wybrać wiele) <select id="ap-resource" multiple size="5"></select></label>
-        <fieldset id="ap-tools"><legend>Jawnie delegowane narzędzia</legend></fieldset>
-        <label>Zakres <select id="ap-scope-kind"><option value="file">Plik</option><option value="tree">Poddrzewo</option></select>
-          <input id="ap-scope" placeholder="np. src; kropka oznacza cały wybrany zasób" autocomplete="off"></label>
-        <label><input id="ap-overwrite" type="checkbox"> Pełne nadpisanie przez create_file</label>
-        <label>Skrypt pod scripts/ <input id="ap-script" autocomplete="off"></label>
-        <label>Dokładna lista argumentów skryptu (JSON) <textarea id="ap-args" autocomplete="off">[]</textarea></label>
-        <label>Narzędzie MCP z aktualnego katalogu <input id="ap-mcp-tool" list="ap-mcp-tools" autocomplete="off"></label>
-        <datalist id="ap-mcp-tools"></datalist>
-        <label>Selektor argumentów MCP (JSON, format A2b2) <textarea id="ap-selector" autocomplete="off">{"type":"object","properties":{},"required":[]}</textarea></label>
-        <label>Timeout wykonawcy (sekundy) <input id="ap-timeout" type="number" min="1" max="300" value="60"></label>
-        <button id="ap-add" type="button" class="btn">Dodaj regułę</button>
-        <button id="ap-clear" type="button" class="btn">Wyczyść reguły</button><pre id="ap-rules"></pre>
-        <button id="ap-preview" type="button" class="btn">Przygotuj podgląd</button>
-      </fieldset>
-      <pre id="ap-preview-content"></pre>
-      <button id="ap-approve" type="button" class="btn btn-allow" disabled>Zatwierdź podgląd</button>
-      <button id="ap-reconfirm" type="button" class="btn">Potwierdź ten sam zakres i pozostałe limity</button>
-      <button id="ap-revoke" type="button" class="btn">Cofnij zgodę autopilota</button>
-      <button id="ap-manual" type="button" class="btn">Wybierz zwykły tryb ręcznych zgód</button>
-      <div id="ap-unresolved"></div>
-      <button id="ap-acknowledge-recovery" type="button" class="btn">Potwierdź rozstrzygnięcie awarii magazynu</button>
-      <p>Cofnięcie blokuje nowe działania i wstrzymuje sesję. Rozpoczęte kończą się w swoich limitach;
-        ich skutki nie są cofane. Rozstrzygnięcie niepewności nie ponawia operacji ani nie wznawia pracy.</p>
+      <section id="ap-approved-section" class="session-inset" hidden>
+        <h3>Zatwierdzony zakres</h3>
+        <div id="ap-approved-summary" class="task-list"></div>
+        <details><summary>Szczegóły techniczne zatwierdzonej delegacji</summary><pre id="ap-approved-content"></pre></details>
+      </section>
+      <details id="ap-config" class="session-details">
+        <summary>Konfiguruj nową delegację autopilota</summary>
+        <p id="ap-editor-hint" class="muted">Konfiguracja jest dostępna tylko podczas pełnej pauzy.</p>
+        <fieldset id="ap-editor" class="session-form"><legend>Nowa delegacja — tylko podczas pełnej pauzy</legend>
+          <h3>1. Cel i plan</h3>
+          <label>Cel <textarea id="ap-goal" rows="2" maxlength="500" autocomplete="off"></textarea></label>
+          <label>Zaakceptowany plan <textarea id="ap-plan" rows="5" maxlength="6000" autocomplete="off"></textarea></label>
+          <h3>2. Zakres działań</h3>
+          <div class="session-form-grid">
+            <label>Rodzaj <select id="ap-kind">
+              <option value="files">Pliki</option><option value="knowledge">Wiedza</option>
+              <option value="skill_read">Odczyt skilla</option><option value="skill_run">Skrypt skilla</option>
+              <option value="mcp_discovery">Discovery MCP</option><option value="mcp_call">Wywołanie MCP</option>
+              <option value="catalog">Katalog zasobów</option>
+            </select></label>
+            <label>Zasób (w katalogu można wybrać wiele) <select id="ap-resource" multiple size="5"></select></label>
+          </div>
+          <fieldset id="ap-tools" class="session-tools"><legend>Jawnie delegowane narzędzia</legend></fieldset>
+          <div id="ap-scope-fields" class="session-form-grid">
+            <label>Zakres <select id="ap-scope-kind"><option value="file">Plik</option><option value="tree">Poddrzewo</option></select></label>
+            <label>Ścieżka względem zasobu <input id="ap-scope" type="text" placeholder="np. src; kropka oznacza cały wybrany zasób" autocomplete="off"></label>
+          </div>
+          <label id="ap-overwrite-field" class="check"><input id="ap-overwrite" type="checkbox"> Pełne nadpisanie przez create_file</label>
+          <div id="ap-script-fields" class="session-form" hidden>
+            <label>Skrypt pod scripts/ <input id="ap-script" type="text" autocomplete="off"></label>
+            <label>Dokładna lista argumentów skryptu (JSON) <textarea id="ap-args" rows="3" autocomplete="off">[]</textarea></label>
+          </div>
+          <div id="ap-mcp-fields" class="session-form" hidden>
+            <label>Narzędzie MCP z aktualnego katalogu <input id="ap-mcp-tool" type="text" list="ap-mcp-tools" autocomplete="off"></label>
+            <datalist id="ap-mcp-tools"></datalist>
+            <label>Selektor argumentów MCP (JSON, format A2b2) <textarea id="ap-selector" rows="4" autocomplete="off">{"type":"object","properties":{},"required":[]}</textarea></label>
+          </div>
+          <label id="ap-timeout-field" hidden>Timeout wykonawcy (sekundy) <input id="ap-timeout" type="number" min="1" max="300" value="60"></label>
+          <div class="task-actions">
+            <button id="ap-add" type="button" class="btn">Dodaj regułę</button>
+            <button id="ap-clear" type="button" class="btn">Wyczyść reguły</button>
+          </div>
+          <div id="ap-rule-list" class="task-list"></div>
+          <details><summary>Szczegóły techniczne reguł</summary><pre id="ap-rules"></pre></details>
+          <h3>3. Limity i podgląd</h3>
+          <div class="session-form-grid">
+            <label>Ważność (minuty) <input id="ap-minutes" type="number" min="1" max="120" value="30"></label>
+            <label>Operacje <input id="ap-operations" type="number" min="1" max="500" value="100"></label>
+          </div>
+          <p class="muted">Jedno rozpoczęte działanie naraz. Pauzy wliczają się do czasu. Timeout zadania jest osobny;
+            wait_task do 8 sekund nie przerywa zadania. Wywołanie MCP wymaga też osobnej reguły discovery
+            tego profilu z co najmniej takim samym timeoutem. Katalog wymaga objęcia wszystkich zwracanych zasobów.</p>
+          <button id="ap-preview" type="button" class="btn btn-trust">Przygotuj podgląd</button>
+        </fieldset>
+      </details>
+      <section id="ap-preview-section" class="session-inset" hidden>
+        <h3>Nowa delegacja · podgląd do zatwierdzenia</h3>
+        <p class="muted">Podgląd jest ważny 5 minut. Sprawdź cel, plan, zasoby, narzędzia, zakres i limity przed zgodą.</p>
+        <div id="ap-preview-summary" class="task-list"></div>
+        <details><summary>Szczegóły techniczne podglądu</summary><pre id="ap-preview-content"></pre></details>
+        <button id="ap-approve" type="button" class="btn btn-allow" disabled>Zatwierdź podgląd</button>
+      </section>
+      <section id="ap-recovery-section" class="session-inset" hidden>
+        <h3>Operacje wymagające rozstrzygnięcia</h3>
+        <div id="ap-unresolved" class="task-list"></div>
+        <button id="ap-acknowledge-recovery" type="button" class="btn">Potwierdź rozstrzygnięcie awarii magazynu</button>
+      </section>
+      <details class="session-details"><summary>Zasady i ograniczenia autopilota</summary>
+        <p>Wyłączone: sekrety, instrukcje, kod i zabezpieczenia działającego sklr, konfiguracja/trust,
+          usuwanie, testy, instalacje, shell, publikacja, produkcja i płatności.
+          Zewnętrzny skill/MCP działa z uprawnieniami użytkownika i nie jest ograniczony do roots.
+          Discovery stdio może uruchomić proces. Wybieraj znanego wykonawcę i konkretne działanie.</p>
+        <p>Cofnięcie blokuje nowe działania i wstrzymuje sesję. Rozpoczęte kończą się w swoich limitach;
+          ich skutki nie są cofane. Rozstrzygnięcie niepewności nie ponawia operacji ani nie wznawia pracy.</p>
+      </details>
     </section>
-    <section id="session-checkpoint-section" hidden>
-      <h2>Checkpoint</h2>
-      <p class="muted">Tylko RAM, bez trwałego zapisu. To dane modelu, nie źródło uprawnień.
-        Odnośniki do wyników nie przedłużają ich TTL. Odśwież widok, aby sprawdzić aktualny zapis.</p>
-      <div id="session-checkpoint" class="task-list"></div>
-    </section>
-    <div id="session-select">
-      <h2>Foldery sesji</h2>
-      <div id="session-roots" class="task-list"></div>
-      <button id="session-start" type="button" class="btn btn-allow" disabled>Rozpocznij sesję</button>
-    </div>
-    <button id="session-pause" type="button" class="btn" disabled>Wstrzymaj po kroku</button>
-    <section id="session-resume-section" hidden>
-      <h2>Przygotowanie wznowienia</h2>
-      <p class="muted">Uzupełnienie jest tylko w RAM. Nie wpisuj sekretów. Nie rozszerza uprawnień.
-        Stare oczekujące zadania zostaną anulowane po Twoim potwierdzeniu; rozpoczęte i zakończone nie są anulowane.
-        Nie ponawiamy operacji o niepewnym skutku zdalnym.</p>
-      <label>Uzupełnienie <textarea id="session-supplement" rows="5" maxlength="3000" autocomplete="off"></textarea></label>
-      <button id="session-prepare" type="button" class="btn btn-allow" disabled>Przygotuj wznowienie</button>
-    </section>
-    <section id="session-plan-section" hidden>
-      <h2>Potwierdzony plan</h2>
-      <p class="muted">Dane modelu, nie źródło uprawnień. Tylko RAM, bez tokenu handshake. Odczyt przez Odśwież.</p>
-      <div id="session-plan" class="task-list"></div>
-    </section>
-    <section id="session-saved-section" hidden>
-      <h2>Zapisane sesje po restarcie</h2>
-      <p class="muted">Wybór przypina sesję zablokowaną. Checkpoint, uzupełnienie, plan i token z poprzedniego procesu
-        zostały utracone. Nie można przełączyć już przypiętej sesji. Wznowienie wymaga nowego przygotowania.</p>
-      <div id="session-saved" class="task-list"></div>
-    </section>
+    <details class="session-card session-details"><summary>Zasady działania sesji</summary>
+      <p class="muted">Jedna sesja pracy na instancję sklr, wybierana tutaj, nie przez model.
+        Pauza obejmuje wszystkie rozmowy korzystające z tej instancji; nie ma izolacji rozmów.
+        Foldery opisują projekt sesji i nie nadają uprawnień. Wstrzymanie blokuje nowe działania wykonywane przez sklr,
+        nie przerywa rozpoczętych; sama pauza nie zapisuje checkpointu.
+        Checkpoint zapisuje model ograniczonym narzędziem, jeśli jest dostępne.
+        Treść pozostaje tylko w RAM i znika po restarcie. Przygotowanie wznowienia nie otwiera bramki:
+        potrzebny jest aktualny plan potwierdzony przez model. Przełączenie przypiętej sesji jest niedostępne.</p>
+    </details>
   </main>
 </body>
 </html>

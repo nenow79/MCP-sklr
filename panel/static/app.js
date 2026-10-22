@@ -561,19 +561,22 @@
     }).then(refreshRoots);
   }
 
+  function rootSummary(root) {
+    return el("span", { className: "root-summary" }, [
+      el("span", { className: "task-title", text: visibleText(root.alias) }),
+      el("span", { className: "root-path", text: visibleText(root.path || "Ścieżka niedostępna") }),
+      el("span", { className: "badge badge-" + (root.mode === "rw" ? "rw" : "ro"),
+        text: root.mode === "rw" ? "odczyt i zapis" : root.mode === "ro" ? "tylko odczyt" : "tryb nieznany" }),
+      root.default ? el("span", { className: "badge badge-default", text: "domyślny" }) : null,
+      root.valid === false ? el("span", { className: "badge badge-invalid", text: "niedostępny" }) : null,
+      root.description ? el("span", { className: "root-description", text: visibleText(root.description) }) : null
+    ]);
+  }
+
   function rootCard(root) {
     var cls = "root-card" + (root.default ? " is-default" : "") + (root.valid ? "" : " is-invalid");
-    var head = el("div", { className: "task-head" }, [
-      el("span", { className: "task-title" }, [
-        el("span", { className: "badge badge-" + root.mode, text: root.mode }),
-        document.createTextNode(root.alias),
-        root.default ? el("span", { className: "badge badge-default", text: "domyślny" }) : null,
-        root.valid ? null : el("span", { className: "badge badge-invalid", text: "niedostępny" })
-      ])
-    ]);
     var card = el("div", { className: cls }, [
-      head,
-      el("div", { className: "root-path", text: root.path }),
+      rootSummary(root),
       root.valid ? null : el("div", { className: "root-path", text: root.reason })
     ]);
 
@@ -1506,6 +1509,8 @@
 
   var sessionData = null;
   var sessionSelected = {};
+  var sessionRoots = [];
+  var sessionRootsLoaded = false;
   var sessionBusy = false;
   var sessionCheckpointGeneration = 0;
   var sessionGeneration = 0;
@@ -1621,6 +1626,7 @@
         if (posted.status === 200 && posted.json.success) {
           $("session-supplement").value = "";
           hideBanner();
+          if (typeof window.dispatchEvent === "function") { window.dispatchEvent(new Event("panel-session-changed")); }
         } else {
           showBanner(visibleText((posted.json && posted.json.error) || "Przygotowanie nie powiodło się. Odśwież stan."), false);
         }
@@ -1693,15 +1699,58 @@
 
   function sessionButtons() {
     $("session-start").disabled = sessionBusy || !sessionData || !!sessionData.session_id ||
-      sessionChosen().length === 0;
+      !sessionRootsLoaded || sessionChosen().length === 0;
     $("session-pause").disabled = sessionBusy || !sessionData || sessionData.state !== "active";
     $("session-prepare").disabled = sessionBusy || !sessionCanPrepare();
     $("session-supplement").disabled = sessionBusy || !sessionCanPrepare();
     $("session-refresh").disabled = sessionBusy;
+    $("session-pause").hidden = !sessionData || sessionData.state !== "active";
   }
 
   function sessionLine(label, value) {
-    return el("p", { text: label + ": " + visibleText(value) });
+    return el("div", { className: "session-line" }, [
+      el("span", { className: "session-line-label", text: label }),
+      el("span", { text: visibleText(value) })
+    ]);
+  }
+
+  function renderSessionSummary() {
+    var data = sessionData, title = "Stan sesji niedostępny", hint = "Odśwież, aby sprawdzić dostępność sesji.", tone = "is-blocked";
+    if (data && !data.session_id) {
+      title = "Wybierz projekt i rozpocznij sesję";
+      hint = "Brak przypiętej sesji. Zaznacz foldery projektu lub wybierz zapisaną sesję po restarcie.";
+      tone = "";
+    } else if (data) {
+      if (data.resume_pending) {
+        title = "Oczekiwanie na potwierdzenie planu przez model";
+        hint = "Poleć modelowi pobrać get_resume_context i potwierdzić aktualny plan. Potem odśwież stan.";
+        tone = "is-paused";
+      } else if (data.resume_recovery_required) {
+        title = "Wymagane ponowne przygotowanie wznowienia";
+        hint = "Poprzednie potwierdzenie ma niepewny wynik. Nowe działania pozostają zablokowane.";
+      } else if (data.state === "active" && !data.execution_blocked) {
+        title = "Sesja aktywna";
+        hint = "Możesz wstrzymać pracę po bieżącym kroku. Sama pauza nie zapisuje checkpointu.";
+        tone = "is-active";
+      } else if (data.state === "pause_requested" || data.running_actions > 0) {
+        title = "Trwa wstrzymywanie sesji";
+        hint = "Nowe działania są zablokowane. Rozpoczęte kończą się w swoich limitach.";
+        tone = "is-paused";
+      } else {
+        title = "Sesja wstrzymana";
+        hint = data.resume_available ? "Sprawdź checkpoint i tryb pracy, a następnie przygotuj wznowienie." : "Wznowienie jest niedostępne w tej wersji serwera.";
+        tone = "is-paused";
+      }
+    }
+    var summary = $("session-summary"); summary.textContent = "";
+    summary.appendChild(el("div", { className: "session-status " + tone, text: title }));
+    summary.appendChild(el("p", { text: hint }));
+    if (data && data.session_id) {
+      summary.appendChild(el("p", { className: "muted", text: "Rozpoczęte działania: " + data.running_actions +
+        " · Nowe działania: " + (data.execution_blocked ? "zablokowane" : "dopuszczone według trybu pracy") }));
+      var reasons = { user_requested_pause: "Pauza na Twoje żądanie", server_restarted: "Sesja odzyskana po restarcie" };
+      if (data.reason) { summary.appendChild(el("p", { className: "muted", text: reasons[data.reason] || "Powód blokady: " + visibleText(data.reason) })); }
+    }
   }
 
   function renderSession() {
@@ -1740,33 +1789,52 @@
     }
     $("session-select").hidden = !data || !!data.session_id;
     $("session-resume-section").hidden = !sessionCanPrepare();
+    $("session-context").hidden = !data || !data.session_id || data.checkpoint_content_available || !!sessionCanPrepare();
+    $("session-context-hint").textContent = data && data.ram_lost ?
+      "Kontekst poprzedniego procesu został utracony po restarcie. Do dalszej pracy potrzebne jest nowe przygotowanie wznowienia." :
+      data && data.checkpoint_available ? "Brak potwierdzonego checkpointu w RAM. Gdy model zapisze kontekst pracy, zobaczysz go tutaj po odświeżeniu. Sama pauza nie tworzy zapisu." :
+      "Zapis checkpointu jest niedostępny w tej wersji serwera. Panel nie deklaruje zapisanego kontekstu pracy.";
+    renderSessionSummary();
+    renderSessionRoots();
     sessionButtons();
   }
 
-  function renderSessionRoots(aliases) {
+  function renderSessionRoots() {
     var list = $("session-roots");
-    var keep = {};
+    var pinned = sessionData && !!sessionData.session_id;
+    var roots = !sessionData ? [] : pinned ? (sessionData.roots || []).map(function (alias) {
+      return sessionRoots.find(function (root) { return root.alias === alias; }) || { alias: alias };
+    }) : sessionRoots.filter(function (root) { return root.valid === true; });
     list.textContent = "";
-    aliases.forEach(function (alias) {
+    $("session-folders-hint").textContent = pinned ?
+      "Foldery przypięte do sesji. Wyświetlane tryby pochodzą z bieżącej konfiguracji; wybór sesji nie nadaje uprawnień." :
+      "Wybierz foldery do nowej sesji. Uprawnienia i delegację zatwierdza się oddzielnie.";
+    roots.forEach(function (root) {
+      var alias = root.alias;
+      if (pinned) {
+        list.appendChild(el("div", { className: "root-card" }, [rootSummary(root)]));
+        return;
+      }
       var box = el("input", { type: "checkbox" });
       box.value = alias;
       box.checked = sessionSelected[alias] === true;
-      keep[alias] = box.checked;
       box.addEventListener("change", function () {
         sessionSelected[alias] = box.checked;
         sessionButtons();
       });
-      list.appendChild(el("label", { className: "check" }, [box, el("span", { text: " " + visibleText(alias) })]));
+      list.appendChild(el("label", { className: "root-card session-root" }, [box, rootSummary(root)]));
     });
-    sessionSelected = keep;
-    if (!aliases.length) {
-      list.appendChild(el("p", { className: "muted", text: "Brak dostępnych folderów. Dodaj je w zakładce Foldery." }));
+    if (!roots.length) {
+      list.appendChild(el("p", { className: "muted", text: sessionRootsLoaded ?
+        "Brak dostępnych folderów. Dodaj je w zakładce Foldery." : "Lista folderów jest niedostępna. Odśwież stan." }));
     }
   }
 
   function refreshSession() {
     clearSessionCheckpoint();
     clearSessionResume();
+    sessionRootsLoaded = false;
+    sessionButtons();
     var generation = sessionGeneration;
     return api("GET", "/api/work-session").then(function (res) {
       if (!sessionCurrent(generation)) { return null; }
@@ -1782,22 +1850,30 @@
       if (!previous || previous.session_id !== sessionData.session_id || previous.revision !== sessionData.revision) {
         $("session-supplement").value = "";
       }
-      if (sessionData.session_id) {
-        renderSession();
-        return Promise.all([refreshSessionCheckpoint(), refreshSessionResume(generation)]);
-      }
-      return api("GET", "/api/roots").then(function (rootsRes) {
+      renderSession();
+      var rootsRequest = api("GET", "/api/roots").then(function (rootsRes) {
         if (!sessionCurrent(generation)) { return; }
         if (rootsRes.status === 401) { authFailed(); return; }
-        var aliases = [];
+        sessionRoots = [];
+        sessionRootsLoaded = false;
         if (rootsRes.status === 200 && rootsRes.json.success) {
-          aliases = rootsRes.json.data.roots.filter(function (root) { return root.valid === true; })
-            .map(function (root) { return root.alias; });
+          sessionRoots = rootsRes.json.data.roots;
+          sessionRootsLoaded = true;
+          Object.keys(sessionSelected).forEach(function (alias) {
+            if (!sessionRoots.some(function (root) { return root.alias === alias && root.valid === true; })) {
+              delete sessionSelected[alias];
+            }
+          });
         }
-        renderSessionRoots(aliases);
-        renderSession();
-        return refreshSessionResume(generation);
+        renderSessionRoots();
+        sessionButtons();
+      }).catch(function () {
+        if (!sessionCurrent(generation)) { return; }
+        sessionRoots = []; sessionRootsLoaded = false;
+        renderSessionRoots(); sessionButtons();
+        showBanner("Nie można pobrać metadanych folderów. Stan sesji pozostaje dostępny; odśwież przed wyborem projektu.", false);
       });
+      return Promise.all([rootsRequest, refreshSessionCheckpoint(), refreshSessionResume(generation)]);
     }).catch(function () {
       if (sessionCurrent(generation)) {
         sessionData = null; renderSession();
@@ -1819,6 +1895,7 @@
         sessionData = res.json.data;
         hideBanner();
         renderSession();
+        if (typeof window.dispatchEvent === "function") { window.dispatchEvent(new Event("panel-session-changed")); }
         return null;
       }
       if (res.status === 409) {
@@ -1840,6 +1917,14 @@
     $("tab-session").addEventListener("click", function () { showTab("session"); });
     $("session-refresh").addEventListener("click", function () { if (!sessionBusy) { refreshSession(); } });
     $("session-prepare").addEventListener("click", prepareSessionResume);
+    $("session-manage-roots").addEventListener("click", function () {
+      $("roots-return-session").hidden = false;
+      showTab("roots");
+    });
+    $("roots-return-session").addEventListener("click", function () {
+      $("roots-return-session").hidden = true;
+      $("tab-session").click();
+    });
     $("session-start").addEventListener("click", function () {
       var chosen = sessionChosen();
       if (!chosen.length || !sessionData || sessionData.session_id) { return; }

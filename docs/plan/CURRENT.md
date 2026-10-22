@@ -6,6 +6,12 @@ tags: [sklr, project-state, sessions, autonomy, windows, testing]
 ---
 # Aktualny stan — 2026-10-22
 
+## Panel „Sesja pracy” — lokalna przebudowa interfejsu
+
+Po akceptacji propozycji użytkownika sprawdzono GitHub przez `git fetch origin`: lokalny main i origin/main wskazywały `09c2f90`, drzewo było czyste. Lokalnie przebudowano zakładkę: stan i pauza u góry, karty kontynuacji i folderów, responsywny formularz delegacji z polami zależnymi od rodzaju reguły, usuwanie pojedynczych reguł oraz osobne podsumowania zatwierdzonego zakresu i nowego podglądu. Wspólny wygląd folderów z zakładką Foldery; przejście do konfiguracji i powrót zachowują dostępne zaznaczenia. Wybór folderów nie nadaje delegacji; API i backend zgód/wznowienia bez zmian. Zmiana reguł nadal unieważnia podgląd. Błąd metadanych folderów blokuje start nowej sesji, nie usuwa odczytanego stanu istniejącej sesji.
+
+Walidacja Linux: `node --test tests/test_panel_*.cjs` — 8/8 plików zaliczonych; dedykowane sesja/autopilot obejmują 33 + 7 przypadków. Składnia obu plików JS, struktura HTML, unikalność ID, referencje JS i kontrola CSP/DOM poprawne; sesja/delegacja bez timerów i trwałego zapisu w przeglądarce. Bez pytest, serwerów i odbioru wizualnego w przeglądarce/Windows. Zmiany lokalne, nieopublikowane; odbiór UI w backlogu.
+
 ## Bieżące potwierdzenie Windows — częściowy smoke A2
 
 Ta sekcja jest nadrzędna wobec wcześniejszych opisów braku publikacji i uruchomienia aplikacji poniżej. Baza implementacji: `425f91f` i `a6c564c`; doprecyzowanie ubogiego harnessu w `docs/continue-work.md` opublikowano na origin/main w `d81027f`. Lokalny checkout zaktualizowano fast-forward; starsze lokalne zmiany zabezpieczono w stashu, bez nakładania starego CURRENT/backlogu. Użytkownik przywrócił wyłącznie lokalny config.json, włączył autopilot.enabled przy już włączonym work_sessions.enabled, zrestartował sklr i odświeżył połączenie. Konfiguracja, bazy, sekrety i pliki smoke nie są częścią przekazania Git.

@@ -26,7 +26,7 @@ function harness(options = {}) {
   const context = {
     document: { getElementById: get, createElement: node,
       createTextNode(text) { const item = node(); item.textContent = text; return item; },
-      querySelectorAll() { return get('ap-tools').children.map(label => label.children[0]).filter(input => input.checked); } },
+      querySelectorAll() { return get('ap-tools').children.map(label => label.children[0]).filter(input => input && input.checked); } },
     window: { confirm() { return options.confirm !== false; }, addEventListener(name, cb) { windowEvents[name] = cb; } },
     fetch: async (url, init) => {
       const body = init.body ? JSON.parse(init.body) : undefined;
@@ -48,9 +48,10 @@ test('explicit resources/tools, preview required and editing invalidates it', as
   const h = harness(); await h.click('tab-session');
   assert.equal(h.get('ap-editor').disabled, false);
   assert.equal(h.get('ap-approve').disabled, true);
-  assert(h.get('ap-tools').children.every(label => !label.children[0].checked));
+  const toolInputs = h.get('ap-tools').children.map(label => label.children[0]).filter(Boolean);
+  assert(toolInputs.every(input => !input.checked));
   h.get('ap-resource').selectedOptions = [{ value: 'root:app' }];
-  h.get('ap-tools').children[0].children[0].checked = true;
+  toolInputs[0].checked = true;
   await h.click('ap-add'); await h.click('ap-preview');
   const preview = h.requests.find(row => row.url.endsWith('/preview'));
   assert.equal(preview.body.policy.rules[0].root, 'root:app');
@@ -83,4 +84,48 @@ test('cancelled confirmation cannot send a decision', async () => {
   const h = harness({ confirm: false, state: { contract_id: 'contract' } });
   await h.click('tab-session'); await h.click('ap-revoke');
   assert.equal(h.requests.filter(row => row.method === 'POST').length, 0);
+});
+
+test('kind changes expose only applicable fields and never grant tools automatically', async () => {
+  const h = harness(); await h.click('tab-session');
+  for (const kind of ['files', 'knowledge', 'skill_read', 'skill_run', 'mcp_discovery', 'mcp_call', 'catalog']) {
+    h.get('ap-kind').value = kind;
+    h.get('ap-kind').listeners.change();
+    assert.equal(h.get('ap-scope-fields').hidden, !['files', 'knowledge', 'skill_read'].includes(kind));
+    assert.equal(h.get('ap-script-fields').hidden, kind !== 'skill_run');
+    assert.equal(h.get('ap-mcp-fields').hidden, kind !== 'mcp_call');
+    assert.equal(h.get('ap-timeout-field').hidden, !['skill_run', 'mcp_discovery', 'mcp_call'].includes(kind));
+    assert(h.get('ap-tools').children.slice(1).every(label => !label.children[0].checked));
+  }
+  assert.equal(h.requests.filter(row => row.method === 'POST').length, 0);
+});
+
+test('removing a rule invalidates preview and adding another keeps unique rule ids', async () => {
+  const h = harness(); await h.click('tab-session');
+  h.get('ap-resource').selectedOptions = [{ value: 'root:app' }];
+  h.get('ap-tools').children[1].children[0].checked = true;
+  await h.click('ap-add'); await h.click('ap-add'); await h.click('ap-preview');
+  assert.equal(h.get('ap-preview-section').hidden, false);
+  h.get('ap-rule-list').children[0].children[1].listeners.click();
+  assert.equal(h.get('ap-approve').disabled, true);
+  assert.equal(h.get('ap-preview-section').hidden, true);
+  await h.click('ap-add'); await h.click('ap-preview');
+  const preview = h.requests.filter(row => row.url.endsWith('/preview')).at(-1);
+  assert.equal(new Set(preview.body.policy.rules.map(rule => rule.id)).size, 2);
+  assert.equal(h.requests.filter(row => row.url.endsWith('/approve')).length, 0);
+});
+
+test('approved delegation survives draft invalidation and private summaries clear on pagehide', async () => {
+  const h = harness({ state: { contract_id: 'c', goal: 'approved private goal', plan: 'private plan',
+    policy: { version: 1, rules: [] }, limits: { duration_s: 1800, max_operations: 20, max_running: 1 } } });
+  await h.click('tab-session');
+  assert.equal(h.get('ap-approved-section').hidden, false);
+  assert(h.get('ap-approved-content').textContent.includes('approved private goal'));
+  h.get('ap-editor').listeners.input();
+  assert(h.get('ap-approved-content').textContent.includes('approved private goal'));
+  assert.equal(h.get('ap-preview-content').textContent, '');
+  h.windowEvents.pagehide();
+  assert.equal(h.get('ap-approved-summary').children.length, 0);
+  assert.equal(h.get('ap-approved-content').textContent, '');
+  assert.equal(h.get('ap-approved-section').hidden, true);
 });
