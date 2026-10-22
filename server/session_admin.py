@@ -163,6 +163,23 @@ class SessionAdmin:
                     self._controller._checkpoint_current_revision = saved.revision
             return result
 
+    def end(self, sid, expected_revision, autopilot=None):
+        autopilot_lock = autopilot._lock if autopilot is not None else nullcontext()
+        with self._lock, autopilot_lock:
+            if self._manager is None:
+                raise ValueError('Session coordinator unavailable.')
+            state = self._controller.snapshot()
+            if (state['session_id'] != sid or type(expected_revision) is not int
+                    or state['revision'] != expected_revision):
+                raise SessionConflict('Session selection or revision changed.')
+            try:
+                self._manager.end_session(sid, expected_revision)
+            finally:
+                item = self._store.get(sid)
+                if item is not None and item.lifecycle != 'open' and autopilot is not None:
+                    autopilot.discard_session_internal()
+            return self.status()
+
     def pause(self, session_id, expected_revision):
         """Exact selected ID prevents a stale tab from controlling another session.
 

@@ -58,9 +58,12 @@ class WorkSession:
     reason: str
     created_at: str
     updated_at: str
+    lifecycle: str = "open"
 
     def __post_init__(self):
         session_id(self.id)
+        if self.lifecycle not in ("open", "ending", "ended"):
+            raise ValueError("Invalid session lifecycle.")
         object.__setattr__(self, "roots", root_aliases(self.roots))
         positive_int(self.revision)
         if not isinstance(self.state, SessionState):

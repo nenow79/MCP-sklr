@@ -117,5 +117,5 @@ def test_api_accepts_metadata_only_and_schema_has_no_resume_text(store):
     store.confirm_resume(item.id, prepared.revision)
     columns = {row[1] for row in store._conn.execute('PRAGMA table_info(work_sessions)')}
     assert columns == {'id', 'roots', 'state', 'checkpoint_state', 'revision', 'reason',
-                       'created_at', 'updated_at'}
-    assert store._conn.execute('PRAGMA user_version').fetchone()[0] == 1
+                       'created_at', 'updated_at', 'lifecycle'}
+    assert store._conn.execute('PRAGMA user_version').fetchone()[0] == 2

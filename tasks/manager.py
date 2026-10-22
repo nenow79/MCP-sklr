@@ -355,6 +355,29 @@ class TaskManager:
             candidates.append(task.id)
         return candidates
 
+    def end_session(self, sid, revision):
+        """Authenticated panel only. Drain started actions; discard all pending work."""
+        session_id(sid)
+        with self._cond:
+            if self._stopped or self._sessions is None:
+                raise TaskStateError('Session coordination unavailable.')
+            with self._sessions._lock:
+                self._sessions.request_end_internal(sid, revision)
+                try:
+                    for link in self._sessions._store.list_task_links(sid):
+                        task = self._store.get(link.task_id)
+                        if task is not None and task.status in (
+                                TaskStatus.AWAITING_APPROVAL, TaskStatus.QUEUED):
+                            self._store.update(task.id, status=TaskStatus.CANCELLED,
+                                finished_at=now_iso(), error='Anulowano przy zakończeniu sesji.')
+                            self._discard_context(task.id)
+                            self._volatile.discard(task.id)
+                    self._sessions._end_ready = True
+                    self._sessions.finish_end_internal()
+                    return self._sessions.snapshot()
+                finally:
+                    self._cond.notify_all()
+
     def session_resume_preview(self, panel_session_id, expected_revision):
         """Panel read: exact selection/revision and complete pending-task count.
 

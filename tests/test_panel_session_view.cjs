@@ -70,6 +70,8 @@ function harness(server) {
         out = server.recoverResponse;
       } else if (url === '/api/work-session/start') {
         out = server.startResponse;
+      } else if (url === '/api/work-session/end') {
+        out = server.endResponse;
       } else if (url === '/api/work-session/pause') {
         out = server.pauseResponse;
       } else if (url.startsWith('/api/roots') && method === 'POST') {
@@ -133,7 +135,7 @@ test('stan sesji: licznik, rewizja, checkpoint niedostepny, brak wznowienia i pr
   assert.ok(shown.includes('2'));
   assert.ok(shown.includes('<b>x</b>'));
   assert.ok(shown.includes('niedostępna'));
-  assert.ok(shown.includes('Wznowienie i przełączenie'));
+  assert.ok(shown.includes('Wznowienie jest niedostępne'));
   assert.ok(!/resume|switch/.test(h.requests.map(r => r.url).join(' ')));
   assert.equal(h.get('session-prepare').disabled, true);
   assert.equal(h.get('session-resume-section').hidden, true);
@@ -536,4 +538,41 @@ test('folder management remains available when work sessions are disabled', asyn
   assert.equal(h.get('root-editor').disabled, false);
   assert.equal(h.get('session-start').disabled, true);
   assert.equal(all(h.get('roots-list'), n => n.className && n.className.startsWith('root-card')).length, 3);
+});
+
+
+test('end confirms discard and enables a fresh start and folder changes', async () => {
+  const h = harness({ status: active(), endResponse: ok(status()) });
+  await h.open();
+  assert.equal(h.get('session-end').hidden, false);
+  await h.click('session-end');
+  assert.equal(h.posts().length, 1);
+  assert.equal(h.posts()[0].url, '/api/work-session/end');
+  assert.equal(h.posts()[0].payload.confirmed, true);
+  assert.equal(h.posts()[0].payload.session_id, 's1');
+  assert(h.confirmations[0].includes('bez zapisywania'));
+  assert.equal(h.get('session-start').disabled, false);
+  assert.equal(h.get('root-editor').disabled, false);
+  assert.equal(h.get('session-end').hidden, true);
+});
+
+test('ending blocks folders, resume and repeated end while actions drain', async () => {
+  const h = harness({ status: resumable({ state: 'ending', running_actions: 1, resume_recovery_required: true }) });
+  await h.open();
+  await h.click('session-end');
+  assert.equal(h.posts().length, 0);
+  assert.equal(h.get('session-end').disabled, true);
+  assert.equal(h.get('root-editor').disabled, true);
+  assert.equal(h.get('session-prepare').disabled, true);
+  assert(text(h.get('session-summary')).includes('Trwa kończenie'));
+});
+
+test('end cancellation and stale response never retry automatically', async () => {
+  const cancelled = harness({ status: active(), confirm: false });
+  await cancelled.open(); await cancelled.click('session-end');
+  assert.equal(cancelled.posts().length, 0);
+  const stale = harness({ status: active(), endResponse: { status: 409, json: { success: false } } });
+  await stale.open(); await stale.click('session-end');
+  assert.equal(stale.posts().length, 1);
+  assert.equal(stale.get('session-start').disabled, true);
 });

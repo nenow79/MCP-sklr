@@ -56,6 +56,12 @@ class AutopilotAdmin:
                         deadline_utc=self._approved.get('deadline_utc') if self._approved else None,
                         unresolved=unresolved)
 
+    def discard_session_internal(self):
+        """Composition only: caller holds admin lock after a durable session end."""
+        self._revision += 1
+        self._draft = self._approved = None
+        self.controller.resume_scope = None
+
     def resources(self):
         with self._lock, self.runtime.manager._cond, self.controller.coordination(), self.runtime.store.lock:
             return resource_choices(self.runtime)[1]

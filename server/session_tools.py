@@ -95,6 +95,8 @@ def session_control(controller):
     if state['execution_blocked']:
         if state['session_id'] is None:
             code, reason = 'session_not_selected', 'user_selection_required'
+        elif state['state'] == 'ending':
+            code, reason = 'session_ending', 'user_requested_end'
         elif state.get('resume_pending') is True:
             code, reason = 'session_resume_pending', 'resume_plan_required'
         elif state['state'] in ('pause_requested', 'paused'):
@@ -112,6 +114,10 @@ def session_control(controller):
         instruction = STOP_INSTRUCTION
         if code == 'session_not_selected':
             instruction = SESSION_SELECTION_INSTRUCTION
+        elif code == 'session_ending':
+            instruction = ('Użytkownik kończy sesję bez zapisywania. Nie zapisuj checkpointu ani '
+                           'planu wznowienia. Nie kontynuuj pracy i nie ponawiaj wywołań. '
+                           'Zakończ odpowiedź i czekaj na użytkownika.')
         elif available and state['state'] in ('pause_requested', 'paused'):
             instruction = SAVED_STOP_INSTRUCTION if content_available else CHECKPOINT_STOP_INSTRUCTION
         if state.get('resume_pending') is True:

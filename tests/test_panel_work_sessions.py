@@ -71,7 +71,8 @@ def test_status_start_and_pause(env):
 
 
 @pytest.mark.parametrize('suffix,body', [('', None), ('/checkpoint', None), ('/start', {'roots': ['sklr']}),
-    ('/pause', {'session_id': '0' * 32, 'revision': 1})])
+    ('/pause', {'session_id': '0' * 32, 'revision': 1}),
+    ('/end', {'session_id': '0' * 32, 'revision': 1, 'confirmed': True})])
 def test_endpoints_require_panel_auth(env, suffix, body):
     method = env.client.get if body is None else env.client.post
     kwargs = {} if body is None else {'json': body}
@@ -83,7 +84,7 @@ def test_endpoints_require_panel_auth(env, suffix, body):
     assert env.admin.status()['session_id'] is None
 
 
-@pytest.mark.parametrize('suffix', ['/start', '/pause'])
+@pytest.mark.parametrize('suffix', ['/start', '/pause', '/end'])
 def test_post_requires_origin(env, suffix):
     headers = {key: value for key, value in env.headers.items() if key != 'Origin'}
     response = env.client.post(PATH + suffix, json={}, headers=headers)
@@ -107,7 +108,7 @@ def test_invalid_pause_body_does_not_change_latch(env, body):
     assert env.admin.status() == active
 
 
-@pytest.mark.parametrize('suffix', ['/start', '/pause'])
+@pytest.mark.parametrize('suffix', ['/start', '/pause', '/end'])
 def test_invalid_json(env, suffix):
     response = env.client.post(PATH + suffix, content='not-json', headers=env.headers)
     assert response.status_code == 400
@@ -204,3 +205,26 @@ def test_endpoints_absent_without_adapter(env):
                            headers=env.headers).status_code == 404
         assert client.post(PATH + '/pause', json={}, headers=env.headers).status_code == 404
         assert client.post(PATH + '/resume', json={}, headers=env.headers).status_code == 404
+
+
+def test_end_api_clears_selection_and_rejects_old_identity(env):
+    active = start(env)
+    body = dict(session_id=active['session_id'], revision=active['revision'], confirmed=True)
+    assert env.client.post(PATH + '/end', headers=env.headers, json=dict(body, confirmed=False)).status_code == 400
+    assert env.admin.status() == active
+    response = env.client.post(PATH + '/end', headers=env.headers, json=body)
+    assert response.status_code == 200
+    assert response.json()['data']['session_id'] is None
+    fresh = start(env)
+    assert fresh['session_id'] != active['session_id']
+    assert env.client.post(PATH + '/end', headers=env.headers, json=body).status_code == 409
+    assert env.admin.status() == fresh
+
+
+@pytest.mark.parametrize('body', [{}, [], {'session_id': 'bad', 'revision': 1, 'confirmed': True},
+    {'session_id': '0' * 32, 'revision': True, 'confirmed': True},
+    {'session_id': '0' * 32, 'revision': 1, 'confirmed': 1},
+    {'session_id': '0' * 32, 'revision': 1, 'confirmed': True, 'extra': 1}])
+def test_invalid_end_body(env, body):
+    assert env.client.post(PATH + '/end', headers=env.headers, json=body).status_code == 400
+    assert env.admin.status()['session_id'] is None

@@ -165,6 +165,23 @@ def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: Pane
         except Exception:
             return _err("Nie udało się zapisać pauzy. Sprawdź stan blokady wykonania.", 500)
 
+    async def work_session_end(request):
+        body = await _json_body(request)
+        if body is None or set(body) != {'session_id', 'revision', 'confirmed'}:
+            return _err('Oczekiwano session_id, revision i confirmed.', 400)
+        try:
+            work_session_identity(body)
+            if body['confirmed'] is not True:
+                raise ValueError('Explicit confirmation required.')
+            return _ok(await run_in_threadpool(work_sessions.end,
+                                              body['session_id'], body['revision'], autopilot))
+        except SessionConflict:
+            return _err('Sesja lub rewizja się zmieniła. Odśwież stan.', 409)
+        except ValueError:
+            return _err('Nieprawidłowe żądanie zakończenia sesji.', 400)
+        except Exception:
+            return _err('Nie udało się zakończyć sesji. Odśwież stan przed kolejną decyzją.', 500)
+
     def work_session_identity(body):
         from tasks.session_models import session_id
         session_id(body['session_id'])
@@ -569,6 +586,7 @@ def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: Pane
             Route("/api/work-session/checkpoint", work_session_checkpoint, methods=["GET"]),
             Route("/api/work-session/start", work_session_start, methods=["POST"]),
             Route("/api/work-session/pause", work_session_pause, methods=["POST"]),
+            Route("/api/work-session/end", work_session_end, methods=["POST"]),
             Route("/api/work-session/resume-preview", work_session_read, methods=["GET"]),
             Route("/api/work-session/resume-plan", work_session_read, methods=["GET"]),
             Route("/api/work-session/saved", work_session_read, methods=["GET"]),

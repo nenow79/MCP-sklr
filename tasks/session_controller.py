@@ -47,6 +47,7 @@ class SessionController:
         self._confirmed_plan_revision = None
         self._autopilot = None
         self._stopping = False
+        self._end_ready = False
 
     def _invalidate_resume(self):
         """Logical invalidation precedes best-effort RAM cleanup.
@@ -77,6 +78,8 @@ class SessionController:
                 raise ValueError('Expected a positive revision.')
             if item.revision != expected_revision:
                 raise SessionConflict('Session revision changed.')
+            if item.lifecycle != 'open':
+                raise SessionConflict('Session has ended.')
             if self._selected is not None:
                 if sid != self._selected:
                     raise SessionConflict('Session switching is not supported.')
@@ -100,6 +103,7 @@ class SessionController:
             if (type(expected_revision) is not int or expected_revision < 1):
                 raise ValueError('Expected a positive revision.')
             if (item is None or item.revision != expected_revision
+                    or item.lifecycle != 'open'
                     or item.state != SessionState.PAUSED or item.reason != 'server_restarted'):
                 raise SessionConflict('Session is not a current restart recovery candidate.')
             self._invalidate_resume()
@@ -122,7 +126,7 @@ class SessionController:
             except Exception:
                 self._blocked = True
                 raise SessionBlocked('Session state is unavailable.') from None
-            if item is None or item.state != SessionState.ACTIVE:
+            if item is None or item.lifecycle != 'open' or item.state != SessionState.ACTIVE:
                 self._blocked = True
                 raise SessionBlocked('Session execution is blocked.')
             token = object()
@@ -145,7 +149,7 @@ class SessionController:
             except Exception:
                 self._blocked = True
                 raise SessionBlocked('Session state is unavailable.') from None
-            if item is None or item.state != SessionState.ACTIVE:
+            if item is None or item.lifecycle != 'open' or item.state != SessionState.ACTIVE:
                 self._blocked = True
                 raise SessionBlocked('Session execution is blocked.')
 
@@ -176,7 +180,7 @@ class SessionController:
             if (item is not None and item.state == SessionState.ACTIVE and link is not None
                     and link.session_id == self._selected and link.session_revision < item.revision):
                 raise StaleSessionTask('Task belongs to an old session generation.')
-            if (item is None or item.state != SessionState.ACTIVE or link is None
+            if (item is None or item.lifecycle != 'open' or item.state != SessionState.ACTIVE or link is None
                     or link.session_id != self._selected
                     or link.session_revision != item.revision):
                 self._blocked = True
@@ -209,7 +213,41 @@ class SessionController:
                 raise ValueError('Unknown action token.')
             self._tokens.remove(token)
             if self._blocked and not self._tokens and self._selected is not None:
-                self._finalize_pause()
+                item = self._store.get(self._selected)
+                if item.lifecycle in ('ending', 'ended'):
+                    self.finish_end_internal()
+                else:
+                    self._finalize_pause()
+
+    def request_end_internal(self, sid, revision):
+        """Manager holds its lock and this controller lock throughout cancellation."""
+        if self._stopping or sid != self._selected:
+            raise SessionConflict('Session selection changed.')
+        from tasks.session_models import positive_int
+        positive_int(revision)
+        item = self._store.get(sid)
+        if item is None or item.revision != revision or item.lifecycle not in ('open', 'ending', 'ended'):
+            raise SessionConflict('Session revision changed.')
+        self._blocked = True
+        self._end_ready = False
+        self._store.request_end(sid, revision)
+        self._invalidate_resume()
+        if self._resumes is not None:
+            self._resumes.clear()
+        self._checkpoint_current_revision = None
+        if self._checkpoints is not None:
+            self._checkpoints.discard(sid)
+        if self._autopilot is not None:
+            self._autopilot.session_ended_internal()
+
+    def finish_end_internal(self):
+        if not self._end_ready or self._tokens or self._selected is None:
+            return
+        item = self._store.get(self._selected)
+        self._store.finish_end(item.id, item.revision)
+        self._selected = None
+        self._resume_recovery_required = False
+        self._end_ready = False
 
     def request_pause(self, expected_revision):
         """Panel-only integration. Persistence errors do not reopen admission."""
@@ -261,7 +299,7 @@ class SessionController:
                 item = self._store.get(self._selected)
             except Exception:
                 raise CheckpointOperationError('checkpoint_storage_failed') from None
-            if (item is None or item.state not in
+            if (item is None or item.lifecycle != 'open' or item.state not in
                     (SessionState.PAUSE_REQUESTED, SessionState.PAUSED)):
                 raise SessionConflict('Checkpoint requires a paused session.')
             if type(expected_revision) is not int or expected_revision < 1:
@@ -473,7 +511,7 @@ class SessionController:
         except Exception:
             self._blocked = True
             raise ResumeOperationError('resume_storage_failed') from None
-        if item is None or item.revision != expected_revision:
+        if item is None or item.lifecycle != 'open' or item.revision != expected_revision:
             raise SessionConflict('Session revision changed.')
         return item
 
@@ -591,7 +629,7 @@ class SessionController:
                 'session_id': self._selected,
                 'execution_blocked': self._blocked or self._stopping,
                 'running_actions': len(self._tokens),
-                'state': item.state.value if item else None,
+                'state': ('ending' if item.lifecycle != 'open' else item.state.value) if item else None,
                 'reason': item.reason if item else '',
                 'revision': item.revision if item else None,
                 'checkpoint_state': item.checkpoint_state.value if item else None,

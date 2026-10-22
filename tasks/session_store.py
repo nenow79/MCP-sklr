@@ -16,7 +16,7 @@ from tasks.session_models import (
     SessionTaskLink, WorkSession, positive_int, root_aliases, session_id,
 )
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS work_sessions (
     id TEXT PRIMARY KEY,
@@ -45,6 +45,7 @@ def _session(row):
         checkpoint_state=CheckpointState(row['checkpoint_state']),
         revision=row['revision'], reason=row['reason'],
         created_at=row['created_at'], updated_at=row['updated_at'],
+        lifecycle=row['lifecycle'],
     )
 
 
@@ -57,7 +58,7 @@ class SessionStore:
         try:
             self._conn.execute('PRAGMA foreign_keys=ON')
             version = self._conn.execute('PRAGMA user_version').fetchone()[0]
-            if version not in (0, SCHEMA_VERSION):
+            if version not in (0, 1, SCHEMA_VERSION):
                 raise ValueError('Unsupported session schema version.')
             # Fail closed if a task store path was supplied accidentally.
             tables = {r[0] for r in self._conn.execute(
@@ -67,6 +68,10 @@ class SessionStore:
             if str(db_path) != ':memory:':
                 self._conn.execute('PRAGMA journal_mode=WAL')
             self._conn.executescript(_SCHEMA)
+            columns = {row[1] for row in self._conn.execute('PRAGMA table_info(work_sessions)')}
+            if 'lifecycle' not in columns:
+                self._conn.execute("ALTER TABLE work_sessions ADD COLUMN lifecycle TEXT "
+                                   "NOT NULL DEFAULT 'open' CHECK(lifecycle IN ('open','ending','ended'))")
             self._conn.execute(f'PRAGMA user_version={SCHEMA_VERSION}')
             self._conn.commit()
         except Exception:
@@ -82,7 +87,8 @@ class SessionStore:
         sid, timestamp = uuid4().hex, now_iso()
         with self._lock, self._conn:
             self._conn.execute(
-                'INSERT INTO work_sessions VALUES (?,?,?,?,?,?,?,?)',
+                'INSERT INTO work_sessions (id,roots,state,checkpoint_state,revision,reason,created_at,updated_at) '
+                'VALUES (?,?,?,?,?,?,?,?)',
                 (sid, json.dumps(aliases), SessionState.ACTIVE.value,
                  CheckpointState.UNAVAILABLE.value, 1, '', timestamp, timestamp))
             return self.get(sid)
@@ -101,18 +107,43 @@ class SessionStore:
             raise ValueError('Session list limit exceeded.')
         with self._lock:
             rows = self._conn.execute(
-                'SELECT * FROM work_sessions ORDER BY updated_at DESC, id LIMIT ?',
+                "SELECT * FROM work_sessions WHERE lifecycle='open' ORDER BY updated_at DESC, id LIMIT ?",
                 (limit + 1,)).fetchall()
             return [_session(row) for row in rows[:limit]], len(rows) > limit
 
-    def _require(self, sid, revision):
+    def _require(self, sid, revision, *, allow_discarded=False):
         positive_int(revision)
         item = self.get(sid)
         if item is None:
             raise SessionNotFound('Session not found.')
+        if item.lifecycle != 'open' and not (allow_discarded and item.lifecycle in ('ending', 'ended')):
+            raise SessionConflict('Session has ended.')
         if item.revision != revision:
             raise SessionConflict('Session revision changed.')
         return item
+
+    def request_end(self, sid, expected_revision):
+        """Permanent discard marker, before cancellation or releasing selection."""
+        with self._lock, self._conn:
+            self._conn.execute('BEGIN IMMEDIATE')
+            item = self._require(sid, expected_revision, allow_discarded=True)
+            if item.lifecycle == 'open':
+                self._conn.execute(
+                    "UPDATE work_sessions SET lifecycle='ending', checkpoint_state='unavailable', "
+                    "revision=revision+1, updated_at=? WHERE id=?", (now_iso(), sid))
+            return self.get(sid)
+
+    def finish_end(self, sid, expected_revision):
+        with self._lock, self._conn:
+            self._conn.execute('BEGIN IMMEDIATE')
+            item = self._require(sid, expected_revision, allow_discarded=True)
+            if item.lifecycle == 'ended':
+                return
+            if item.lifecycle != 'ending':
+                raise SessionConflict('Session end was not requested.')
+            self._conn.execute(
+                "UPDATE work_sessions SET lifecycle='ended', revision=revision+1, updated_at=? WHERE id=?",
+                (now_iso(), sid))
 
     def request_pause(self, sid, expected_revision):
         """Metadata transition only. P2 must synchronize this with dispatch."""
@@ -264,8 +295,9 @@ class SessionStore:
         """
         with self._lock, self._conn:
             self._conn.execute('BEGIN IMMEDIATE')
+            self._conn.execute("UPDATE work_sessions SET lifecycle='ended' WHERE lifecycle='ending'")
             count = self._conn.execute(
                 "UPDATE work_sessions SET state='paused', "
                 "checkpoint_state='unavailable', revision=revision+1, "
-                "reason='server_restarted', updated_at=?", (now_iso(),)).rowcount
+                "reason='server_restarted', updated_at=? WHERE lifecycle='open'", (now_iso(),)).rowcount
             return count

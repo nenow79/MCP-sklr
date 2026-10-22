@@ -36,7 +36,7 @@ function harness(options = {}) {
       let data = state;
       if (url.endsWith('/resources')) { data = [{ key: 'root:app', kind: 'root', name: 'app', path: '<private>', mode: 'rw' }]; }
       if (url.endsWith('/preview')) { data = { preview_id: 'preview-once', ...body }; }
-      return { status: 200, ok: true, json: async () => ({ success: true, data }) };
+      return { status: 200, ok: true, json: async () => ({ success: true, data: JSON.parse(JSON.stringify(data)) }) };
     }
   };
   vm.runInNewContext(source, context);
@@ -169,5 +169,21 @@ test('expired or exhausted delegation never appears as manual fallback', async (
     const h = harness({ state: { state } }); await h.click('tab-session');
     assert.equal(h.get('mode-manual')['aria-pressed'], 'false');
     assert.equal(h.get('mode-autopilot')['aria-pressed'], 'true');
+  }
+});
+
+
+test('ending or changing session removes previous goal, plan and preview', async () => {
+  for (const ending of [true, false]) {
+    const h = harness(); await h.click('tab-session');
+    h.get('ap-goal').value = 'Old private goal';
+    h.get('ap-plan').value = 'Old private plan';
+    if (ending) { h.state.session_state = 'ending'; }
+    else { h.state.session_id = null; h.state.session_state = null; }
+    h.windowEvents['panel-session-changed'](); await h.flush();
+    assert.equal(h.get('ap-goal').value, '');
+    assert.equal(h.get('ap-plan').value, '');
+    assert.equal(h.get('ap-preview-content').textContent, '');
+    assert.equal(h.get('ap-approve').disabled, true);
   }
 });

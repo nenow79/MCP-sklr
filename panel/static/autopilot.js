@@ -186,6 +186,9 @@
     try {
       var data = await api("");
       if (current !== generation) { return; }
+      if (!data.session_id || data.session_state === "ending" || state && state.session_id !== data.session_id) {
+        clearPrivate(); current = generation;
+      }
       state = data; $("autopilot-section").hidden = !data.session_id;
       var currentResources = await api("/resources");
       if (current !== generation) { return; }

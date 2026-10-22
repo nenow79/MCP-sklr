@@ -220,6 +220,15 @@ class AutopilotController:
             self._close('revoked')
             self._record('revoked', 'revoked')
 
+    def session_ended_internal(self):
+        """Discard delegation without creating a pause/checkpoint cycle."""
+        with self._lock:
+            self._engaged = self._approved = False
+            if self._ledger is not None:
+                self._ledger.revoke(self._binding)
+            # Keep tickets/journal and uncertainty until started effects finish.
+            self._reason = 'revoked'
+
     def session_paused_internal(self):
         # Called with session lock. Do not recurse into request_pause.
         with self._lock:

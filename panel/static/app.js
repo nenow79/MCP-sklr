@@ -1532,7 +1532,7 @@
   }
 
   function sessionCanPrepare() {
-    return sessionData && sessionData.session_id && sessionData.resume_available &&
+    return sessionData && sessionData.state !== "ending" && sessionData.session_id && sessionData.resume_available &&
       sessionData.execution_blocked && !sessionData.resume_pending && sessionData.running_actions === 0 &&
       (sessionData.state === "paused" || sessionData.resume_recovery_required);
   }
@@ -1703,6 +1703,9 @@
   function sessionButtons() {
     $("session-start").disabled = sessionBusy || !sessionData || !!sessionData.session_id ||
       !sessionRootsLoaded || sessionChosen().length === 0;
+    $("session-end").hidden = !sessionData || !sessionData.session_id;
+    $("session-end").disabled = sessionBusy || !sessionData || !sessionData.session_id ||
+      sessionData.state === "ending" && sessionData.running_actions > 0;
     $("session-pause").disabled = sessionBusy || !sessionData || sessionData.state !== "active";
     $("session-prepare").disabled = sessionBusy || !sessionCanPrepare();
     $("session-prepare").hidden = !sessionCanPrepare();
@@ -1726,7 +1729,10 @@
       hint = "Brak przypiętej sesji. Dodaj foldery poniżej i naciśnij Start lub wybierz zapisaną sesję po restarcie.";
       tone = "";
     } else if (data) {
-      if (data.resume_pending) {
+      if (data.state === "ending") {
+        title = "Trwa kończenie sesji bez zapisywania";
+        hint = "Nowe działania są zablokowane. Po zakończeniu rozpoczętych działań odśwież stan, zmień foldery i naciśnij Start.";
+      } else if (data.resume_pending) {
         title = "Oczekiwanie na potwierdzenie planu przez model";
         hint = "Poleć modelowi pobrać get_resume_context i potwierdzić aktualny plan. Potem odśwież stan.";
         tone = "is-paused";
@@ -1754,7 +1760,7 @@
       summary.appendChild(el("p", { className: "muted", text: "Rozpoczęte działania: " + data.running_actions +
         " · Nowe działania: " + (data.execution_blocked ? "zablokowane" : "dopuszczone według trybu pracy") }));
       var reasons = { user_requested_pause: "Pauza na Twoje żądanie", server_restarted: "Sesja odzyskana po restarcie" };
-      if (data.reason) { summary.appendChild(el("p", { className: "muted", text: reasons[data.reason] || "Powód blokady: " + visibleText(data.reason) })); }
+      if (data.reason && data.state !== "ending") { summary.appendChild(el("p", { className: "muted", text: reasons[data.reason] || "Powód blokady: " + visibleText(data.reason) })); }
     }
   }
 
@@ -1788,13 +1794,13 @@
         box.appendChild(sessionLine("Wznowienie", "Niepewne potwierdzenie; bramka zamknięta. Wymagane nowe jawne przygotowanie."));
       }
       box.appendChild(el("p", { className: "muted", text: (data.resume_available ?
-        "Wznowienie wymaga jawnego przygotowania i planu modelu. Przełączenie sesji jest niedostępne. " :
-        "Wznowienie i przełączenie sesji są niedostępne w tej wersji. ") +
+        "Wznowienie wymaga jawnego przygotowania i planu modelu. Nową sesję rozpoczniesz po zakończeniu obecnej bez zapisywania. " :
+        "Wznowienie jest niedostępne w tej wersji. ") +
         "Pauza obejmuje wszystkie rozmowy tej instancji sklr." }));
     }
     $("session-select").hidden = !data || !!data.session_id;
     $("session-resume-section").hidden = !sessionCanPrepare();
-    $("session-context").hidden = !data || !data.session_id || data.checkpoint_content_available || !!sessionCanPrepare();
+    $("session-context").hidden = !data || !data.session_id || data.state === "ending" || data.checkpoint_content_available || !!sessionCanPrepare();
     $("session-context-hint").textContent = data && data.ram_lost ?
       "Kontekst poprzedniego procesu został utracony po restarcie. Do dalszej pracy potrzebne jest nowe przygotowanie wznowienia." :
       data && data.checkpoint_available ? "Brak potwierdzonego checkpointu w RAM. Gdy model zapisze kontekst pracy, zobaczysz go tutaj po odświeżeniu. Sama pauza nie tworzy zapisu." :
@@ -1922,7 +1928,21 @@
       if (!chosen.length || !sessionData || sessionData.session_id) { return; }
       sessionPost("/api/work-session/start", { roots: chosen },
         "Rozpocząć sesję pracy dla folderów: " + chosen.join(", ") + "? Pauza obejmie wszystkie rozmowy " +
-        "całej instancji sklr. Checkpoint jest tylko w RAM. Wznowienie wymaga przygotowania i planu modelu; przełączenie jest niedostępne.");
+        "całej instancji sklr. Checkpoint jest tylko w RAM. Wznowienie wymaga przygotowania i planu modelu; możesz zakończyć sesję bez zapisywania i rozpocząć nową.");
+    });
+    $("session-end").addEventListener("click", function () {
+      if (!sessionData || !sessionData.session_id || sessionData.state === "ending" && sessionData.running_actions > 0) { return; }
+      sessionPost("/api/work-session/end", {
+        session_id: sessionData.session_id, revision: sessionData.revision, confirmed: true
+      }, "Zakończyć sesję bez zapisywania? Checkpoint i plan wznowienia zostaną usunięte, " +
+        "a zgoda autopilota unieważniona. Oczekujące zadania zostaną anulowane; rozpoczęte dokończą się w swoich limitach. " +
+        "Zmiany już wykonane w plikach i historia zadań pozostaną. Potem możesz zmienić foldery i rozpocząć świeżą sesję.")
+        .then(function () {
+          if (sessionData && !sessionData.session_id) {
+            clearSessionCheckpoint();
+            clearSessionResume();
+          }
+        });
     });
     $("session-pause").addEventListener("click", function () {
       if (!sessionData || sessionData.state !== "active") { return; }

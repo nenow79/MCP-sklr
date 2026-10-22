@@ -6,6 +6,16 @@ tags: [sklr, project-state, sessions, autonomy, windows, testing]
 ---
 # Aktualny stan — 2026-10-22
 
+## Zakończenie sesji bez zapisywania — paczka do przekazania
+
+Użytkownik zlecił commit i publikację tej paczki na origin/main. Identyfikator przekazania należy odczytać z historii Git; publikacja nie oznacza odbioru pytest ani Windows. Ta sekcja jest nadrzędna wobec wcześniejszych opisów lokalnych, nieopublikowanych zmian panelu poniżej.
+
+Przed zmianami wykonano fetch origin: lokalny main i origin/main zgodne na `3d4fdae`, czysty katalog roboczy. Po akceptacji planu dodano przycisk „Zakończ bez zapisywania” i uwierzytelniony endpoint panelu. Kończy sesję bez żądania checkpointu, czyści checkpoint/handshake i kontekst delegacji, unieważnia autopilota, anuluje awaiting_approval/queued oraz czeka na zwolnienie rozpoczętych działań. Potem można zmienić foldery i wystartować świeżą sesję. Historia zadań, wykonane zmiany i dziennik niepewnych skutków pozostają. Migracja SQLite sesji v1 → v2 dodaje lifecycle; zakończone/kończone sesje nie wracają do odzyskiwania po restarcie. Kontrakt w specyfikacji sesji.
+
+Walidacja Linux: panel Node **8/8 plików**, dedykowane sesja/autopilot **39 + 12 przypadków**. AST zmienionych plików Python, składnia JS i whitespace poprawne. Krótki smoke w istniejącym venv na tymczasowych bazach: usunięcie checkpointu/handshake, anulowanie oczekującego zadania, dokończenie rozpoczętej akcji, świeży Start z innymi roots i pominięcie zakończonych sesji po odzyskaniu restartowym — zaliczone. Dopisano testy backendu: przerwanie kolejki, częściowy błąd i jawne ponowienie, stary token/karta, delegacja oraz migracja v1. **Pytest nie uruchomiono**, bez serwerów i odbioru przeglądarki/Windows.
+
+Komenda w aktywnym venv/conda: `python -m pytest tests/test_session_end.py tests/test_session_store.py tests/test_session_resume_store.py tests/test_session_controller.py tests/test_session_admin.py tests/test_tasks_sessions.py tests/test_session_resume_controller.py tests/test_panel_work_sessions.py tests/test_panel_session_resume.py tests/test_panel_autopilot.py tests/test_panel_session_folders.py tests/test_panel_static.py`. Odbiór kończenia sesji zapisano w backlogu D12.
+
 ## Panel „Foldery i sesja” — lokalne uproszczenie
 
 Po akceptacji planu połączono Foldery i Sesję pracy w jedną zakładkę z jedną listą folderów i sterowaniem Start/Wstrzymaj/Wznów u góry. Start obejmuje wszystkie dostępne foldery, bez ponownego zaznaczania. Przyciski Ręczny/Autopilot pokazują bieżący tryb; wybór Autopilota podczas pauzy odsłania konfigurację i nie udziela zgody. Zmiana trybu wymaga pełnej pauzy. Zakres, limity i jawne zatwierdzenie podglądu pozostają wymagane; techniczne szczegóły są zwinięte.
