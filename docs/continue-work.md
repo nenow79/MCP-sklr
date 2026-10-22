@@ -72,3 +72,17 @@ Nie przywracaj dawnych .vibecoder_context.md/.vibecoder_checkpoints.md do korzen
 ```
 
 Przed aktualizacją na drugim komputerze sprawdź lokalny git status i zachowaj kopię config.json poza checkoutem. Przy lokalnych zmianach nie używaj reset --hard ani nadpisania configu. Po bezpiecznej aktualizacji commit punktu przekazania identyfikuj przez git log -1 --oneline i porównaj z hashem podanym przy publikacji. Szczegóły docelowego odbioru: [Windows](windows-okf.md).
+
+## Kluczowe doprecyzowanie: obecny ubogi harness
+
+Użytkownik potwierdził, że pracujemy na bazie commitów `425f91f` (`feat: add autopilot policy foundation`) i `a6c564c` (`feat: enable autopilot`). To baza implementacji, nie potwierdzenie pełnej regresji ani rzeczywistego odbioru Windows. Zachowaj ich kod i kontrakty; nie przywracaj starszych opisów „autopilot niewdrożony”. Wcześniejsze wzmianki tego promptu o nieopublikowanej paczce opisują etap przygotowania; aktualny checkout i publikację sprawdź w Git. To doprecyzowanie nie zamyka odbiorów A2b5/W5 ani prac A3/A3b/A4.
+
+- Harness jest ubogą stroną w przeglądarce z chatem LLM. Pozwala podłączyć **jeden MCP — sklr**. Nie ma własnych narzędzi plikowych ani alternatywnej ścieżki wykonania. Skille i zewnętrzne MCP są dostępne za pośrednictwem sklr.
+- **Pętlę kolejnych kroków prowadzi obecny LLM**, w ramach przebiegu rozpoczętego przez użytkownika. sklr dostarcza informacje, wykonuje działania i egzekwuje zatwierdzony kontrakt. Osobny wykonawca integrujący model nie jest potrzebny dla tej architektury pierwszej wersji.
+- **Zamknięcie bramki sklr odcina nowe informacje i wykonania robocze**, więc zatrzymuje dalszy postęp pracy narzędziowej: harness nie ma alternatywnych narzędzi. sklr zwraca jednoznaczny komunikat sterujący, a nie pusty wynik. Model ma zakończyć odpowiedź, nie ponawiać żądań i nie szukać obejścia.
+- Dostępna pozostaje wyłącznie ograniczona ścieżka sterująca zgodna z kontraktem sesji: stan, domknięcie już rozpoczętych działań, bezpieczny checkpoint i przygotowane przez użytkownika wznowienie. Nie służy ona nowym poszukiwaniom. „Wstrzymaj po kroku” blokuje nowe działania, lecz nie cofa skutków i nie zabija rozpoczętych; kończą się one w swoich limitach. Wewnętrzna pętla pojedynczego skilla/MCP nie ma automatycznie punktu pauzy.
+- Blokada wykonania **nie jest technicznym zatrzymaniem generowania tekstu ani rozumowania LLM**. Model może jeszcze odpowiedzieć lub spróbować wywołania, ale sklr ma odmówić dalszej pracy. Zachowanie rzeczywistego chatu wymaga ręcznego odbioru; atrapy nie dowodzą zakończenia jego przebiegu.
+- sklr **nie budzi modelu**, nie wysyła kolejnej wiadomości do chatu i nie prowadzi niezależnej pętli w tle. Po zakończeniu odpowiedzi, limicie harnessu lub utracie połączenia kontynuację inicjuje użytkownik. Przygotowanie wznowienia w panelu samo nie uruchamia LLM.
+- Tryb Zwykły zachowuje dotychczasowy przepływ zgód/trust. Autopilot umożliwia kolejne operacje bez osobnej decyzji tylko w zakresie zatwierdzonej delegacji A2. Model nie włącza ani nie rozszerza zgody. Tryb i stan sesji są odrębne; przełączenie nie omija pauzy ani handshake. Testy, automatyczne poprawki, instalacje, sekrety, publikacja/commit/push, produkcja i działania destrukcyjne nie otrzymują zgody od samego włączenia trybu — obowiązują wyłączenia kontraktu A2.
+
+To doprecyzowanie specyfiki harnessu nie zmienia przyjętych reguł A2, budżetów, implementacji ani zasad AGENTS. Kontynuuj od istniejącego kontraktu i procedury odbioru, nie projektuj autopilota od nowa.
