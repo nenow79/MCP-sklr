@@ -6,11 +6,15 @@ tags: [sklr, project-state, sessions, autonomy, windows, testing]
 ---
 # Aktualny stan — 2026-10-22
 
-## Panel „Sesja pracy” — lokalna przebudowa interfejsu
+## Panel „Foldery i sesja” — lokalne uproszczenie
 
-Po akceptacji propozycji użytkownika sprawdzono GitHub przez `git fetch origin`: lokalny main i origin/main wskazywały `09c2f90`, drzewo było czyste. Lokalnie przebudowano zakładkę: stan i pauza u góry, karty kontynuacji i folderów, responsywny formularz delegacji z polami zależnymi od rodzaju reguły, usuwanie pojedynczych reguł oraz osobne podsumowania zatwierdzonego zakresu i nowego podglądu. Wspólny wygląd folderów z zakładką Foldery; przejście do konfiguracji i powrót zachowują dostępne zaznaczenia. Wybór folderów nie nadaje delegacji; API i backend zgód/wznowienia bez zmian. Zmiana reguł nadal unieważnia podgląd. Błąd metadanych folderów blokuje start nowej sesji, nie usuwa odczytanego stanu istniejącej sesji.
+Po akceptacji planu połączono Foldery i Sesję pracy w jedną zakładkę z jedną listą folderów i sterowaniem Start/Wstrzymaj/Wznów u góry. Start obejmuje wszystkie dostępne foldery, bez ponownego zaznaczania. Przyciski Ręczny/Autopilot pokazują bieżący tryb; wybór Autopilota podczas pauzy odsłania konfigurację i nie udziela zgody. Zmiana trybu wymaga pełnej pauzy. Zakres, limity i jawne zatwierdzenie podglądu pozostają wymagane; techniczne szczegóły są zwinięte.
 
-Walidacja Linux: `node --test tests/test_panel_*.cjs` — 8/8 plików zaliczonych; dedykowane sesja/autopilot obejmują 33 + 7 przypadków. Składnia obu plików JS, struktura HTML, unikalność ID, referencje JS i kontrola CSP/DOM poprawne; sesja/delegacja bez timerów i trwałego zapisu w przeglądarce. Bez pytest, serwerów i odbioru wizualnego w przeglądarce/Windows. Zmiany lokalne, nieopublikowane; odbiór UI w backlogu.
+API folderów odrzuca zmiany podczas pracy, kończenia działań i przygotowanego handshake; wymaga aktualnego session_id/rewizji przy wybranej sesji. Zmiana podczas pełnej pauzy aktualizuje foldery tej samej sesji, zwiększa rewizję i unieważnia zgodę autopilota oraz stary plan wznowienia. Nie otwiera bramki, nie wykonuje retry ani nie przełącza sesji. Blokada ostatniego dostępnego folderu i limit 32; konfiguracja folderów działa również przy wyłączonych sesjach. Config i SQLite nie tworzą wspólnej transakcji: po częściowym błędzie praca pozostaje zablokowana i trzeba odczytać stan. Bez zmian lokalnego configu i środowisk.
+
+Walidacja Linux: `node --test tests/test_panel_*.cjs` — **8/8 plików**, dedykowane sesja/autopilot **36 + 11 przypadków**. Składnia JS, struktura HTML, unikalność ID, referencje DOM, AST zmienionych plików Python i whitespace poprawne. Krótki smoke w istniejącym venv na tymczasowej bazie: odmowa zmiany podczas pracy, aktualizacja roots/rewizji podczas pauzy, odmowa starej rewizji, zachowana blokada wykonania. Dopisano testy backendu i integracji API; **pytest nie uruchomiono**, bez serwerów i odbioru przeglądarki/Windows. Zmiany lokalne, nieopublikowane; pozostały odbiór w backlogu.
+
+Komenda backendu do uruchomienia w aktywnym venv/conda: `python -m pytest tests/test_session_admin.py tests/test_session_store.py tests/test_panel_session_folders.py tests/test_panel_roots.py tests/test_panel_work_sessions.py tests/test_panel_session_resume.py tests/test_panel_autopilot.py tests/test_panel_static.py tests/test_panel_external_static.py`.
 
 ## Bieżące potwierdzenie Windows — częściowy smoke A2
 

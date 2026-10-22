@@ -66,13 +66,13 @@ function harness(records, post, confirmResult = true) {
   return { get, requests, confirmations, flush, checkbox, click };
 }
 
-test('trzecia zakładka, źródła, kopia przesłonięta i katalogi dev', async () => {
+test('zakładka Skille, źródła, kopia przesłonięta i katalogi dev', async () => {
   const h = harness([record(), record({ source: 'dev', enabled: false, shadowed: true }),
     record({ name: 'local', source: 'project' })]);
   await h.click('tab-skills');
   assert.equal(h.get('skills-view').hidden, false);
   assert.equal(h.get('tasks-view').hidden, true);
-  assert.equal(h.get('roots-view').hidden, true);
+  assert.equal(h.get('session-view').hidden, true);
   assert.equal(h.checkbox(1).disabled, true);
   assert.ok(text(h.get('skills-list')).includes('Przesłonięty'));
   for (const s of ['central', 'dev', 'project']) assert.ok(text(h.get('skills-list')).includes(s));

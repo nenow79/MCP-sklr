@@ -331,6 +331,11 @@ def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: Pane
         entries = await run_in_threadpool(roots.list_status)
         return _ok({"count": len(entries), "roots": entries})
 
+    def change_root(operation, body, *, removing=None, adding=False):
+        if work_sessions is None:
+            return operation()
+        return work_sessions.change_folders(operation, body or {}, autopilot, removing=removing, adding=adding)
+
     async def add_root(request: Request) -> JSONResponse:
         body = await _json_body(request)
         if body is None:
@@ -345,12 +350,17 @@ def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: Pane
                 raise ValueError("Pole 'default' musi być true lub false.")
             if not path:
                 raise ValueError("Podaj ścieżkę do folderu.")
-            root = await run_in_threadpool(roots.add, path, mode, alias or None, description,
-                                           make_default)
+            root = await run_in_threadpool(
+                lambda: change_root(
+                    lambda: roots.add(path, mode, alias or None, description, make_default), body, adding=True))
+        except SessionConflict as exc:
+            return _err(str(exc), 409)
         except RootError as exc:
             return _root_error_response(exc)
         except ValueError as exc:
             return _err(str(exc), 400)
+        except Exception:
+            return _err("Niepewny wynik zmiany folderów. Odśwież stan przed kolejną decyzją.", 500)
         return _ok(root.to_dict(), 201)
 
     async def update_root(request: Request) -> JSONResponse:
@@ -362,26 +372,43 @@ def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: Pane
             description = _opt_str(body, "description")
             new_alias = _opt_str(body, "new_alias")
             root = await run_in_threadpool(
-                lambda: roots.update(request.path_params["alias"], mode=mode,
-                                     description=description, new_alias=new_alias or None))
+                change_root, lambda: roots.update(request.path_params["alias"], mode=mode,
+                                     description=description, new_alias=new_alias or None), body)
+        except SessionConflict as exc:
+            return _err(str(exc), 409)
         except RootError as exc:
             return _root_error_response(exc)
         except ValueError as exc:
             return _err(str(exc), 400)
+        except Exception:
+            return _err("Niepewny wynik zmiany folderów. Odśwież stan przed kolejną decyzją.", 500)
         return _ok(root.to_dict())
 
     async def delete_root(request: Request) -> JSONResponse:
+        body = await _json_body(request)
         try:
-            root = await run_in_threadpool(roots.remove, request.path_params["alias"])
+            root = await run_in_threadpool(lambda: change_root(
+                lambda: roots.remove(request.path_params["alias"]), body,
+                removing=request.path_params["alias"]))
+        except SessionConflict as exc:
+            return _err(str(exc), 409)
         except RootError as exc:
             return _root_error_response(exc)
+        except Exception:
+            return _err("Niepewny wynik zmiany folderów. Odśwież stan przed kolejną decyzją.", 500)
         return _ok(root.to_dict())
 
     async def default_root(request: Request) -> JSONResponse:
+        body = await _json_body(request)
         try:
-            root = await run_in_threadpool(roots.set_default, request.path_params["alias"])
+            root = await run_in_threadpool(change_root,
+                lambda: roots.set_default(request.path_params["alias"]), body)
+        except SessionConflict as exc:
+            return _err(str(exc), 409)
         except RootError as exc:
             return _root_error_response(exc)
+        except Exception:
+            return _err("Niepewny wynik zmiany folderów. Odśwież stan przed kolejną decyzją.", 500)
         return _ok(root.to_dict())
 
     async def list_skills(request: Request) -> JSONResponse:

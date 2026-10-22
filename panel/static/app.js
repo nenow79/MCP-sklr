@@ -527,11 +527,10 @@
       clearSessionResume();
       $("session-supplement").value = "";
     }
-    ["tasks", "roots", "skills", "knowledge", "external", "session"].forEach(function (tab) {
+    ["tasks", "skills", "knowledge", "external", "session"].forEach(function (tab) {
       if ($(tab + "-view")) { $(tab + "-view").hidden = tab !== name; }
       if ($("tab-" + tab)) { $("tab-" + tab).className = tab === name ? "tab active" : "tab"; }
     });
-    if (name === "roots") { refreshRoots(); }
     if (name === "skills") { refreshSkills(); }
     if (name === "knowledge") { refreshKnowledge(); }
     if (name === "external") { refreshExternal(); }
@@ -552,13 +551,24 @@
     return false;
   }
 
-  function rootAction(alias, action, body, okMessage) {
-    var path = "/api/roots/" + encodeURIComponent(alias) + "/" + action;
-    return api("POST", path, body || {}).then(function (res) {
-      rootsResult(res, okMessage);
+  function mutateRoot(path, body, okMessage, onSuccess) {
+    if (!foldersEditable()) { return Promise.resolve(); }
+    var identity = rootIdentity(body);
+    sessionBusy = true; sessionButtons(); renderSessionRoots();
+    return api("POST", path, identity).then(function (res) {
+      if (rootsResult(res, okMessage) && onSuccess) { onSuccess(); }
     }).catch(function () {
-      showBanner("Brak połączenia z serwerem panelu.", false);
-    }).then(refreshRoots);
+      showBanner("Niepewny wynik zmiany folderów. Sprawdź odświeżony stan przed kolejną decyzją.", false);
+    }).then(function () {
+      return refreshSession();
+    }).then(function () {
+      sessionBusy = false; sessionButtons(); renderSessionRoots();
+      if (typeof window.dispatchEvent === "function") { window.dispatchEvent(new Event("panel-session-changed")); }
+    });
+  }
+
+  function rootAction(alias, action, body, okMessage) {
+    return mutateRoot("/api/roots/" + encodeURIComponent(alias) + "/" + action, body, okMessage);
   }
 
   function rootSummary(root) {
@@ -591,7 +601,7 @@
     });
     mode.value = root.mode;
 
-    var edit = el("div", { className: "root-edit" }, [
+    var edit = el("fieldset", { className: "root-edit" }, [
       mode,
       description,
       el("button", { type: "button", className: "btn", text: "Zapisz", onclick: function () {
@@ -608,6 +618,7 @@
         rootAction(root.alias, "delete", {}, "Usunięto folder '" + root.alias + "'.");
       }
     } }));
+    edit.disabled = !foldersEditable();
     card.appendChild(edit);
     return card;
   }
@@ -625,12 +636,9 @@
         showBanner("Błąd pobierania folderów (HTTP " + res.status + ").", false);
         return;
       }
-      var roots = res.json.data.roots;
-      if (!roots.length) {
-        list.appendChild(el("p", { className: "muted", text: "Brak folderów. Dodaj pierwszy poniżej." }));
-        return;
-      }
-      roots.forEach(function (root) { list.appendChild(rootCard(root)); });
+      sessionRoots = res.json.data.roots;
+      sessionRootsLoaded = true;
+      renderSessionRoots();
     }).catch(function () {
       showBanner("Brak połączenia z serwerem panelu.", false);
     });
@@ -638,6 +646,7 @@
 
   function submitRoot(event) {
     event.preventDefault();
+    if (!foldersEditable()) { return; }
     var body = {
       path: $("root-path").value.trim(),
       mode: $("root-mode").value,
@@ -645,13 +654,7 @@
       description: $("root-description").value.trim(),
       default: $("root-default").checked
     };
-    api("POST", "/api/roots", body).then(function (res) {
-      if (rootsResult(res, "Dodano folder.")) {
-        $("root-form").reset();
-      }
-    }).catch(function () {
-      showBanner("Brak połączenia z serwerem panelu.", false);
-    }).then(refreshRoots);
+    return mutateRoot("/api/roots", body, "Dodano folder.", function () { $("root-form").reset(); });
   }
 
   // --- skille ---
@@ -1507,8 +1510,8 @@
 
   // --- sesja pracy: jedna na instancję sklr; RAM i ręczne wznowienie ---
 
+  var sessionUnavailable = false;
   var sessionData = null;
-  var sessionSelected = {};
   var sessionRoots = [];
   var sessionRootsLoaded = false;
   var sessionBusy = false;
@@ -1694,7 +1697,7 @@
   }
 
   function sessionChosen() {
-    return Object.keys(sessionSelected).filter(function (alias) { return sessionSelected[alias] === true; });
+    return sessionRoots.filter(function (root) { return root.valid === true; }).map(function (root) { return root.alias; });
   }
 
   function sessionButtons() {
@@ -1702,9 +1705,11 @@
       !sessionRootsLoaded || sessionChosen().length === 0;
     $("session-pause").disabled = sessionBusy || !sessionData || sessionData.state !== "active";
     $("session-prepare").disabled = sessionBusy || !sessionCanPrepare();
+    $("session-prepare").hidden = !sessionCanPrepare();
     $("session-supplement").disabled = sessionBusy || !sessionCanPrepare();
     $("session-refresh").disabled = sessionBusy;
     $("session-pause").hidden = !sessionData || sessionData.state !== "active";
+    $("root-editor").disabled = !foldersEditable();
   }
 
   function sessionLine(label, value) {
@@ -1717,8 +1722,8 @@
   function renderSessionSummary() {
     var data = sessionData, title = "Stan sesji niedostępny", hint = "Odśwież, aby sprawdzić dostępność sesji.", tone = "is-blocked";
     if (data && !data.session_id) {
-      title = "Wybierz projekt i rozpocznij sesję";
-      hint = "Brak przypiętej sesji. Zaznacz foldery projektu lub wybierz zapisaną sesję po restarcie.";
+      title = "Rozpocznij sesję";
+      hint = "Brak przypiętej sesji. Dodaj foldery poniżej i naciśnij Start lub wybierz zapisaną sesję po restarcie.";
       tone = "";
     } else if (data) {
       if (data.resume_pending) {
@@ -1799,34 +1804,28 @@
     sessionButtons();
   }
 
+  function foldersEditable() {
+    return !state.stopped && !sessionBusy && sessionRootsLoaded && (sessionUnavailable || !!sessionData &&
+      (!sessionData.session_id || sessionData.state === "paused" && sessionData.running_actions === 0 && !sessionData.resume_pending));
+  }
+
+  function rootIdentity(body) {
+    return Object.assign({}, body || {}, sessionData && sessionData.session_id ?
+      { session_id: sessionData.session_id, revision: sessionData.revision } : {});
+  }
+
   function renderSessionRoots() {
-    var list = $("session-roots");
-    var pinned = sessionData && !!sessionData.session_id;
-    var roots = !sessionData ? [] : pinned ? (sessionData.roots || []).map(function (alias) {
-      return sessionRoots.find(function (root) { return root.alias === alias; }) || { alias: alias };
-    }) : sessionRoots.filter(function (root) { return root.valid === true; });
+    var list = $("roots-list");
     list.textContent = "";
-    $("session-folders-hint").textContent = pinned ?
-      "Foldery przypięte do sesji. Wyświetlane tryby pochodzą z bieżącej konfiguracji; wybór sesji nie nadaje uprawnień." :
-      "Wybierz foldery do nowej sesji. Uprawnienia i delegację zatwierdza się oddzielnie.";
-    roots.forEach(function (root) {
-      var alias = root.alias;
-      if (pinned) {
-        list.appendChild(el("div", { className: "root-card" }, [rootSummary(root)]));
-        return;
-      }
-      var box = el("input", { type: "checkbox" });
-      box.value = alias;
-      box.checked = sessionSelected[alias] === true;
-      box.addEventListener("change", function () {
-        sessionSelected[alias] = box.checked;
-        sessionButtons();
-      });
-      list.appendChild(el("label", { className: "root-card session-root" }, [box, rootSummary(root)]));
-    });
-    if (!roots.length) {
+    var editable = foldersEditable();
+    $("root-editor").disabled = !editable;
+    $("session-folders-hint").textContent = editable ?
+      "Wszystkie dostępne foldery należą do sesji. Zmiana folderów cofa zgodę autopilota." :
+      "Wstrzymaj sesję, aby zmienić foldery, i poczekaj na zakończenie rozpoczętych działań.";
+    sessionRoots.forEach(function (root) { list.appendChild(rootCard(root)); });
+    if (!sessionRoots.length) {
       list.appendChild(el("p", { className: "muted", text: sessionRootsLoaded ?
-        "Brak dostępnych folderów. Dodaj je w zakładce Foldery." : "Lista folderów jest niedostępna. Odśwież stan." }));
+        "Brak folderów. Dodaj pierwszy poniżej." : "Lista folderów jest niedostępna. Odśwież stan." }));
     }
   }
 
@@ -1834,12 +1833,17 @@
     clearSessionCheckpoint();
     clearSessionResume();
     sessionRootsLoaded = false;
+    sessionUnavailable = false;
+    renderSessionRoots();
     sessionButtons();
     var generation = sessionGeneration;
     return api("GET", "/api/work-session").then(function (res) {
       if (!sessionCurrent(generation)) { return null; }
       if (res.status === 401) { authFailed(); return null; }
-      if (res.status === 404) { sessionData = null; renderSession(); return null; }
+      if (res.status === 404) {
+        sessionUnavailable = true; sessionData = null; renderSession();
+        return refreshRoots();
+      }
       if (res.status !== 200 || !res.json.success) {
         sessionData = null; renderSession();
         showBanner("Błąd pobierania stanu sesji (HTTP " + res.status + ").", false);
@@ -1859,11 +1863,7 @@
         if (rootsRes.status === 200 && rootsRes.json.success) {
           sessionRoots = rootsRes.json.data.roots;
           sessionRootsLoaded = true;
-          Object.keys(sessionSelected).forEach(function (alias) {
-            if (!sessionRoots.some(function (root) { return root.alias === alias && root.valid === true; })) {
-              delete sessionSelected[alias];
-            }
-          });
+
         }
         renderSessionRoots();
         sessionButtons();
@@ -1917,14 +1917,6 @@
     $("tab-session").addEventListener("click", function () { showTab("session"); });
     $("session-refresh").addEventListener("click", function () { if (!sessionBusy) { refreshSession(); } });
     $("session-prepare").addEventListener("click", prepareSessionResume);
-    $("session-manage-roots").addEventListener("click", function () {
-      $("roots-return-session").hidden = false;
-      showTab("roots");
-    });
-    $("roots-return-session").addEventListener("click", function () {
-      $("roots-return-session").hidden = true;
-      $("tab-session").click();
-    });
     $("session-start").addEventListener("click", function () {
       var chosen = sessionChosen();
       if (!chosen.length || !sessionData || sessionData.session_id) { return; }
@@ -1949,7 +1941,6 @@
     $("notify-btn").addEventListener("click", enableNotifications);
     $("status-filter").addEventListener("change", function () { refresh(); });
     $("tab-tasks").addEventListener("click", function () { showTab("tasks"); });
-    $("tab-roots").addEventListener("click", function () { showTab("roots"); });
     $("root-form").addEventListener("submit", submitRoot);
     $("tab-skills").addEventListener("click", function () { showTab("skills"); });
     $("skills-refresh").addEventListener("click", refreshSkills);

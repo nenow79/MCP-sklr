@@ -35,7 +35,7 @@ def test_index_references_local_assets():
 
 def test_index_has_roots_tab_and_form():
     html = read("index.html")
-    for element_id in ("tab-tasks", "tab-roots", "tasks-view", "roots-view", "roots-list",
+    for element_id in ("tab-tasks", "tab-session", "tasks-view", "session-view", "roots-list",
                        "root-form", "root-path", "root-mode", "root-alias", "root-description",
                        "root-default"):
         assert f'id="{element_id}"' in html, element_id
@@ -134,7 +134,7 @@ def test_js_has_no_external_urls():
 def test_session_tab_static():
     html = read("index.html")
     js = read("app.js")
-    for element_id in ("tab-session", "session-view", "session-state", "session-select", "session-roots",
+    for element_id in ("tab-session", "session-view", "session-state", "session-select", "roots-list",
                        "session-start", "session-pause", "session-refresh"):
         assert f'id="{element_id}"' in html, element_id
     assert "wszystkie rozmowy" in html and "Przygotowanie wznowienia nie otwiera bramki" in html

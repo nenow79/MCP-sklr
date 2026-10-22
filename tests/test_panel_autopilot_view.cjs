@@ -8,6 +8,7 @@ const source = fs.readFileSync(path.join(__dirname, '../panel/static/autopilot.j
 
 function node() {
   return { value: '', _text: '', children: [], listeners: {}, selectedOptions: [], disabled: false,
+    setAttribute(name, value) { this[name] = value; },
     appendChild(child) { this.children.push(child); return child; },
     addEventListener(name, callback) { this.listeners[name] = callback; },
     get textContent() { return this._text; },
@@ -128,4 +129,45 @@ test('approved delegation survives draft invalidation and private summaries clea
   assert.equal(h.get('ap-approved-summary').children.length, 0);
   assert.equal(h.get('ap-approved-content').textContent, '');
   assert.equal(h.get('ap-approved-section').hidden, true);
+});
+
+test('mode buttons show configuration without implicitly granting autopilot', async () => {
+  const h = harness(); await h.click('tab-session');
+  assert.equal(h.get('mode-manual')['aria-pressed'], 'true');
+  assert.equal(h.get('ap-config').hidden, true);
+  await h.click('mode-autopilot');
+  assert.equal(h.get('ap-config').open, true);
+  assert.equal(h.get('ap-config').hidden, false);
+  assert.equal(h.get('mode-manual')['aria-pressed'], 'true');
+  assert.equal(h.requests.filter(r => r.method === 'POST').length, 0);
+  await h.click('mode-manual');
+  assert.equal(h.get('ap-config').hidden, true);
+});
+
+test('mode changes are blocked during work and pending resume', async () => {
+  for (const state of [{ session_state: 'active' }, { resume_pending: true }, { running_actions: 1 }]) {
+    const h = harness({ state }); await h.click('tab-session');
+    assert.equal(h.get('mode-manual').disabled, true);
+    assert.equal(h.get('mode-autopilot').disabled, true);
+    await h.click('mode-autopilot'); await h.click('mode-manual');
+    assert.equal(h.get('ap-config').hidden, true);
+    assert.equal(h.requests.filter(r => r.method === 'POST').length, 0);
+  }
+});
+
+test('selecting manual mode sends one explicit decision', async () => {
+  const h = harness({ state: { state: 'suspended', contract_id: 'c' } });
+  await h.click('tab-session'); await h.click('mode-manual');
+  const posts = h.requests.filter(r => r.method === 'POST');
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0].url, '/api/autopilot/manual');
+  assert.equal(posts[0].body.confirmed, true);
+});
+
+test('expired or exhausted delegation never appears as manual fallback', async () => {
+  for (const state of ['expired', 'exhausted', 'revoked', 'recovery_required']) {
+    const h = harness({ state: { state } }); await h.click('tab-session');
+    assert.equal(h.get('mode-manual')['aria-pressed'], 'false');
+    assert.equal(h.get('mode-autopilot')['aria-pressed'], 'true');
+  }
 });

@@ -7,6 +7,7 @@ Roots describe project membership, not a new argument-level authorization scope.
 No production wiring in this stage.
 """
 import threading
+from contextlib import nullcontext
 
 from tasks.session_models import SessionConflict, SessionState, root_aliases, session_id
 
@@ -124,6 +125,43 @@ class SessionAdmin:
             item = self._store.create(aliases)
             self._controller.bind(item.id, item.revision)
             return self.status()
+
+    def change_folders(self, operation, identity, autopilot=None, *, removing=None, adding=False):
+        """Panel mutation serialized with dispatch and resume, never a live scope expansion."""
+        manager_lock = self._manager._cond if self._manager is not None else nullcontext()
+        autopilot_lock = autopilot._lock if autopilot is not None else nullcontext()
+        with self._lock, autopilot_lock, manager_lock, self._controller._lock:
+            if self._controller._stopping or (self._manager is not None and self._manager._stopped):
+                raise SessionConflict('Serwer jest zatrzymywany.')
+            state = self._controller.snapshot()
+            if state['session_id'] is not None:
+                if (identity.get('session_id') != state['session_id']
+                        or type(identity.get('revision')) is not int
+                        or identity['revision'] != state['revision']
+                        or state['state'] != 'paused' or state['running_actions']
+                        or state.get('resume_pending')):
+                    raise SessionConflict('Wstrzymaj sesję i odśwież stan przed zmianą folderów.')
+                available = [r['alias'] for r in self._roots.list_status() if r.get('valid') is True]
+                if adding and len(available) >= 32:
+                    raise SessionConflict('Sesja może obejmować najwyżej 32 foldery.')
+                if removing is not None and not [a for a in available if a != removing]:
+                    raise SessionConflict('Dodaj inny dostępny folder przed usunięciem ostatniego folderu sesji.')
+                if self._controller._autopilot is not None and autopilot is None:
+                    raise SessionConflict('Obsługa zmiany zakresu autopilota jest niedostępna.')
+                if autopilot is not None:
+                    autopilot.action('manual', dict(identity, confirmed=True,
+                        decision_revision=autopilot._revision))
+                self._controller._invalidate_resume()
+            elif identity.get('session_id') is not None:
+                raise SessionConflict('Sesja się zmieniła. Odśwież stan.')
+            result = operation()
+            if state['session_id'] is not None:
+                aliases = [r['alias'] for r in self._roots.list_status() if r.get('valid') is True]
+                # Empty/oversized membership fails closed, even if the registry write succeeded.
+                saved = self._store.replace_roots(state['session_id'], state['revision'], aliases)
+                if self._controller._checkpoint_current_revision == state['revision']:
+                    self._controller._checkpoint_current_revision = saved.revision
+            return result
 
     def pause(self, session_id, expected_revision):
         """Exact selected ID prevents a stale tab from controlling another session.

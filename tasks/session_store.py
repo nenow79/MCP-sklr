@@ -144,6 +144,19 @@ class SessionStore:
                 (state.value, checkpoint.value, 'user_requested_pause', now_iso(), sid))
             return self.get(sid)
 
+    def replace_roots(self, sid, expected_revision, roots):
+        """Metadata only; caller holds admission closed with zero running actions."""
+        aliases = root_aliases(roots)
+        with self._lock, self._conn:
+            self._conn.execute('BEGIN IMMEDIATE')
+            item = self._require(sid, expected_revision)
+            if item.state != SessionState.PAUSED:
+                raise SessionConflict('Folder changes require a paused session.')
+            self._conn.execute(
+                'UPDATE work_sessions SET roots=?, revision=revision+1, updated_at=? WHERE id=?',
+                (json.dumps(aliases), now_iso(), sid))
+            return self.get(sid)
+
     def mark_checkpoint_saved(self, sid, expected_revision):
         """Metadata only; no checkpoint content enters SQLite.
 

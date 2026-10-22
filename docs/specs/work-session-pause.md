@@ -20,6 +20,8 @@ Model nie przekazuje session_id. Serwer przypisuje zadania do wybranej sesji i j
 
 Kontrola obejmuje kolejne wykonania przez sklr, również zaufane skille i zewnętrzne MCP. Przełączenie już przypiętej sesji jest zabronione; reconnect ani model nie mogą otworzyć bramki. Funkcja jest opt-in przez work_sessions.enabled (domyślnie false), zmiana wymaga restartu.
 
+Panel łączy konfigurację i sesję w zakładce „Foldery i sesja”, z jedną listą folderów. Start z panelu obejmuje wszystkie dostępne foldery; niedostępne wpisy pozostają widoczne. Dodawanie, edycja, usuwanie i zmiana folderu domyślnego przy wybranej sesji wymagają aktualnego session_id i rewizji, pełnej pauzy bez rozpoczętych działań oraz braku przygotowanego handshake. Po zmianie lista dostępnych folderów jest przypinana do tej samej sesji, rewizja rośnie, poprzedni plan wznowienia i zgoda autopilota tracą ważność. Checkpoint pozostaje kontekstem; nowe foldery nie rozszerzają zgód. Operacje panelu są serializowane z dispatch i przygotowaniem wznowienia; błąd synchronizacji konfiguracji/metadanych pozostawia bramkę zamkniętą i wymaga odczytu stanu, bez automatycznej powtórki. Sesja wymaga 1–32 folderów; przed usunięciem ostatniego dostępnego folderu należy dodać inny. Bez włączonych sesji konfiguracja folderów pozostaje dostępna.
+
 ## 2. Stany i żądanie pauzy
 
 Stan wykonania sesji: active → pause_requested → paused. paused oznacza, że nie ma rozpoczętych działań sesji; nie oznacza zapisanego checkpointu. Checkpoint ma odrębny stan: pending, saved albo unavailable. Powód i rewizja stanu są jawne.

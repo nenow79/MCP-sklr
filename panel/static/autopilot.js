@@ -1,7 +1,7 @@
 /* Panel-only delegation. No persistence, polling, HTML interpolation or model authority. */
 (function () {
   "use strict";
-  var state = null, resources = [], rules = [], preview = null, busy = false, generation = 0;
+  var state = null, resources = [], rules = [], preview = null, busy = false, generation = 0, configuring = false;
   var tools = {
     files: ["list_directory", "read_file", "read_files_batch", "search_code", "edit_file", "create_file", "create_tree", "manage_folder"],
     knowledge: ["knowledge_search", "knowledge_get"], skill_read: ["activate_skill", "read_skill_resource"],
@@ -78,15 +78,27 @@
       body: body === undefined ? undefined : JSON.stringify(body)
     });
     if (response.status === 401) { clearPrivate(); }
-    if (response.status === 404) { throw new Error("Autopilot jest wyłączony w konfiguracji."); }
+    if (response.status === 404) { $("session-mode").hidden = true; throw new Error("Autopilot jest wyłączony w konfiguracji."); }
     var payload = await response.json();
     if (!response.ok || !payload.success) { throw new Error(payload.error || "Decyzja niedostępna. Odśwież stan."); }
     return payload.data;
   }
   function render() {
     var paused = state && state.session_state === "paused" && state.running_actions === 0 && !state.resume_pending;
+    $("session-mode").hidden = !state;
+    var delegated = state && state.state !== "disabled";
+    $("mode-manual").disabled = busy || !paused;
+    $("mode-autopilot").disabled = busy || !paused;
+    $("mode-manual").setAttribute("aria-pressed", String(!delegated));
+    $("mode-autopilot").setAttribute("aria-pressed", String(!!delegated));
+    $("session-mode-hint").textContent = !state || !state.session_id ? "Start uruchamia sesję w trybie ręcznym." :
+      !paused ? "Wstrzymaj sesję, aby zmienić tryb." : configuring ?
+      "Ustaw zakres i limity poniżej, zatwierdź podgląd, a następnie kliknij Wznów." :
+      delegated ? "Autopilot wymaga aktualnej zgody przed wznowieniem." : "Ręczne zatwierdzanie operacji.";
+    $("ap-config").hidden = !configuring;
+    $("ap-config").open = configuring;
     $("ap-editor").disabled = busy || !paused;
-    ["reconfirm", "manual", "acknowledge-recovery"].forEach(function (action) {
+    ["reconfirm", "acknowledge-recovery"].forEach(function (action) {
       $("ap-" + action).disabled = busy || !paused;
     });
     $("ap-reconfirm").disabled = busy || !paused || !state.policy || ["prepared", "suspended"].indexOf(state.state) < 0;
@@ -96,7 +108,6 @@
     $("ap-refresh").disabled = busy;
     $("ap-reconfirm").hidden = $("ap-reconfirm").disabled;
     $("ap-revoke").hidden = !state || !state.contract_id;
-    $("ap-manual").hidden = !paused;
     $("ap-acknowledge-recovery").hidden = !state || state.state !== "recovery_required";
     $("ap-editor-hint").textContent = paused ? "Określ cel, dodaj reguły i sprawdź podgląd przed zatwierdzeniem." :
       "Aby zmienić delegację, wstrzymaj sesję i poczekaj na zakończenie rozpoczętych działań.";
@@ -175,7 +186,7 @@
     try {
       var data = await api("");
       if (current !== generation) { return; }
-      state = data; $("autopilot-section").hidden = false;
+      state = data; $("autopilot-section").hidden = !data.session_id;
       var currentResources = await api("/resources");
       if (current !== generation) { return; }
       resources = currentResources;
@@ -223,6 +234,7 @@
   async function decide(action, extra) {
     if (busy || !state || !window.confirm("Potwierdzić decyzję: " + action + "? Dotyczy całej instancji. Rozpoczęte skutki nie są cofane; operacje nie będą ponawiane.")) { return; }
     busy = true; render();
+    if (action === "manual" || action === "approve") { configuring = false; }
     var current = generation;
     var failure = "";
     try {
@@ -237,6 +249,16 @@
     if (failure) { error(failure); }
   }
   if (!$("autopilot-section")) { return; }
+  $("mode-manual").addEventListener("click", function () {
+    if (!state || busy || $("mode-manual").disabled) { return; }
+    if (state.state === "disabled") { configuring = false; render(); return; }
+    decide("manual");
+  });
+  $("mode-autopilot").addEventListener("click", function () {
+    if (!state || busy || $("mode-autopilot").disabled) { return; }
+    configuring = true; render();
+    if ($("ap-config").scrollIntoView) { $("ap-config").scrollIntoView({ behavior: "smooth", block: "start" }); }
+  });
   $("tab-session").addEventListener("click", refresh);
   $("session-refresh").addEventListener("click", refresh);
   $("ap-refresh").addEventListener("click", refresh);
@@ -248,12 +270,15 @@
   $("ap-clear").addEventListener("click", function () { rules = []; renderRules(); invalidate(); });
   $("ap-preview").addEventListener("click", prepare);
   $("ap-approve").addEventListener("click", function () { if (preview) { decide("approve", { preview_id: preview.preview_id }); } });
-  ["reconfirm", "revoke", "manual", "acknowledge-recovery"].forEach(function (action) {
+  ["reconfirm", "revoke", "acknowledge-recovery"].forEach(function (action) {
     $("ap-" + action).addEventListener("click", function () { decide(action); });
   });
   function clearPrivate() {
-    generation++; state = null; resources = []; rules = []; invalidate();
+    generation++; configuring = false; state = null; resources = []; rules = []; invalidate();
     $("autopilot-section").hidden = true;
+    $("session-mode").hidden = true;
+    $("session-mode-hint").textContent = "";
+    $("ap-config").hidden = true;
     $("ap-approved-summary").textContent = ""; $("ap-approved-content").textContent = "";
     $("ap-approved-section").hidden = true;
     $("ap-rule-list").textContent = "";

@@ -72,6 +72,8 @@ function harness(server) {
         out = server.startResponse;
       } else if (url === '/api/work-session/pause') {
         out = server.pauseResponse;
+      } else if (url.startsWith('/api/roots') && method === 'POST') {
+        out = server.rootResponse || { status: 200, json: { success: true, data: {} } };
       } else if (url === '/api/roots') {
         out = server.rootsResponse || { status: 200, json: rootsPayload() };
       } else {
@@ -84,26 +86,21 @@ function harness(server) {
   const flush = async () => { for (let i = 0; i < 80; i++) await Promise.resolve(); };
   const open = async () => { get('tab-session').listeners.click(); await flush(); };
   const click = async id => { get(id).listeners.click(); await flush(); };
-  const boxes = () => all(get('session-roots'), n => n.type === 'checkbox');
-  const check = async alias => {
-    const box = boxes().find(b => b.value === alias);
-    box.checked = true; box.listeners.change(); await flush();
-  };
   const posts = () => requests.filter(r => r.method === 'POST' && r.url.startsWith('/api/work-session'));
   const gets = () => requests.filter(r => r.url === '/api/work-session' && r.method === 'GET');
-  return { get, requests, confirmations, flush, open, click, boxes, check, posts, gets, server };
+  return { get, requests, confirmations, flush, open, click, posts, gets, server };
 }
 
-test('bez sesji: tylko dostepne foldery, start wymaga wyboru, pauza nieaktywna', async () => {
+test('jedna lista folderow, start obejmuje dostepne, pauza nieaktywna', async () => {
   const h = harness({ status: status() });
   await h.open();
   assert.equal(h.get('session-view').hidden, false);
   assert.equal(h.get('tasks-view').hidden, true);
-  assert.deepEqual(h.boxes().map(b => b.value), ['sklr', 'docs']);
+  assert(text(h.get('roots-list')).includes('old'));
+  assert.equal(all(h.get('roots-list'), n => n.type === 'checkbox').length, 0);
   assert.ok(text(h.get('session-state')).includes('Brak przypiętej sesji'));
-  assert.equal(h.get('session-start').disabled, true);
   assert.equal(h.get('session-pause').disabled, true);
-  await h.check('docs');
+  assert.equal(h.get('root-editor').disabled, false);
   assert.equal(h.get('session-start').disabled, false);
   assert.equal(h.posts().length, 0);
 });
@@ -111,10 +108,9 @@ test('bez sesji: tylko dostepne foldery, start wymaga wyboru, pauza nieaktywna',
 test('start wysyla wybrane foldery po potwierdzeniu i renderuje stan', async () => {
   const h = harness({ status: status(), startResponse: { status: 201, json: { success: true, data: active() } } });
   await h.open();
-  await h.check('sklr');
   await h.click('session-start');
   assert.ok(h.confirmations[0].includes('instancj'));
-  assert.deepEqual(h.posts().map(r => [r.url, r.payload]), [['/api/work-session/start', { roots: ['sklr'] }]]);
+  assert.deepEqual(h.posts().map(r => [r.url, r.payload]), [['/api/work-session/start', { roots: ['sklr', 'docs'] }]]);
   const shown = text(h.get('session-state'));
   assert.ok(shown.includes('active') && shown.includes('3') && shown.includes('sklr'));
   assert.equal(h.get('session-start').disabled, true);
@@ -125,7 +121,6 @@ test('start wysyla wybrane foldery po potwierdzeniu i renderuje stan', async () 
 test('odmowa w potwierdzeniu nie wysyla zadania', async () => {
   const h = harness({ status: status(), confirm: false });
   await h.open();
-  await h.check('sklr');
   await h.click('session-start');
   assert.equal(h.confirmations.length, 1);
   assert.equal(h.posts().length, 0);
@@ -188,7 +183,6 @@ test('podwojny klik startu wysyla jedno zadanie', async () => {
   const pending = new Promise(resolve => { release = resolve; });
   const h = harness({ status: status(), startResponse: pending });
   await h.open();
-  await h.check('sklr');
   h.get('session-start').listeners.click();
   h.get('session-start').listeners.click();
   await h.flush();
@@ -469,17 +463,11 @@ test('odswiezenie zmienionej rewizji usuwa uzupelnienie', async () => {
   assert.equal(h.get('session-supplement').value, '');
 });
 
-test('powrot z konfiguracji folderow zachowuje wybor i usuwa niedostepne zaznaczenia', async () => {
+test('odswiezenie aktualizuje wspolna liste bez recznego wyboru', async () => {
   const h = harness({ status: status() });
-  await h.open(); await h.check('docs');
-  await h.click('session-manage-roots');
-  assert.equal(h.get('roots-view').hidden, false);
-  assert.equal(h.get('roots-return-session').hidden, false);
-  await h.click('roots-return-session');
-  assert.equal(h.get('session-view').hidden, false);
-  assert.equal(h.boxes().find(box => box.value === 'docs').checked, true);
+  await h.open();
   assert.equal(h.get('session-start').disabled, false);
-  h.server.rootsResponse = { status: 200, json: { success: true, data: { roots: [{ alias: 'sklr', valid: true }] } } };
+  h.server.rootsResponse = { status: 200, json: { success: true, data: { roots: [] } } };
   await h.click('session-refresh');
   assert.equal(h.get('session-start').disabled, true);
   assert.equal(h.posts().length, 0);
@@ -490,9 +478,10 @@ test('przypiete foldery maja aktualne metadane bez mozliwosci zmiany wyboru', as
     { alias: 'sklr', path: 'C:\\projekty\\sklr', mode: 'ro', description: '<projekt>', valid: true }
   ] } } } });
   await h.open();
-  const shown = text(h.get('session-roots'));
+  const shown = text(h.get('roots-list'));
   assert(shown.includes('C:\\projekty\\sklr') && shown.includes('tylko odczyt') && shown.includes('<projekt>'));
-  assert.equal(h.boxes().length, 0);
+  assert.equal(h.get('root-editor').disabled, true);
+  assert(all(h.get('roots-list'), n => n.className === 'root-edit').every(n => n.disabled));
   assert(text(h.get('session-summary')).includes('Sesja aktywna'));
   assert.equal(h.get('session-pause').hidden, false);
   h.server.status = active({ state: 'pause_requested', execution_blocked: true });
@@ -503,9 +492,48 @@ test('przypiete foldery maja aktualne metadane bez mozliwosci zmiany wyboru', as
 
 test('blad pobrania folderow blokuje start ze starym wyborem', async () => {
   const h = harness({ status: status() });
-  await h.open(); await h.check('docs');
+  await h.open();
   h.server.rootsResponse = { status: 500, json: {} };
   await h.click('session-refresh');
   assert.equal(h.get('session-start').disabled, true);
-  assert(text(h.get('session-roots')).includes('niedostępna'));
+  assert(text(h.get('roots-list')).includes('niedostępna'));
+});
+
+
+test('paused folder mutation includes identity, blocks double clicks and refreshes membership', async () => {
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  const h = harness({ status: resumable(), rootResponse: pending });
+  await h.open();
+  assert.equal(h.get('root-editor').disabled, false);
+  const save = all(h.get('roots-list'), n => n._text === 'Zapisz')[0];
+  save.listeners.click(); save.listeners.click(); await h.flush();
+  const mutations = () => h.requests.filter(r => r.method === 'POST' && r.url.startsWith('/api/roots'));
+  assert.equal(mutations().length, 1);
+  assert.equal(mutations()[0].payload.session_id, h.server.status.session_id);
+  assert.equal(mutations()[0].payload.revision, h.server.status.revision);
+  assert.equal(h.get('root-editor').disabled, true);
+  h.server.status = resumable({ revision: 4, roots: ['sklr', 'docs'] });
+  release({ status: 200, json: { success: true, data: {} } }); await h.flush();
+  assert.equal(mutations().length, 1);
+  assert.equal(h.get('root-editor').disabled, false);
+  assert(text(h.get('session-state')).includes('sklr, docs'));
+});
+
+test('active and pending sessions reject folder clicks before POST', async () => {
+  for (const status of [active(), resumable({ resume_pending: true })]) {
+    const h = harness({ status }); await h.open();
+    const save = all(h.get('roots-list'), n => n._text === 'Zapisz')[0];
+    save.listeners.click(); await h.flush();
+    assert.equal(h.get('root-editor').disabled, true);
+    assert.equal(h.requests.filter(r => r.method === 'POST').length, 0);
+  }
+});
+
+test('folder management remains available when work sessions are disabled', async () => {
+  const h = harness({ getResponse: () => ({ status: 404, json: {} }) });
+  await h.open();
+  assert.equal(h.get('root-editor').disabled, false);
+  assert.equal(h.get('session-start').disabled, true);
+  assert.equal(all(h.get('roots-list'), n => n.className && n.className.startsWith('root-card')).length, 3);
 });

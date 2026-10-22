@@ -186,7 +186,6 @@ pre {
 }
 .tab.active { border-color: var(--accent); font-weight: 600; }
 
-.roots-view { padding: 0 20px 24px; max-width: 900px; }
 .root-card {
   background: var(--panel);
   border: 1px solid var(--border);
@@ -259,7 +258,6 @@ input[type="text"] {
 .session-status.is-active::before { background: var(--ok); }
 .session-status.is-paused::before { background: var(--warn); }
 .session-status.is-blocked::before { background: var(--bad); }
-.session-grid { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(280px, 1fr); gap: 20px; margin-bottom: 20px; align-items: start; }
 .session-stack { display: grid; gap: 20px; min-width: 0; }
 .session-folders > .btn { margin-top: 16px; }
 .session-view > .session-card + .session-card { margin-top: 20px; }
@@ -285,9 +283,6 @@ details[open] > summary { margin-bottom: 12px; }
 .session-view input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; flex-shrink: 0; margin: 3px 0 0; }
 .session-tools { display: flex; flex-wrap: wrap; gap: 12px 20px; }
 .session-tools label { overflow-wrap: anywhere; }
-.session-root { display: flex; gap: 12px; cursor: pointer; }
-.session-root:has(input:checked) { border-color: var(--accent); background: var(--bg); }
-.session-root > .root-summary { min-width: 0; flex: 1; }
 .root-summary { display: block; min-width: 0; }
 .root-summary .task-title, .root-summary .root-path, .root-summary .root-description { display: block; }
 .root-summary .task-title { overflow-wrap: anywhere; }
@@ -312,7 +307,6 @@ details[open] > summary { margin-bottom: 12px; }
 .tabs { flex-wrap: wrap; }
 @media (max-width: 800px) {
   .session-view { padding: 16px 12px 24px; }
-  .session-grid { grid-template-columns: 1fr; }
   .session-folders { grid-row: 1; }
   .session-card { padding: 16px; }
   .session-form-grid { grid-template-columns: 1fr; }
@@ -322,3 +316,11 @@ details[open] > summary { margin-bottom: 12px; }
   .topbar-right { flex-wrap: wrap; }
 }
 [hidden] { display: none !important; }
+
+/* Wspólna lista folderów i wybór trybu sesji. */
+.session-folders { margin-bottom: 20px; }
+.session-folders > details { margin-top: 16px; }
+#root-editor { border: 0; padding: 0; margin: 12px 0 0; min-width: 0; }
+fieldset.root-edit { border: 0; padding: 0; min-width: 0; }
+#session-mode { align-items: center; margin: 12px 0; }
+#session-mode .btn[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
