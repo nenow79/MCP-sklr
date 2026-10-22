@@ -576,3 +576,31 @@ test('end cancellation and stale response never retry automatically', async () =
   assert.equal(stale.posts().length, 1);
   assert.equal(stale.get('session-start').disabled, true);
 });
+
+test('folder list renders while session status is still pending and edits wait for current status', async () => {
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  const h = harness({ getResponse: () => pending });
+  await h.open();
+  assert(h.requests.some(r => r.url === '/api/roots'));
+  assert(h.requests.some(r => r.url === '/api/work-session'));
+  assert(text(h.get('roots-list')).includes('sklr'));
+  assert.equal(h.get('session-start').disabled, true);
+  assert.equal(h.get('root-editor').disabled, true);
+  release(ok(status())); await h.flush();
+  assert.equal(h.get('session-start').disabled, false);
+  assert.equal(h.get('root-editor').disabled, false);
+});
+
+test('session controls render while folder list is still pending', async () => {
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  const h = harness({ status: active(), rootsResponse: pending });
+  await h.open();
+  assert(text(h.get('session-summary')).includes('Sesja aktywna'));
+  assert.equal(h.get('session-pause').disabled, false);
+  assert.equal(h.get('session-end').disabled, false);
+  assert.equal(h.get('root-editor').disabled, true);
+  release({ status: 200, json: rootsPayload() }); await h.flush();
+  assert(text(h.get('roots-list')).includes('sklr'));
+});

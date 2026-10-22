@@ -18,6 +18,7 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
 from panel.auth import COOKIE_NAME, PanelAuth
+from server.panel_timing import measure, timing_header
 from roots import RootConflict, RootError, RootNotFound
 from server.skills_admin import SkillConflict, SkillNotFound
 from external_mcp.profiles import ProfileConflict, ProfileError, ProfileNotFound
@@ -52,8 +53,11 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         self._auth = auth
 
     async def dispatch(self, request: Request, call_next):
-        denied = self._check(request)
-        response = denied if denied is not None else await call_next(request)
+        request.state.panel_timings = {}
+        with measure(request.state.panel_timings, "app"):
+            denied = self._check(request)
+            response = denied if denied is not None else await call_next(request)
+        response.headers["Server-Timing"] = timing_header(request.state.panel_timings)
         response.headers["Content-Security-Policy"] = CSP
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -345,7 +349,8 @@ def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: Pane
         return _ok(task.to_dict())
 
     async def list_roots(request: Request) -> JSONResponse:
-        entries = await run_in_threadpool(roots.list_status)
+        with measure(request.state.panel_timings, "roots"):
+            entries = await run_in_threadpool(roots.list_status)
         return _ok({"count": len(entries), "roots": entries})
 
     def change_root(operation, body, *, removing=None, adding=False):

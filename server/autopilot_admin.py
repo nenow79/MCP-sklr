@@ -9,6 +9,8 @@ from dataclasses import asdict
 from autopilot.models import BudgetLimits
 from autopilot.rules import parse_policy
 from server.autopilot_resources import pin_rules, resource_choices
+from server.autopilot_catalog import capture_catalog, catalog_choices
+from server.panel_timing import measure
 from server.session_checkpoint import _clean, _has_secret
 from tasks.session_models import SessionConflict
 
@@ -22,6 +24,7 @@ class AutopilotAdmin:
         self._revision = 1
         self._draft = None
         self._approved = None
+        self._catalog_lock = threading.Lock()
 
     def _identity(self, body, *, paused=True):
         if self.runtime.manager._stopped:
@@ -62,9 +65,28 @@ class AutopilotAdmin:
         self._draft = self._approved = None
         self.controller.resume_scope = None
 
-    def resources(self):
-        with self._lock, self.runtime.manager._cond, self.controller.coordination(), self.runtime.store.lock:
-            return resource_choices(self.runtime)[1]
+    def resources(self, timings=None):
+        with measure(timings, 'catalog_wait'):
+            if not self._catalog_lock.acquire(blocking=False):
+                raise SessionConflict('Resource catalogue scan is already running.')
+        try:
+            with measure(timings, 'catalog_snapshot'):
+                with self._lock, self.controller.coordination():
+                    state = self.controller.sessions.snapshot()
+                    identity = (state['session_id'], state['revision'], self._revision)
+                    epoch = self.runtime.generations.revision
+                snapshot = capture_catalog(self.runtime)
+            choices = catalog_choices(snapshot, timings)
+            with measure(timings, 'catalog_validate'):
+                with self._lock, self.controller.coordination():
+                    state = self.controller.sessions.snapshot()
+                    if (self.runtime.manager._stopped
+                            or epoch != self.runtime.generations.revision
+                            or identity != (state['session_id'], state['revision'], self._revision)):
+                        raise SessionConflict('Resource catalogue changed during scan.')
+            return choices
+        finally:
+            self._catalog_lock.release()
 
     def _prepare(self, body):
         document = copy.deepcopy(body['policy'])

@@ -142,6 +142,8 @@ Przy zatrzymaniu instrukcja dla modelu wymaga: nie ponawiaj działań, nie obcho
 
 Panel pokazuje zakres i wyłączenia, tryb zwykły/autopilot, limity z rezerwacjami/zużyciem, termin, rozpoczęte działania i ostatni powód zatrzymania. Mutacje wymagają aktualnej sesji panelu, Host/Origin, potwierdzenia oraz oczekiwanej rewizji; konflikty kart nie nadpisują decyzji. Brak MCP do zatwierdzania i brak automatycznego pollingu modelu. Interfejs nie przedstawia pauzy jako odebranego przez model komunikatu ani zapisanego checkpointu.
 
+Lekki status panelu jest niezależny od pomocniczego katalogu zasobów. Wejście w zakładkę, zwykłe odświeżenie oraz zmiana stanu sesji nie uruchamiają skanu katalogu. Katalog jest pobierany przy jawnym konfigurowaniu autopilota. Jego odłączone skany nie trzymają globalnych blokad sesji, kolejki i konfiguracji oraz nie publikują generacji wykonawczych. Zmiana sesji, decyzji albo generacji konfiguracji/rejestru podczas skanu unieważnia wynik; konflikt nie uruchamia automatycznej powtórki. Etykiety i dostępność w katalogu są pomocnicze: preview, zatwierdzenie, ponowne potwierdzenie i dispatch nadal sprawdzają aktualne serwerowe wiązania i uprawnienia. `Server-Timing` raportuje wyłącznie stałe nazwy etapów i czasy liczbowe, bez treści delegacji i zasobów.
+
 ## 9. Restart, trwałość i poufność
 
 Aktywna delegacja, pełne reguły argumentów, rezerwacje wykonawcze i tokeny są w RAM. Restart zawsze unieważnia uprawnienie; bez automatycznego wznowienia, zadań lub eksportu treści. Zapisane metadane nie są źródłem uprawnienia. Użytkownik po restarcie odzyskuje sesję zablokowaną i zatwierdza nową delegację/plan.

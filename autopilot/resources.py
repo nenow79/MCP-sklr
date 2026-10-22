@@ -17,6 +17,7 @@ class ResourceGenerations:
         if type(self._key) is not bytes or len(self._key) < 32:
             raise ValueError('invalid_generation_key')
         self._rows = {}
+        self._revision = 0
         if store is not None:
             store.add_change_listener(self.configuration_changed)
 
@@ -35,8 +36,14 @@ class ResourceGenerations:
                 self._rows[identity] = previous
             return previous[2]
 
+    @property
+    def revision(self):
+        with self._lock:
+            return self._revision
+
     def invalidate(self, identity=None):
         with self._lock:
+            self._revision += 1
             if identity is None:
                 self._rows.clear()
             else:

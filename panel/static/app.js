@@ -1514,6 +1514,7 @@
   var sessionData = null;
   var sessionRoots = [];
   var sessionRootsLoaded = false;
+  var sessionStateLoaded = false;
   var sessionBusy = false;
   var sessionCheckpointGeneration = 0;
   var sessionGeneration = 0;
@@ -1532,7 +1533,7 @@
   }
 
   function sessionCanPrepare() {
-    return sessionData && sessionData.state !== "ending" && sessionData.session_id && sessionData.resume_available &&
+    return sessionStateLoaded && sessionData && sessionData.state !== "ending" && sessionData.session_id && sessionData.resume_available &&
       sessionData.execution_blocked && !sessionData.resume_pending && sessionData.running_actions === 0 &&
       (sessionData.state === "paused" || sessionData.resume_recovery_required);
   }
@@ -1701,12 +1702,12 @@
   }
 
   function sessionButtons() {
-    $("session-start").disabled = sessionBusy || !sessionData || !!sessionData.session_id ||
+    $("session-start").disabled = !sessionStateLoaded || sessionBusy || !sessionData || !!sessionData.session_id ||
       !sessionRootsLoaded || sessionChosen().length === 0;
     $("session-end").hidden = !sessionData || !sessionData.session_id;
-    $("session-end").disabled = sessionBusy || !sessionData || !sessionData.session_id ||
+    $("session-end").disabled = !sessionStateLoaded || sessionBusy || !sessionData || !sessionData.session_id ||
       sessionData.state === "ending" && sessionData.running_actions > 0;
-    $("session-pause").disabled = sessionBusy || !sessionData || sessionData.state !== "active";
+    $("session-pause").disabled = !sessionStateLoaded || sessionBusy || !sessionData || sessionData.state !== "active";
     $("session-prepare").disabled = sessionBusy || !sessionCanPrepare();
     $("session-prepare").hidden = !sessionCanPrepare();
     $("session-supplement").disabled = sessionBusy || !sessionCanPrepare();
@@ -1811,7 +1812,7 @@
   }
 
   function foldersEditable() {
-    return !state.stopped && !sessionBusy && sessionRootsLoaded && (sessionUnavailable || !!sessionData &&
+    return !state.stopped && !sessionBusy && sessionStateLoaded && sessionRootsLoaded && (sessionUnavailable || !!sessionData &&
       (!sessionData.session_id || sessionData.state === "paused" && sessionData.running_actions === 0 && !sessionData.resume_pending));
   }
 
@@ -1840,15 +1841,34 @@
     clearSessionResume();
     sessionRootsLoaded = false;
     sessionUnavailable = false;
+    sessionStateLoaded = false;
     renderSessionRoots();
     sessionButtons();
     var generation = sessionGeneration;
-    return api("GET", "/api/work-session").then(function (res) {
+    var rootsRequest = api("GET", "/api/roots").then(function (rootsRes) {
+      if (!sessionCurrent(generation)) { return; }
+      if (rootsRes.status === 401) { authFailed(); return; }
+      sessionRoots = [];
+      sessionRootsLoaded = false;
+      if (rootsRes.status === 200 && rootsRes.json.success) {
+        sessionRoots = rootsRes.json.data.roots;
+        sessionRootsLoaded = true;
+      }
+      renderSessionRoots();
+      sessionButtons();
+    }).catch(function () {
+      if (!sessionCurrent(generation)) { return; }
+      sessionRoots = []; sessionRootsLoaded = false;
+      renderSessionRoots(); sessionButtons();
+      showBanner("Nie można pobrać metadanych folderów. Stan sesji pozostaje dostępny; odśwież przed wyborem projektu.", false);
+    });
+    var statusRequest = api("GET", "/api/work-session").then(function (res) {
       if (!sessionCurrent(generation)) { return null; }
+      sessionStateLoaded = true;
       if (res.status === 401) { authFailed(); return null; }
       if (res.status === 404) {
         sessionUnavailable = true; sessionData = null; renderSession();
-        return refreshRoots();
+        return null;
       }
       if (res.status !== 200 || !res.json.success) {
         sessionData = null; renderSession();
@@ -1861,31 +1881,14 @@
         $("session-supplement").value = "";
       }
       renderSession();
-      var rootsRequest = api("GET", "/api/roots").then(function (rootsRes) {
-        if (!sessionCurrent(generation)) { return; }
-        if (rootsRes.status === 401) { authFailed(); return; }
-        sessionRoots = [];
-        sessionRootsLoaded = false;
-        if (rootsRes.status === 200 && rootsRes.json.success) {
-          sessionRoots = rootsRes.json.data.roots;
-          sessionRootsLoaded = true;
-
-        }
-        renderSessionRoots();
-        sessionButtons();
-      }).catch(function () {
-        if (!sessionCurrent(generation)) { return; }
-        sessionRoots = []; sessionRootsLoaded = false;
-        renderSessionRoots(); sessionButtons();
-        showBanner("Nie można pobrać metadanych folderów. Stan sesji pozostaje dostępny; odśwież przed wyborem projektu.", false);
-      });
-      return Promise.all([rootsRequest, refreshSessionCheckpoint(), refreshSessionResume(generation)]);
+      return Promise.all([refreshSessionCheckpoint(), refreshSessionResume(generation)]);
     }).catch(function () {
       if (sessionCurrent(generation)) {
         sessionData = null; renderSession();
         showBanner("Brak połączenia z serwerem panelu.", false);
       }
     });
+    return Promise.all([statusRequest, rootsRequest]);
   }
 
   function sessionPost(path, body, question) {
@@ -1931,7 +1934,7 @@
         "całej instancji sklr. Checkpoint jest tylko w RAM. Wznowienie wymaga przygotowania i planu modelu; możesz zakończyć sesję bez zapisywania i rozpocząć nową.");
     });
     $("session-end").addEventListener("click", function () {
-      if (!sessionData || !sessionData.session_id || sessionData.state === "ending" && sessionData.running_actions > 0) { return; }
+      if (!sessionStateLoaded || !sessionData || !sessionData.session_id || sessionData.state === "ending" && sessionData.running_actions > 0) { return; }
       sessionPost("/api/work-session/end", {
         session_id: sessionData.session_id, revision: sessionData.revision, confirmed: true
       }, "Zakończyć sesję bez zapisywania? Checkpoint i plan wznowienia zostaną usunięte, " +
@@ -1945,7 +1948,7 @@
         });
     });
     $("session-pause").addEventListener("click", function () {
-      if (!sessionData || sessionData.state !== "active") { return; }
+      if (!sessionStateLoaded || !sessionData || sessionData.state !== "active") { return; }
       sessionPost("/api/work-session/pause", { session_id: sessionData.session_id, revision: sessionData.revision },
         "Wstrzymać sesję? Nowe działania sklr zostaną zablokowane we wszystkich rozmowach tej instancji. " +
         "Rozpoczęte działania dokończą się w swoich limitach. Checkpoint jest tylko w RAM. " +

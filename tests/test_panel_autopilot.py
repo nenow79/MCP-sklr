@@ -79,3 +79,18 @@ def test_disabled_routes_are_absent(env):
     headers = {'Origin': ORIGIN, 'Cookie': f'{COOKIE_NAME}={auth.exchange_token(auth.token)}'}
     with TestClient(app, base_url=ORIGIN) as client:
         assert client.get('/api/autopilot', headers=headers).status_code == 404
+
+
+def test_resource_phases_and_status_have_numeric_server_timing(env):
+    status = env.client.get('/api/autopilot', headers=env.headers)
+    assert status.status_code == 200
+    assert 'app;dur=' in status.headers['server-timing']
+    assert 'catalog_scan' not in status.headers['server-timing']
+    resources = env.client.get('/api/autopilot/resources', headers=env.headers)
+    assert resources.status_code == 200
+    header = resources.headers['server-timing']
+    assert 'catalog_scan;dur=' in header and 'catalog_skills;dur=' in header
+    for entry in header.split(', '):
+        name, duration = entry.split(';dur=')
+        assert name.replace('_', '').isalpha() and float(duration) >= 0
+    assert 'private' not in header.lower()

@@ -6,6 +6,22 @@ tags: [sklr, project-state, sessions, autonomy, windows, testing]
 ---
 # Aktualny stan — 2026-10-22
 
+## Wydajność panelu „Foldery i sesja” — paczka do przekazania
+
+Użytkownik zlecił commit i publikację tej paczki na origin/main. Identyfikator przekazania należy odczytać z historii Git; publikacja nie oznacza odbioru pytest ani Windows.
+
+Analiza bazy `289cfc5` potwierdziła, że automatyczny `/api/autopilot/resources` skanował zasoby pod wspólnymi blokadami TaskManager, sesji i konfiguracji. Izolowana reprodukcja: zatrzymanie skanu na 300 ms blokowało roots.list_status, status i pauzę na około 303 ms. To kontrolowany przykład, nie pomiar instalacji Windows.
+
+Po akceptacji planu oddzielono lekki status od katalogu: wejście w zakładkę, Odśwież i zmiany sesji nie pobierają zasobów autopilota. Katalog ładuje się przy jawnym wyborze konfiguracji Autopilota lub odświeżeniu tej sekcji. Ładowanie zasobów nie blokuje wyboru trybu ręcznego; stare odpowiedzi nie odtwarzają danych po zmianie sesji. Foldery i status są pobierane równolegle, z osobnym renderowaniem; edycja folderów i sterowanie wymagają odczytanego aktualnego stanu sesji.
+
+GET katalogu skanuje odłączone kopie konfiguracji i ustawień rejestru skills. Prywatne adaptery/generacje nie publikują wyników do rejestru wykonawcy i nie zmieniają jego obserwacji uprawnień. Brak globalnych blokad podczas I/O katalogu; krótka walidacja po skanie odrzuca zmiany sesji, decyzji oraz konfiguracji/rejestru, także zmianę i przywrócenie. Równoległy drugi skan zwraca konflikt zamiast zajmować kolejnego oczekującego workera. Lista ma charakter pomocniczy; autorytatywne preview/approve/reconfirm i dispatch nadal wykonują dotychczasową walidację żywych zasobów. Ich kosztowna walidacja nie została zastąpiona cachem uprawnień.
+
+Dodano `Server-Timing`: całe żądanie (`app`), pobranie roots oraz fazy katalogu (snapshot, roots, knowledge, scan, skills, profiles, validate). Nagłówek zawiera wyłącznie stałe nazwy i czasy liczbowe, bez identyfikatorów, ścieżek, konfiguracji i treści. W Network porównać Duration z Server-Timing; catalogue_scan i catalogue_skills to osobne koszty (rzeczywiste nazwy: `catalog_scan`, `catalog_skills`).
+
+Walidacja Linux: Node **8/8 plików**, dedykowane sesja/autopilot **41 + 16 przypadków**; AST zmienionych/nowych plików Python, składnia JS i whitespace poprawne. Smoke na tymczasowej konfiguracji i bazach w istniejącym venv: przy nadal zatrzymanym skanie roots/status/pauza zakończyły się w około **0,16/0,24/1,39 ms**, stary wynik po pauzie odrzucony; zgodność kluczy katalogu z autorytatywnym enumeratorem (roots, przykładowy skill i docs), brak modyfikacji żywego rejestru/generacji, odmowa wyniku po zmianie i przywróceniu configu oraz zwolnienie blokady katalogu — zaliczone. To mała izolowana próba, nie benchmark produkcyjny ani odbiór Windows. Dopisano deterministyczne testy współbieżności/generacji i test nagłówków API; **pytest nie uruchomiono**, bez serwerów. Odbiór i pozostałe pomiary: D10 w backlogu.
+
+Komenda w aktywnym venv/conda: `python -m pytest tests/test_autopilot_catalog.py tests/test_autopilot_admin.py tests/test_autopilot_resources.py tests/test_panel_autopilot.py tests/test_panel_roots.py tests/test_panel_work_sessions.py tests/test_panel_session_folders.py tests/test_panel_static.py tests/test_panel_auth.py`.
+
 ## Zakończenie sesji bez zapisywania — paczka do przekazania
 
 Użytkownik zlecił commit i publikację tej paczki na origin/main. Identyfikator przekazania należy odczytać z historii Git; publikacja nie oznacza odbioru pytest ani Windows. Ta sekcja jest nadrzędna wobec wcześniejszych opisów lokalnych, nieopublikowanych zmian panelu poniżej.

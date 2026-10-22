@@ -2,6 +2,7 @@
 (function () {
   "use strict";
   var state = null, resources = [], rules = [], preview = null, busy = false, generation = 0, configuring = false;
+  var resourcesLoaded = false, resourcesBusy = false, resourceGeneration = 0;
   var tools = {
     files: ["list_directory", "read_file", "read_files_batch", "search_code", "edit_file", "create_file", "create_tree", "manage_folder"],
     knowledge: ["knowledge_search", "knowledge_get"], skill_read: ["activate_skill", "read_skill_resource"],
@@ -97,7 +98,7 @@
       delegated ? "Autopilot wymaga aktualnej zgody przed wznowieniem." : "Ręczne zatwierdzanie operacji.";
     $("ap-config").hidden = !configuring;
     $("ap-config").open = configuring;
-    $("ap-editor").disabled = busy || !paused;
+    $("ap-editor").disabled = busy || !paused || resourcesBusy || !resourcesLoaded;
     ["reconfirm", "acknowledge-recovery"].forEach(function (action) {
       $("ap-" + action).disabled = busy || !paused;
     });
@@ -109,7 +110,8 @@
     $("ap-reconfirm").hidden = $("ap-reconfirm").disabled;
     $("ap-revoke").hidden = !state || !state.contract_id;
     $("ap-acknowledge-recovery").hidden = !state || state.state !== "recovery_required";
-    $("ap-editor-hint").textContent = paused ? "Określ cel, dodaj reguły i sprawdź podgląd przed zatwierdzeniem." :
+    $("ap-editor-hint").textContent = resourcesBusy ? "Wczytywanie zasobów do konfiguracji autopilota…" :
+      configuring && paused && !resourcesLoaded ? "Wczytaj zasoby przyciskiem odświeżania w tej sekcji." : paused ? "Określ cel, dodaj reguły i sprawdź podgląd przed zatwierdzeniem." :
       "Aby zmienić delegację, wstrzymaj sesję i poczekaj na zakończenie rozpoczętych działań.";
     var metrics = $("ap-state"); metrics.textContent = "";
     if (!state) { metrics.appendChild(element("p", "muted", "Stan delegacji niedostępny. Odśwież stan.")); }
@@ -182,7 +184,9 @@
   }
   async function refresh() {
     if (busy) { return; }
-    var current = ++generation; invalidate(); busy = true; render();
+    var current = ++generation; invalidate();
+    resourceGeneration++; resourcesBusy = false; resourcesLoaded = false; resources = [];
+    busy = true; render();
     try {
       var data = await api("");
       if (current !== generation) { return; }
@@ -190,12 +194,27 @@
         clearPrivate(); current = generation;
       }
       state = data; $("autopilot-section").hidden = !data.session_id;
-      var currentResources = await api("/resources");
-      if (current !== generation) { return; }
-      resources = currentResources;
+      if (data.session_state !== "paused" || data.resume_pending || data.running_actions) { configuring = false; }
       choices(); error("");
     } catch (err) { if (current === generation) { state = null; error(err.message); } }
     finally { busy = false; render(); }
+  }
+  async function loadResources() {
+    if (busy || resourcesBusy || !state || !configuring || state.session_state !== "paused" ||
+        state.resume_pending || state.running_actions) { return; }
+    var current = generation, request = ++resourceGeneration;
+    resourcesBusy = true; resourcesLoaded = false; invalidate(); render();
+    try {
+      var data = await api("/resources");
+      if (current !== generation || request !== resourceGeneration || !configuring) { return; }
+      resources = data; resourcesLoaded = true; choices(); error("");
+    } catch (err) {
+      if (current === generation && request === resourceGeneration) {
+        resources = []; resourcesLoaded = false; choices(); error(err.message);
+      }
+    } finally {
+      if (request === resourceGeneration) { resourcesBusy = false; render(); }
+    }
   }
   function addRule() {
     invalidate(); error("");
@@ -218,7 +237,7 @@
     } catch (err) { error(err.message); }
   }
   async function prepare() {
-    if (busy || !state) { return; }
+    if (busy || !state || resourcesBusy || !resourcesLoaded) { return; }
     var current = generation;
     invalidate(); busy = true; render();
     try {
@@ -254,17 +273,20 @@
   if (!$("autopilot-section")) { return; }
   $("mode-manual").addEventListener("click", function () {
     if (!state || busy || $("mode-manual").disabled) { return; }
-    if (state.state === "disabled") { configuring = false; render(); return; }
+    if (state.state === "disabled") { configuring = false; resourceGeneration++; resourcesBusy = false; invalidate(); render(); return; }
     decide("manual");
   });
   $("mode-autopilot").addEventListener("click", function () {
     if (!state || busy || $("mode-autopilot").disabled) { return; }
-    configuring = true; render();
+    configuring = true; render(); loadResources();
     if ($("ap-config").scrollIntoView) { $("ap-config").scrollIntoView({ behavior: "smooth", block: "start" }); }
   });
   $("tab-session").addEventListener("click", refresh);
   $("session-refresh").addEventListener("click", refresh);
-  $("ap-refresh").addEventListener("click", refresh);
+  $("ap-refresh").addEventListener("click", async function () {
+    await refresh();
+    if (configuring) { await loadResources(); }
+  });
   $("ap-kind").addEventListener("change", choices);
   $("ap-resource").addEventListener("change", mcpChoices);
   $("ap-editor").addEventListener("input", invalidate);
@@ -277,7 +299,8 @@
     $("ap-" + action).addEventListener("click", function () { decide(action); });
   });
   function clearPrivate() {
-    generation++; configuring = false; state = null; resources = []; rules = []; invalidate();
+    generation++; resourceGeneration++; resourcesBusy = false; resourcesLoaded = false;
+    configuring = false; state = null; resources = []; rules = []; invalidate();
     $("autopilot-section").hidden = true;
     $("session-mode").hidden = true;
     $("session-mode-hint").textContent = "";

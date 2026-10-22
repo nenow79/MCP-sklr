@@ -80,6 +80,12 @@ class SkillRegistry:
             self._result = result
         return result
 
+    def scan_copy(self):
+        """Detached scan settings; slow panel scans never publish into this registry."""
+        with self._lock:
+            return SkillRegistry(self._central_dir, self._project_root, self._disabled,
+                                 self._dev_dirs, self._dev_enabled)
+
     # --- odczyt ---
     def is_disabled(self, name: str) -> bool:
         with self._lock:

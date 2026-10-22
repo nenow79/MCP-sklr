@@ -34,6 +34,7 @@ function harness(options = {}) {
       requests.push({ url, body, method: init.method });
       if (options.failAction && url === '/api/autopilot/revoke') { throw new Error('Connection lost'); }
       let data = state;
+      if (url.endsWith('/resources') && options.resourcesResponse) { return options.resourcesResponse; }
       if (url.endsWith('/resources')) { data = [{ key: 'root:app', kind: 'root', name: 'app', path: '<private>', mode: 'rw' }]; }
       if (url.endsWith('/preview')) { data = { preview_id: 'preview-once', ...body }; }
       return { status: 200, ok: true, json: async () => ({ success: true, data: JSON.parse(JSON.stringify(data)) }) };
@@ -46,7 +47,7 @@ function harness(options = {}) {
 }
 
 test('explicit resources/tools, preview required and editing invalidates it', async () => {
-  const h = harness(); await h.click('tab-session');
+  const h = harness(); await h.click('tab-session'); await h.click('mode-autopilot');
   assert.equal(h.get('ap-editor').disabled, false);
   assert.equal(h.get('ap-approve').disabled, true);
   const toolInputs = h.get('ap-tools').children.map(label => label.children[0]).filter(Boolean);
@@ -102,7 +103,7 @@ test('kind changes expose only applicable fields and never grant tools automatic
 });
 
 test('removing a rule invalidates preview and adding another keeps unique rule ids', async () => {
-  const h = harness(); await h.click('tab-session');
+  const h = harness(); await h.click('tab-session'); await h.click('mode-autopilot');
   h.get('ap-resource').selectedOptions = [{ value: 'root:app' }];
   h.get('ap-tools').children[1].children[0].checked = true;
   await h.click('ap-add'); await h.click('ap-add'); await h.click('ap-preview');
@@ -186,4 +187,60 @@ test('ending or changing session removes previous goal, plan and preview', async
     assert.equal(h.get('ap-preview-content').textContent, '');
     assert.equal(h.get('ap-approve').disabled, true);
   }
+});
+
+test('opening, refreshing and session changes fetch only lightweight status', async () => {
+  for (const state of [{}, { session_id: null }, { session_state: 'active', state: 'active' }]) {
+    const h = harness({ state });
+    await h.click('tab-session');
+    await h.click('session-refresh');
+    h.windowEvents['panel-session-changed'](); await h.flush();
+    assert.equal(h.requests.filter(r => r.url.endsWith('/resources')).length, 0);
+    assert.equal(h.requests.filter(r => r.method === 'POST').length, 0);
+  }
+});
+
+test('resources load only on explicit configuration and do not block manual mode', async () => {
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  const h = harness({ resourcesResponse: pending });
+  await h.click('tab-session'); await h.click('mode-autopilot');
+  assert.equal(h.requests.filter(r => r.url.endsWith('/resources')).length, 1);
+  assert.equal(h.get('ap-editor').disabled, true);
+  assert.equal(h.get('mode-manual').disabled, false);
+  await h.click('mode-autopilot');
+  assert.equal(h.requests.filter(r => r.url.endsWith('/resources')).length, 1);
+  await h.click('mode-manual');
+  release({ status: 200, ok: true, json: async () => ({ success: true,
+    data: [{ key: 'root:stale', kind: 'root', name: 'stale' }] }) });
+  await h.flush();
+  assert.equal(h.get('ap-config').hidden, true);
+  assert.equal(h.get('ap-resource').children.length, 0);
+  assert.equal(h.requests.filter(r => r.method === 'POST').length, 0);
+});
+
+test('resource failure preserves session controls and is not retried by refresh', async () => {
+  const h = harness({ resourcesResponse: Promise.resolve({ status: 503, ok: false,
+    json: async () => ({ success: false, error: 'Scan unavailable' }) }) });
+  await h.click('tab-session'); await h.click('mode-autopilot');
+  assert(h.get('ap-error').textContent.includes('Scan unavailable'));
+  assert.equal(h.get('mode-manual').disabled, false);
+  assert.equal(h.get('ap-editor').disabled, true);
+  await h.click('session-refresh');
+  assert.equal(h.requests.filter(r => r.url.endsWith('/resources')).length, 1);
+});
+
+test('slow resource result is discarded after a newer session status', async () => {
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  const h = harness({ resourcesResponse: pending });
+  await h.click('tab-session'); await h.click('mode-autopilot');
+  h.state.session_id = 'new-session'; h.state.revision++;
+  h.windowEvents['panel-session-changed'](); await h.flush();
+  assert.equal(h.get('mode-manual').disabled, false);
+  release({ status: 200, ok: true, json: async () => ({ success: true,
+    data: [{ key: 'root:old-session', kind: 'root', name: 'old-session' }] }) });
+  await h.flush();
+  assert.equal(h.get('ap-resource').children.length, 0);
+  assert.equal(h.get('ap-approve').disabled, true);
 });

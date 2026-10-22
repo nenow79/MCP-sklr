@@ -15,8 +15,10 @@ def autopilot_routes(admin):
     async def endpoint(request):
         try:
             if request.method == 'GET':
-                call = admin.resources if request.url.path.endswith('/resources') else admin.status
-                data = await run_in_threadpool(call)
+                if request.url.path.endswith('/resources'):
+                    data = await run_in_threadpool(admin.resources, request.state.panel_timings)
+                else:
+                    data = await run_in_threadpool(admin.status)
             else:
                 # Bound before parsing; full policy has a separate closed parser.
                 raw = bytearray()
