@@ -4,7 +4,19 @@ title: Aktualny stan projektu sklr
 description: Zakres implementacji, potwierdzeń i ograniczeń przed dalszą pracą nad autonomią i odbiorem Windows.
 tags: [sklr, project-state, sessions, autonomy, windows, testing]
 ---
-# Aktualny stan — 2026-10-21
+# Aktualny stan — 2026-10-22
+
+## Bieżące potwierdzenie Windows — częściowy smoke A2
+
+Ta sekcja jest nadrzędna wobec wcześniejszych opisów braku publikacji i uruchomienia aplikacji poniżej. Baza implementacji: `425f91f` i `a6c564c`; doprecyzowanie ubogiego harnessu w `docs/continue-work.md` opublikowano na origin/main w `d81027f`. Lokalny checkout zaktualizowano fast-forward; starsze lokalne zmiany zabezpieczono w stashu, bez nakładania starego CURRENT/backlogu. Użytkownik przywrócił wyłącznie lokalny config.json, włączył autopilot.enabled przy już włączonym work_sessions.enabled, zrestartował sklr i odświeżył połączenie. Konfiguracja, bazy, sekrety i pliki smoke nie są częścią przekazania Git.
+
+**Rzeczywisty MCP/panel na Windows, 2026-10-22:** nowe odpowiedzi zawierają autopilot_control. Po restarcie brak automatycznego wyboru sesji; poprawiony komunikat session_not_selected widoczny. Sam odczyt stanu nie odbiera odmowy rzeczywistego narzędzia przed Startem. Użytkownik uruchomił sesję testową, przygotował allowed/outside, zatwierdził delegację wyłącznie root:a → poddrzewo allowed, read_file/create_file, overwrite=false, 30 minut/10 operacji/max_running=1. Panelowe przygotowanie i confirm_resume_plan przeprowadziły autopilota prepared → active.
+
+- Zadanie **#904**: create_file allowed/first.txt, **done/exit_code=0**, bez osobnego Allow (decision puste, decided_at=null). get_task potwierdził zapis, a read_file dokładną treść `Test autopilota OK`. Budżet used=2, remaining_operations=8 po zapisie i odczycie; brak rezerwacji i działań running.
+- Negatywna próba create_file outside/denied.txt: **scope_mismatch**, bez zwróconego task_id; autopilot suspended/scope_mismatch, sesja paused, zero rozpoczętych działań. Budżet nie wzrósł. Użytkownik potwierdził w Eksploratorze brak denied.txt; model nie wykonywał nowego odczytu poza zakresem ani nie ponawiał zapisu. Checkpoint zapisany w RAM.
+- Użytkownik wybrał zwykły tryb ręcznych zgód; następne panelowe przygotowanie i potwierdzenie planu wznowiły sesję z autopilot disabled. To nie nowa delegacja testowa.
+
+**Ograniczenia:** częściowy odbiór pozytywnego zapisu/odczytu i odmowy poza zakresem, nie pełny A2b5/W5, regresja HEAD ani autonomia A3/A3b/A4. Nie uruchamiano pytest ani serwerów przez model. Brak pomiarów wersji Python/SDK w tym smoke. Zaobserwowano mylny hint wymagający decyzji użytkownika przy queued/delegowanym create_file oraz zgłoszenie użytkownika o długich odświeżaniach/wznowieniach; czasy i przyczyna nieustalone. Otwarte prace w backlogu. Dalszy odbiór zgodnie z instrukcją Windows, bez ponownego implementowania A2.
 
 Baza bieżącej paczki A2b3/A2b4: `425f91f` (`feat: add autopilot policy foundation`), gałąź main. Development: Linux, runtime docelowy: Windows. S1/A2b1/A2b2 są w tej bazie; paczka kandydata obejmuje A2b3/A2b4 i W1–W3. Punkt przekazania identyfikuje commit zawierający raport przygotowania wydania; publikacja pozostaje osobnym krokiem W4. A2b4 podłącza opt-in; dedykowane testy i wskazana regresja Linux zaliczone. Nie uruchomiono docelowej aplikacji; nie jest to odebrana beta Windows. Odczyt origin/main podczas przygotowania W4 potwierdził 425f91f2bd8499f33800c1fb8af3fa54b3af6749; brak publikacji nowej paczki.
 
