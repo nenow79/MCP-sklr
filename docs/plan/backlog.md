@@ -107,6 +107,59 @@ D6–D8 są zachowane jako odłożony dług; plan ich wspólnej naprawy nie zost
 
 - [ ] D13 — uprościć i przyspieszyć przejście Ręczny → Autopilot. Zgłoszenie użytkownika 2026-10-23: konfiguracja pozostawała nieaktywna także po zapisaniu checkpointu (saved), przy paused i 0 rozpoczętych działań; po „Odśwież delegację” pojawił się komunikat „Stan lub uprawnienia zmieniły się”, a formularz odblokował się dopiero po kolejnych kliknięciach. Przyczyna nieustalona; nie potwierdzono, czy wznowienie było już przygotowane. Powiązać diagnozę z D10/D11, następnie zaproponować możliwie krótki, przewidywalny przepływ z czytelną przyczyną blokady, bez wielokrotnego odświeżania. Użytkownik dopuszcza rozważenie rezygnacji z części funkcji; wybór i ewentualne zmiany kontraktu wymagają osobnego uzgodnienia. Prace odłożone: teraz kontynuujemy uruchomienie obecnego autopilota. Plan i akceptacja przed kodem.
 
+### D14 — błędy regresji Windows 2026-10-23; przekazanie do naprawy
+
+- [ ] Odtworzyć i zdiagnozować 17 błędów poniżej na drugim komputerze; plan i akceptacja przed poprawkami. Wynik użytkownika: **17 failed, 993 passed, 1 skipped in 3277.31s (54:37)**. Baza checkoutu po przebiegu: `2a182bf`, main. Paczka odpowiada szerszej regresji sesje/autopilot/panel/OKF proponowanej w rozmowie, ale dokładnej komendy i wersji środowiska nie podano. Nie jest to wynik pełnego repo. Nie zapisujemy surowego tracebacku z cookies i lokalnymi ścieżkami.
+
+**A. Autopilot — 4 błędy: zadanie nie jest terminalne po wait(5).**
+
+Plik `tests/test_autopilot_executors.py`:
+1. `test_central_trusted_skill_is_rechecked_and_charged_once` (:207): `Environment.settle` w `tests/autopilot_fixtures.py:55` widzi skill_script RUNNING po wait(5), bez finished_at/exit_code. Testowy run_command ma recheck_current i kontrole braku locków; z logu nie wynika, czy doszedł do tych asercji. Cały call 45.91 s.
+2. `test_knowledge_refresh_does_not_charge_a_second_operation` (:262): knowledge_refresh nadal RUNNING zamiast DONE po wait(5). Nie potwierdzono docelowej asercji jednokrotnego naliczenia.
+3. `test_knowledge_refresh_enters_manager_and_session_before_config` (:285): submit zaobserwowano zgodnie z oczekiwaniem, ale knowledge_refresh nie jest terminalne po wait(5).
+
+Plik `tests/test_autopilot_integration.py`:
+4. `test_create_tree_is_one_logical_operation` (:289; fixture :55): odpowiedź queued, reserved=1/used=0; po wait(5) tree_create RUNNING, brak finished_at/exit_code. Nie ma dowodu końcowego skutku na plikach ani błędu naliczania. Call 21.21 s.
+
+**B. Panel — 1 błąd statyczny.**
+
+5. `tests/test_panel_static.py::test_index_has_skills_tab_and_view` (:53): pętla oczekuje tasks/roots/skills, HTML nie ma `id="tab-roots"`. Istniejący panel łączy foldery i sesję. Sprawdzić aktualny kontrakt/nawigację i dopiero ustalić korektę testu lub UI; nie przywracać starej zakładki wyłącznie dla zielonego wyniku.
+
+**C. OKF i sesje — 10 błędów w `tests/test_knowledge_sessions.py`.**
+
+Osiem przypadków kończy się w helperze `settle` (:65): zadanie nie jest terminalne po wait(5).
+6. `test_startup_refreshes_only_central_without_selecting_session` (:84): centralne general RUNNING.
+7. `test_start_indexes_all_session_projects_and_excludes_other_registered_projects` (:96): projektowy knowledge_refresh QUEUED.
+8. `test_central_is_preserved_and_can_refresh_while_paused_but_model_is_blocked` (:112): projektowy refresh RUNNING.
+9. `test_folder_replacement_refreshes_only_after_confirmed_resume` (:133): projektowy refresh RUNNING.
+10. `test_end_discards_projects_but_retains_central_for_new_session` (:155): projektowy refresh RUNNING.
+11. `test_early_panel_start_before_cache_initialization_is_caught_by_bootstrap` (:170): projektowy refresh RUNNING.
+12. `test_recovery_does_not_refresh_projects_before_resume_confirmation` (:179): centralne general RUNNING.
+13. `test_repeated_bind_does_not_schedule_more_refreshes` (:188): projektowy refresh RUNNING.
+
+Dwa przypadki nie otrzymują sygnału `entered` w 5 s:
+14. `test_change_then_restore_cannot_publish_old_central_refresh[limits]` (:209).
+15. `test_pending_project_scan_cannot_publish_after_session_end` (:264).
+W obu atrapach entered jest ustawiane **po powrocie original(scan_bundle)**. Brak sygnału nie dowodzi, że worker nie wszedł do skanu; możliwy jest także wolny/zablokowany oryginalny skan. Przyczyna niepotwierdzona. Nie uznawać późniejszych asercji bezpieczeństwa publikacji za odebrane.
+
+**D. Profile projektu — 2 błędy w `tests/test_project_knowledge.py:137`.**
+
+16. `test_project_profiles_plain_markdown_search_get_and_exclusions[mixed--expected0]`: po cold search i wait(8) cached search zwraca pusty zbiór zamiast docs/plain oraz dwóch dokumentów .vibecoder.
+17. `test_project_profiles_plain_markdown_search_get_and_exclusions[legacy--expected1]`: pusty zbiór zamiast dwóch dokumentów .vibecoder.
+Test nie sprawdza terminalnego statusu zwróconego przez wait(8) przed search cached. Ustalić status/wynik odświeżenia i stan indeksu; nie zakładać od razu błędu profilu lub wykluczeń. Wariant docs nie jest na liście błędów (call 17.78 s).
+
+**Czasy i ograniczenia diagnozy.**
+
+Najwolniejsze call: audit `test_retention_caps_history_but_keeps_old_unresolved_operation` 157.98 s (nie na liście failed); skill 45.91 s; panel resume `test_complete_api_flow_counts_all_links_and_plan_has_no_token` 44.98 s; `test_changed_skill_in_queue_does_not_spawn_or_consume` 41.05 s; sekwencja delegowanych zapisów 31.74 s; anulowanie ponad 20 linków 30.91 s; kontrolowany eight_second_wait 21.00 s. Są to czasy całych call, nie pomiary konkretnego locka/I/O ani samych wait. Skip 1: `test_project_knowledge.py:322`, symlink unavailable. Wynik nie zawiera wersji środowiska, pełnych logów workerów ani osobnego raportu S6/Node.
+
+**Plan wejścia na drugim komputerze (nie zgoda na implementację).**
+
+- Odczytać AGENTS/CURRENT i ten punkt; sprawdzić hash/stan Git i istniejące środowisko. Zachować config/bazy i cudze zmiany. Nie instalować ani uruchamiać serwerów automatycznie.
+- Na wyraźne polecenie odtworzyć pojedyncze przypadki oraz ich paczkę, np. `python -m pytest tests/test_autopilot_executors.py tests/test_autopilot_integration.py tests/test_panel_static.py tests/test_knowledge_sessions.py tests/test_project_knowledge.py -q -rs --durations=30`; izolować konkretny nodeid przy analizie zależności od kolejności.
+- Zebrać wersje Python/pytest/SDK, statusy i czas queued/start/finish, logi błędów workerów, fazy skanu/publikacji, stosy wątków i czas I/O/SQLite. Oddzielić opóźnienie, deadlock, koszt dysku/środowiska i błędne założenia fixture; to hipotezy, nie diagnoza.
+- Nie zwiększać timeoutów i nie usuwać asercji tylko dla zielonego wyniku. Zachować naliczanie budżetu, kolejność locków, pauzę/handshake, niepublikowanie starych skanów, wykluczenia i poufność.
+- Po uzgodnionej naprawie wykonać dedykowane S6/text_validation, wskazaną szerszą regresję i Node; pełne repo oraz rzeczywisty panel/harness raportować osobno. D14 jest powiązane z D1/I6/S6, nie zamyka ani nie zastępuje ich odbioru.
+
 ## 7. Propozycje wymagające osobnego kontraktu i priorytetu
 
 - [ ] Diagnostyka Python/SDK jako skill lub funkcja: wskazanie badanego środowiska (sklr/skill/projekt), wersje importlib.metadata, jawna lista symboli/sygnatur i ograniczone fragmenty implementacji. Bez eval/exec/instalacji/sieci/serwerów/sekretów; import wykonuje kod i wymaga polityki. Motywacja i szczegóły historyczne w archiwum backlogu.

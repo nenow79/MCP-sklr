@@ -6,6 +6,14 @@ tags: [sklr, project-state, sessions, autonomy, windows, testing]
 ---
 # Aktualny stan — 2026-10-23
 
+## Przekazanie po regresji Windows — naprawa na innym komputerze
+
+Użytkownik przekazał wynik szerszej paczki sesje/autopilot/panel/OKF: **17 failed, 993 passed, 1 skipped in 3277.31s (54:37)**. Baza checkoutu odczytana po przebiegu: `2a182bf` (`feat: remove session checkpoints`), main; brak śledzonych zmian przed zapisem tego podsumowania. Dokładna komenda, wersje Python/pytest/SDK oraz osobny wynik dedykowanej paczki S6 i Node nie zostały przekazane. To nie pełna regresja repo ani odbiór rzeczywistego panelu; brak nazw testów S6 na liście błędów nie stanowi osobnego potwierdzenia całej paczki S6.
+
+Błędy: 14 przypadków oczekiwania/synchronizacji (running/queued po wait(5) lub brak sygnału entered w 5 s), 2 puste wyniki cached search profili mixed/legacy po wait(8), 1 statyczna asercja tab-roots po połączeniu folderów i sesji. Przyczyny nieustalone; nie kwalifikować zbiorczo jako deadlock lub wyłącznie zbyt krótki timeout. Najwolniejszy test audit/retention: 157.98 s; skill: 45.91 s; pełny przepływ wznowienia: 44.98 s. Skip: symlink unavailable w test_project_knowledge.py:322.
+
+Szczegółowa lista 17 przypadków, obserwacje i kierunek diagnozy: **D14 w backlog.md**. Naprawa na innym komputerze po osobnym planie i akceptacji, bez zmiany kodu/testów/timeoutów w tej sesji. S6, I6 i odbiór panelu pozostają otwarte. Ta sekcja aktualizuje wcześniejsze stwierdzenia o niewykonanym pytest: wskazana szersza paczka Windows została wykonana przez użytkownika i nie jest zielona. Publikacja obejmuje wyłącznie CURRENT/backlog; lokalne konfiguracje, bazy, pliki smoke i cookies/tokeny z surowego logu są poza paczką.
+
 ## S6 — sesja bez checkpointu RAM, implementacja lokalna
 
 Po akceptacji kontraktu i planu na bazie `0b02410` usunięto magazyn/walidator checkpointu, save_session_checkpoint, endpoint/kartę/status panelu i warunek osobnego potwierdzenia jego braku. Pauza instruuje model, by zakończył odpowiedź i czekał. get_resume_context zachowuje rewizję/token/uzupełnienie i zakres autopilota; confirm_resume_plan oraz koordynacja anulowania starych zadań pozostają. Brak istotnego kontekstu wymaga pytania; zwykłe odczyty docs są dostępne dopiero po potwierdzeniu planu i według aktualnych zgód. Jest to instrukcja modelu, nie serwerowy dowód kompletności kontekstu.
