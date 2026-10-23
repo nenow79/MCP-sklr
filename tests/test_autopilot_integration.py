@@ -88,6 +88,70 @@ def test_delegated_create_has_task_and_one_charge_without_approval(env):
     assert 'PRIVATE_FILE_BODY' not in json.dumps(rows)
 
 
+def test_delegated_write_sequence_without_per_step_approval(env):
+    env.approve([env.file_rule('create_file', 'edit_file', 'read_file')],
+                max_operations=20, max_running=1)
+
+    def edit_file(changes, root=None):
+        return edit_tools.edit_file_impl(env.roots, env.manager, env.transaction, changes, root)
+
+    editor = wrap_session_tool(edit_file, env.sessions)
+    results = []
+
+    def finish(response):
+        assert response['success'], response
+        assert response['data']['status'] != 'awaiting_approval'
+        assert 'Zatrzymaj się i poczekaj na jego wiadomość' not in response['data']['hint']
+        task = env.settle(response)
+        assert task.status == TaskStatus.DONE and task.exit_code == 0
+        assert task.decision == '' and task.decided_at is None
+        results.append(task.id)
+
+    finish(writer(env)('seq-a.txt', 'A1', root='app'))
+    finish(writer(env)('seq-b.txt', 'B1', root='app'))
+    finish(editor([{'filepath': 'seq-a.txt', 'old_text': 'A1', 'new_text': 'A2'}], root='app'))
+    finish(writer(env)('seq-c.txt', 'C1', root='app'))
+    finish(editor([{'filepath': 'seq-b.txt', 'old_text': 'B1', 'new_text': 'B2'}], root='app'))
+    for name, expected in [('seq-a.txt', 'A2'), ('seq-b.txt', 'B2'), ('seq-c.txt', 'C1')]:
+        response = reader(env)(name, root='app')
+        assert response['success'] and response['data']['content'] == expected
+    assert len(set(results)) == 5 and env.approvals == []
+    state = env.autopilot.snapshot()
+    assert state['used'] == 8 and state['reserved'] == state['running'] == 0
+
+
+def test_eight_second_wait_does_not_end_or_resubmit_write(env, monkeypatch):
+    from server.task_tools import wait_task_impl
+    env.approve([env.file_rule('create_file', 'read_file')], max_operations=10)
+    entered, release = threading.Event(), threading.Event()
+    original = env.transaction._publish
+
+    def delayed_publish(staged):
+        entered.set()
+        assert release.wait(60)
+        return original(staged)
+
+    monkeypatch.setattr(env.transaction, '_publish', delayed_publish)
+    response = writer(env)('slow-seq.txt', 'slow', root='app')
+    assert response['success'], response
+    task_id = response['data']['task_id']
+    try:
+        assert entered.wait(5)
+        waited = wait_task_impl(env.manager, task_id, seconds=8)
+        assert waited['success'] and waited['data']['status'] == 'running'
+        assert 'wait_task' in waited['data']['hint']
+        assert len(env.manager.list()) == 1 and env.approvals == []
+        assert env.autopilot.snapshot()['used'] == 1
+    finally:
+        release.set()
+    task = env.settle(response)
+    assert task.id == task_id and task.status == TaskStatus.DONE
+    next_task = env.settle(writer(env)('after-slow.txt', 'next', root='app'))
+    assert next_task.status == TaskStatus.DONE and next_task.id != task_id
+    assert reader(env)('slow-seq.txt', root='app')['data']['content'] == 'slow'
+    assert env.approvals == [] and env.autopilot.snapshot()['used'] == 3
+
+
 def test_overwrite_requires_its_own_permission(env):
     env.approve([env.file_rule('create_file')])
     result = writer(env)('a.txt', 'replacement', overwrite=True, root='app')

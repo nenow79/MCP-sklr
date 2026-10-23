@@ -455,9 +455,14 @@ def edit_file(changes: List[Dict[str, Any]], root: Any = None,
     przygotowania nie tworzą zadania. Zachowuje kodowanie i końce linii. Limity:
     50 zmian, 10 plików, 5 MiB na plik. Podgląd diffu maskuje sekrety i może być skrócony.
     description: opcjonalny opis od modelu, do 500 znaków, bez control/bidi.
-    Zawsze wymaga decyzji użytkownika w panelu (zatwierdza użytkownik, nie ty), bez Ufaj.
-    Od razu zwraca task_id, bez oczekiwania. Zatrzymaj się i poczekaj na wiadomość
-    użytkownika; po decyzji sprawdź get_task. Po błędzie ': ping' przed ponowieniem
+    W trybie ręcznym wymaga decyzji użytkownika w panelu, bez Ufaj. Aktywna delegacja
+    może obejmować zapis; uprawnienia sprawdza serwer, nie sam opis ani hint.
+    Od razu zwraca task_id. Przy awaiting_approval zatrzymaj się i poczekaj na wiadomość
+    użytkownika, potem sprawdź get_task. Przy queued/running śledź ten sam task_id przez
+    wait_task(seconds=8)/get_task; można ponownie czekać, jeśli zadanie nadal trwa.
+    Limit 8 s dotyczy jednego oczekiwania, nie życia zadania. Nie ponawiaj zapisu.
+    Kolejny zależny krok dopiero po potwierdzonym sukcesie, w aktualnym zakresie zgody;
+    pauza/utrata zgody blokuje nowe kroki. Po błędzie ': ping' przed ponowieniem
     sprawdź list_tasks: zadanie mogło powstać. Konflikt nie nadpisuje wykrytej zmiany
     zewnętrznej; błąd rollback/cleanup wymaga sprawdzenia plików, nie ponawiaj w ciemno.
     """
@@ -473,9 +478,14 @@ def create_file(filepath: str, content: str, overwrite: bool = False, root: Any 
     Nowy plik UTF-8 bez BOM; overwrite zachowuje dotychczasowe kodowanie i EOL.
     Limit 5 MiB na plik; binarne, .pfx i .p12 zablokowane. Maskowany diff w panelu.
     root: alias; brak/puste/False/'false' = domyślny. description: opis od modelu
-    do 500 znaków, bez control/bidi. Zawsze decyzja użytkownika w panelu, bez Ufaj.
-    Od razu zwraca task_id, bez oczekiwania. Zatrzymaj się i poczekaj na wiadomość
-    użytkownika (zatwierdza użytkownik, nie ty); po decyzji sprawdź get_task.
+    do 500 znaków, bez control/bidi. W trybie ręcznym decyzja użytkownika w panelu,
+    bez Ufaj; aktywna delegacja może obejmować zapis. Uprawnienia sprawdza serwer.
+    Od razu zwraca task_id. Przy awaiting_approval zatrzymaj się i poczekaj na wiadomość
+    użytkownika, potem sprawdź get_task. Przy queued/running śledź ten sam task_id przez
+    wait_task(seconds=8)/get_task; można ponownie czekać, jeśli zadanie nadal trwa.
+    Limit 8 s dotyczy jednego oczekiwania, nie życia zadania. Nie ponawiaj zapisu.
+    Kolejny zależny krok dopiero po potwierdzonym sukcesie, w aktualnym zakresie zgody;
+    pauza/utrata zgody blokuje nowe kroki.
     Po błędzie ': ping' przed ponowieniem sprawdź list_tasks: zadanie mogło powstać.
     Błąd rollback/cleanup wymaga sprawdzenia plików, nie ponawiaj w ciemno.
     """

@@ -162,6 +162,39 @@ def test_uncertain_rollback_notifies_index_conservatively(env):
     assert calls == [((env.app / 'a.txt',), {'uncertain': True})]
 
 
+@pytest.mark.parametrize('status', ['queued', 'running'])
+def test_pending_write_hint_does_not_request_manual_approval(status):
+    from tasks.models import TaskStatus
+    hint = et._write_status_hint(SimpleNamespace(status=TaskStatus(status)))
+    assert 'wait_task' in hint and 'get_task' in hint and '8 s' in hint
+    assert 'Nie ponawiaj zapisu' in hint
+    assert 'Zatrzymaj się i poczekaj na jego wiadomość' not in hint
+
+
+def test_write_hint_manual_stop_and_terminal_verification():
+    from tasks.models import TaskStatus
+    assert et._write_status_hint(SimpleNamespace(status=TaskStatus.AWAITING_APPROVAL)) == et.WAIT_HINT
+    for status in TaskStatus:
+        if status not in (TaskStatus.AWAITING_APPROVAL, TaskStatus.QUEUED, TaskStatus.RUNNING):
+            hint = et._write_status_hint(SimpleNamespace(status=status))
+            assert 'get_task' in hint and 'Nie ponawiaj zapisu' in hint
+            assert 'Zatrzymaj się i poczekaj na jego wiadomość' not in hint
+
+
+def test_write_tool_descriptions_distinguish_approval_from_execution():
+    import ast
+    from pathlib import Path
+    source = Path(__file__).resolve().parents[1] / 'main.py'
+    tree = ast.parse(source.read_text(encoding='utf-8'))
+    docs = {node.name: ast.get_docstring(node) for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name in ('create_file', 'edit_file')}
+    assert set(docs) == {'create_file', 'edit_file'}
+    for doc in docs.values():
+        assert 'Przy awaiting_approval' in doc and 'Przy queued/running' in doc
+        assert 'wait_task(seconds=8)' in doc and 'Nie ponawiaj zapisu' in doc
+        assert 'Zawsze decyzja' not in doc and 'Zawsze wymaga decyzji' not in doc
+
+
 # --- błędne argumenty: brak zadania ---
 
 @pytest.mark.parametrize("changes", ["x", None, [], [5], [{"filepath": "a.txt"}],

@@ -40,6 +40,22 @@ CLEANUP_ERROR = "Niepełne sprzątanie plików tymczasowych."
 COMMITTED_NOTE = "Zmiany zapisano mimo błędu sprzątania; nie ponawiaj zapisu w ciemno."
 
 
+def _write_status_hint(task) -> str:
+    """Queue guidance only; never grants permission or retries a write."""
+    if task.status == TaskStatus.AWAITING_APPROVAL:
+        return WAIT_HINT
+    if task.status in (TaskStatus.QUEUED, TaskStatus.RUNNING):
+        return ("Zadanie przyjęte do wykonania; nie wymaga teraz osobnej decyzji użytkownika. "
+                "Śledź ten sam task_id przez wait_task(seconds=8) lub get_task. "
+                "Jeśli nadal queued/running, możesz ponownie czekać w granicach czasu pracy; "
+                "8 s ogranicza pojedyncze oczekiwanie, nie czas życia zadania. "
+                "Nie ponawiaj zapisu. Następny zależny krok dopiero po potwierdzonym sukcesie "
+                "i przy nadal dozwolonej pracy. Pauza lub utrata zgody blokuje nowe kroki.")
+    return ("Zadanie zakończone; sprawdź get_task dla tego samego task_id oraz wynik zapisu "
+            "przed następnym zależnym krokiem. Nie ponawiaj zapisu po błędzie lub niepewnym "
+            "wyniku bez sprawdzenia skutków.")
+
+
 def _error(message: str, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     result: Dict[str, Any] = {"success": False, "error": message}
     if data is not None:
@@ -190,7 +206,7 @@ def _submit(manager: TaskManager, transaction: FileTransaction, plan: PreparedCh
         return _error(PANEL_DOWN_ERROR, {"task_id": task.id, "status": task.status.value})
     return {"success": True, "data": {
         "task_id": task.id, "status": task.status.value, "kind": kind, "paths": payload["paths"],
-        "sensitive": task.sensitive, "truncated": payload["truncated"], "hint": WAIT_HINT}}
+        "sensitive": task.sensitive, "truncated": payload["truncated"], "hint": _write_status_hint(task)}}
 
 
 def _prepared(prepare, *args, **kwargs):

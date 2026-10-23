@@ -6,6 +6,20 @@ tags: [sklr, project-state, sessions, autonomy, windows, testing]
 ---
 # Aktualny stan — 2026-10-23
 
+## Kontynuacja delegowanych zapisów — odbiór Windows i paczka do publikacji
+
+Baza: `86c04ca` (preview); po akceptacji planu poprawiono wyłącznie instrukcje odpowiedzi `create_file`/`edit_file` i ich opisy MCP. Przy awaiting_approval model czeka na użytkownika; przy queued/running śledzi ten sam task_id przez wait_task/get_task, bez ponawiania zapisu. Limit 8 s dotyczy pojedynczego oczekiwania, nie życia zadania. Kolejne zależne kroki wymagają potwierdzonego sukcesu i aktualnej zgody; pauza/utrata zgody je blokuje. Bez zmian uprawnień, timeoutów, konfiguracji i wykonawców. Historyczny approval_reason w zadaniu nadal opisuje ręczną zgodę; poprawiono hint odpowiedzi oraz opisy dwóch narzędzi, nie wszystkie rodzaje zapisów.
+
+Użytkownik uruchomił `python -m pytest tests/test_edit_tools.py tests/test_autopilot_integration.py` i podał **85 passed in 15.45s**. Nowe testy obejmują statusowe hinty, opisy MCP, sekwencję i kontrolowany zapis nadal running po wait_task(8), zakończenie pod tym samym task_id oraz następny zapis. To wynik wskazanej paczki według użytkownika, nie pełnej regresji repo. Następnie użytkownik zrestartował sklr; rzeczywiste odpowiedzi MCP zawierały nowy hint.
+
+**Rzeczywisty odbiór MCP/panelu Windows 2026-10-23:** zatwierdzona delegacja root:a, poddrzewo allowed, create_file/edit_file/read_file, overwrite=false, 600 s/20 operacji/max_running=1. Model w jednej turze, bez wiadomości użytkownika pomiędzy krokami i bez osobnych Allow, wykonał: utworzenie A i B, zmianę A, utworzenie C, zmianę B, odczyt trzech plików. Zadania #997–#1001: done/exit_code=0, decision puste i decided_at=null; przed każdym następnym zapisem potwierdzono sukces poprzedniego. Końcowe treści A2/B2/C1 zgodne; used=8, remaining_operations=12, reserved=running=0. Zapisy były szybkie: długie zadanie i wielokrotne wait w rzeczywistym harnessie nadal nieodebrane.
+
+Wcześniejszy smoke tej rozmowy: podgląd według użytkownika pojawił się natychmiast po wczytaniu katalogu; pojedynczy zapis/odczyt #987 bez Allow, used=2; powrót do Ręcznego i #989 awaiting_approval → allow → done/0 oraz poprawny odczyt. OKF #990 committed, aktualizacja #991 ready: incremental=true, changed_documents=1, candidates/read_documents=1 z 41; search cached znalazł nowy znacznik i nie znalazł starego. Jednodokumentowa aktualizacja trwała około 6 s (scan 4121 ms/publish 1508 ms); indexed_at pozostał czasem wcześniejszego pełnego skanu. To obserwacje diagnostyczne, nie ustalona przyczyna opóźnień.
+
+Panel po zapisie checkpointu pokazał starą rewizję/pending; odświeżenie pokazało saved i aktualną rewizję, ponowny wybór Ręczny zadziałał. Przyczyna pierwszej nieskutecznej próby niepotwierdzona. Checkpoint odrzucił też treść jako too_long i identyfikatory zadań poprzedniej sesji jako foreign_task; brak odebranego pomiaru rzeczywistego limitu. Kierunek użytkownika: osobna paczka rezygnacji z checkpointu RAM, z zachowaniem bezpiecznej pauzy i handshake; szczegóły oraz jednorazowe ręczne oczekiwanie 6 s w backlogu. **Obie zmiany niewdrożone.**
+
+Użytkownik zlecił aktualizację dokumentacji, commit i push na origin/main; punkt publikacji identyfikuje historia Git. Pliki smoke, lokalna konfiguracja/bazy/sekrety nie należą do paczki. Brak pełnej regresji, nowego przebiegu Node i testu wolnego preview/limitu 15 s na Windows. Pełny formularz plan/katalogi/skille oraz testy/poprawki/Git nadal są przyszłym zakresem.
+
 ## Uproszczenie autopilota — pierwsza paczka do przekazania
 
 Użytkownik zaakceptował kierunek: zapisany plan, katalogi i skille, jedno zatwierdzenie w panelu, potem praca modelu obejmująca dozwolone testy/poprawki/Git. Plan i pozostały zakres są w backlogu, sekcja „Uproszczenie autopilota”; nie jest to jeszcze wdrożony nowy kontrakt ani uprawnienie obecnego A2 do testów/publikacji.
