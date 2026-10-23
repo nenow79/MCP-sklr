@@ -5,6 +5,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from autopilot.controller import AutopilotBlocked
+from server.autopilot_admin import PreviewInProgress, PreviewTimedOut
 from tasks.session_models import SessionConflict
 
 IDENTITY = {'session_id', 'revision', 'decision_revision'}
@@ -37,12 +38,16 @@ def autopilot_routes(admin):
                 if type(body) is not dict or set(body) != IDENTITY | extra:
                     raise ValueError('invalid_body')
                 if action == 'preview':
-                    data = await run_in_threadpool(admin.preview, body)
+                    data = await run_in_threadpool(admin.preview, body, request.state.panel_timings)
                 elif action in ACTIONS:
                     data = await run_in_threadpool(admin.action, action, body)
                 else:
                     return JSONResponse({'success': False, 'error': 'Nieznana decyzja.'}, status_code=404)
             return JSONResponse({'success': True, 'data': data})
+        except PreviewInProgress:
+            return JSONResponse({'success': False, 'error': 'Poprzedni podgląd nadal sprawdza zasoby. Zgoda nie została udzielona. Sprawdź stan; nie wysyłaj kolejnych prób.'}, status_code=409)
+        except PreviewTimedOut:
+            return JSONResponse({'success': False, 'error': 'Przygotowanie podglądu przekroczyło 15 sekund. Podgląd odrzucono; zgoda nie została udzielona.'}, status_code=504)
         except (SessionConflict, AutopilotBlocked):
             return JSONResponse({'success': False, 'error': 'Stan lub uprawnienia zmieniły się. Odśwież i sprawdź decyzję.'}, status_code=409)
         except (ValueError, TypeError, KeyError, RecursionError, OverflowError):

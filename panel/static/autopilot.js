@@ -3,6 +3,7 @@
   "use strict";
   var state = null, resources = [], rules = [], preview = null, busy = false, generation = 0, configuring = false;
   var resourcesLoaded = false, resourcesBusy = false, resourceGeneration = 0;
+  var preparing = false;
   var tools = {
     files: ["list_directory", "read_file", "read_files_batch", "search_code", "edit_file", "create_file", "create_tree", "manage_folder"],
     knowledge: ["knowledge_search", "knowledge_get"], skill_read: ["activate_skill", "read_skill_resource"],
@@ -72,17 +73,31 @@
   function identity() {
     return { session_id: state.session_id, revision: state.revision, decision_revision: state.decision_revision };
   }
-  async function api(path, body) {
+  async function api(path, body, signal) {
     var response = await fetch("/api/autopilot" + path, {
       method: body === undefined ? "GET" : "POST", credentials: "same-origin", cache: "no-store",
       headers: body === undefined ? {} : { "Content-Type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body)
+      body: body === undefined ? undefined : JSON.stringify(body), signal: signal
     });
     if (response.status === 401) { clearPrivate(); }
     if (response.status === 404) { $("session-mode").hidden = true; throw new Error("Autopilot jest wyłączony w konfiguracji."); }
     var payload = await response.json();
     if (!response.ok || !payload.success) { throw new Error(payload.error || "Decyzja niedostępna. Odśwież stan."); }
     return payload.data;
+  }
+  async function requestPreview(body) {
+    var controller = new AbortController(), timer;
+    try {
+      return await Promise.race([
+        api("/preview", body, controller.signal),
+        new Promise(function (_, reject) {
+          timer = setTimeout(function () {
+            reject(new Error("Przygotowanie podglądu przekroczyło 15 sekund. Zgoda nie została udzielona; formularz zachowano. Sprawdź stan przed kolejną próbą."));
+            controller.abort();
+          }, 15000);
+        })
+      ]);
+    } finally { clearTimeout(timer); }
   }
   function render() {
     var paused = state && state.session_state === "paused" && state.running_actions === 0 && !state.resume_pending;
@@ -107,6 +122,7 @@
     $("ap-revoke").disabled = busy || !state || !state.contract_id;
     $("ap-approve").disabled = busy || !paused || !preview;
     $("ap-refresh").disabled = busy;
+    $("ap-progress").textContent = preparing ? "Sprawdzanie wybranych zasobów do podglądu… Zgoda nie została jeszcze udzielona." : "";
     $("ap-reconfirm").hidden = $("ap-reconfirm").disabled;
     $("ap-revoke").hidden = !state || !state.contract_id;
     $("ap-acknowledge-recovery").hidden = !state || state.state !== "recovery_required";
@@ -239,9 +255,9 @@
   async function prepare() {
     if (busy || !state || resourcesBusy || !resourcesLoaded) { return; }
     var current = generation;
-    invalidate(); busy = true; render();
+    invalidate(); busy = true; preparing = true; error(""); render();
     try {
-      var data = await api("/preview", Object.assign(identity(), { goal: $("ap-goal").value, plan: $("ap-plan").value,
+      var data = await requestPreview(Object.assign(identity(), { goal: $("ap-goal").value, plan: $("ap-plan").value,
         limits: { duration_s: Number($("ap-minutes").value) * 60, max_operations: Number($("ap-operations").value), max_running: 1 },
         policy: { version: 1, rules: rules } }));
       if (current !== generation) { return; }
@@ -251,7 +267,7 @@
       $("ap-preview-section").hidden = false;
       error("");
     } catch (err) { if (current === generation) { error(err.message); } }
-    finally { busy = false; render(); }
+    finally { busy = false; preparing = false; render(); }
   }
   async function decide(action, extra) {
     if (busy || !state || !window.confirm("Potwierdzić decyzję: " + action + "? Dotyczy całej instancji. Rozpoczęte skutki nie są cofane; operacje nie będą ponawiane.")) { return; }

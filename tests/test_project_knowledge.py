@@ -177,7 +177,15 @@ def test_project_switch_does_not_include_old_project_in_aggregate_search(env):
     env.store.update(lambda config: [root.update(default=root["alias"] == "central") for root in config["roots"]])
     assert env.service.search(query="alpha", refresh="cached")["count"] == 0
     explicit = env.service.search(query="alpha", bundle_id="project")
-    assert explicit["refresh_tasks"]  # jawny wybór innego projektu jest dozwolony
+    # Explicit access remains valid with a fresh index; auto need not submit work.
+    assert explicit["count"] == 1
+    assert {hit["bundle_id"] for hit in explicit["results"]} == {"project"}
+    assert explicit["refresh_errors"] == {}
+    forced = env.service.search(query="alpha", bundle_id="project", refresh="force")
+    assert {task["bundle_id"] for task in forced["refresh_tasks"]} == {"project"}
+    for refresh in forced["refresh_tasks"]:
+        assert env.manager.wait(refresh["task_id"], 8).status.value == "done"
+    assert env.service.search(query="alpha", bundle_id="project", refresh="cached")["count"] == 1
 
 
 def test_prepare_missing_agents_offers_template_and_does_not_block_work(env):

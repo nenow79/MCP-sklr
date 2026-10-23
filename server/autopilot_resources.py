@@ -5,32 +5,75 @@ from autopilot.rules import CATALOG_TYPES
 from autopilot.adapters.restrictions import restricted_name
 
 
-def resource_choices(runtime):
-    """Caller holds config lock. Return references privately, labels publicly."""
+def selected_resources(document):
+    """Validate editor references before any filesystem or registry work."""
+    if (type(document) is not dict or set(document) != {'version', 'rules'}
+            or type(document['rules']) is not list or not 1 <= len(document['rules']) <= 128):
+        raise ValueError('invalid_policy')
+    selected = set()
+    fields = {'files': 'root', 'knowledge': 'bundle', 'skill_read': 'skill',
+              'skill_run': 'skill', 'mcp_discovery': 'profile', 'mcp_call': 'profile'}
+    for rule in document['rules']:
+        if type(rule) is not dict or type(rule.get('kind')) is not str:
+            raise ValueError('invalid_rule')
+        field = fields.get(rule['kind'])
+        if field:
+            value = rule.get(field)
+            if type(value) is not str or not value.startswith(field + ':'):
+                raise ValueError('invalid_rule')
+            selected.add(value)
+        elif rule['kind'] == 'catalog':
+            values = rule.get('resources')
+            if type(values) is not list or any(type(value) is not str for value in values):
+                raise ValueError('invalid_rule')
+            selected.update(values)
+        else:
+            raise ValueError('invalid_rule')
+    return frozenset(selected)
+
+
+def resource_choices(runtime, selected=None):
+    """Return live references only for requested resources; None enumerates all.
+
+    Preview performs I/O without global locks and validates configuration/session
+    revisions afterwards. Approval still revalidates the selected live resources.
+    """
     refs, choices = {}, []
+
+    def wants(kind, name):
+        return selected is None or kind + ':' + name in selected
+
+    def wants_kind(kind):
+        return selected is None or any(key.startswith(kind + ':') for key in selected)
 
     def add(kind, name, ref, **details):
         key = kind + ':' + name
         refs[key] = ref
         choices.append(dict(key=key, kind=kind, name=name, **details))
 
-    for root in runtime.files.roots.list():
+    for root in runtime.files.roots.list() if wants_kind('root') else ():
+        if not wants('root', root.alias):
+            continue
         ref, available = runtime.files.root_ref(root)
         if available:
             add('root', root.alias, ref, path=ref.path, mode=ref.mode)
     service = runtime.knowledge.service
-    if service is not None:
+    if service is not None and wants_kind('bundle'):
         with service._lock:
             service._sync()
             for key in sorted(service._states):
+                if not wants('bundle', key):
+                    continue
                 state = service._current(key)
                 if state.available:
                     add('bundle', state.id, runtime.knowledge.reference(state))
     registry = runtime.skills.registry
-    if registry is not None:
+    if registry is not None and wants_kind('skill'):
+        if selected is not None:
+            registry = registry.scan_copy()
         registry.rescan()
         for record in registry.list_active():
-            if record.source != 'central':
+            if record.source != 'central' or not wants('skill', record.name):
                 continue
             try:
                 ref, access = runtime.skills.reference(record)
@@ -39,12 +82,12 @@ def resource_choices(runtime):
             add('skill', record.name, ref, trusted=access.trusted,
                 approval_required=access.approval_required)
     tools = runtime.mcp.tools
-    if tools is not None:
+    if tools is not None and wants_kind('profile'):
         listing = tools.registry.list()
         if not listing['configuration_valid']:
             raise ValueError('resources_unavailable')
         for profile in listing['profiles']:
-            if not profile['enabled']:
+            if not profile['enabled'] or not wants('profile', profile['alias']):
                 continue
             entries = []
             with tools.lock:

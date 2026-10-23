@@ -55,6 +55,7 @@ def test_preview_approve_conflict_and_closed_fields(env):
                         root='root:app', scope={'kind': 'tree', 'path': '.'}, overwrite=False)]})
     preview = env.client.post('/api/autopilot/preview', json=request, headers=env.headers)
     assert preview.status_code == 200
+    assert 'preview_resources;dur=' in preview.headers['server-timing']
     decision = dict(body(env), confirmed=True, preview_id=preview.json()['data']['preview_id'])
     assert env.client.post('/api/autopilot/approve', json=decision, headers=env.headers).status_code == 200
     assert env.client.post('/api/autopilot/approve', json=decision, headers=env.headers).status_code == 409
@@ -94,3 +95,16 @@ def test_resource_phases_and_status_have_numeric_server_timing(env):
         name, duration = entry.split(';dur=')
         assert name.replace('_', '').isalpha() and float(duration) >= 0
     assert 'private' not in header.lower()
+
+
+@pytest.mark.parametrize('error_name,status', [('PreviewInProgress', 409), ('PreviewTimedOut', 504)])
+def test_preview_busy_and_timeout_explain_the_block_without_private_details(env, monkeypatch, error_name, status):
+    from server import autopilot_admin
+    def fail(*args):
+        raise getattr(autopilot_admin, error_name)('PRIVATE-PATH')
+    monkeypatch.setattr(env.admin, 'preview', fail)
+    request = dict(body(env), goal='Example', plan='Example', limits={}, policy={})
+    response = env.client.post('/api/autopilot/preview', json=request, headers=env.headers)
+    assert response.status_code == status
+    assert 'zgoda nie została udzielona' in response.json()['error'].lower()
+    assert 'PRIVATE' not in response.text

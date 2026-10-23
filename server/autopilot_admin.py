@@ -8,11 +8,21 @@ from dataclasses import asdict
 
 from autopilot.models import BudgetLimits
 from autopilot.rules import parse_policy
-from server.autopilot_resources import pin_rules, resource_choices
+from server.autopilot_resources import pin_rules, resource_choices, selected_resources
 from server.autopilot_catalog import capture_catalog, catalog_choices
 from server.panel_timing import measure
 from server.session_checkpoint import _clean, _has_secret
 from tasks.session_models import SessionConflict
+
+PREVIEW_PREPARATION_SECONDS = 15
+
+
+class PreviewInProgress(SessionConflict):
+    """Another preview still owns the single resource preparation slot."""
+
+
+class PreviewTimedOut(SessionConflict):
+    """Resource preparation finished too late to publish a draft."""
 
 
 class AutopilotAdmin:
@@ -25,6 +35,7 @@ class AutopilotAdmin:
         self._draft = None
         self._approved = None
         self._catalog_lock = threading.Lock()
+        self._preview_lock = threading.Lock()
 
     def _identity(self, body, *, paused=True):
         if self.runtime.manager._stopped:
@@ -96,7 +107,7 @@ class AutopilotAdmin:
         goal = _clean(body['goal'], 500)
         plan = _clean(body['plan'], 6000)
         limits = BudgetLimits.from_dict(body['limits'])
-        refs, choices = resource_choices(self.runtime)
+        refs, choices = resource_choices(self.runtime, selected_resources(document))
         pinned = pin_rules(document, refs, choices, self.runtime)
         policy = parse_policy(pinned, hmac_key=self._key)
         if not policy.rules:
@@ -112,17 +123,37 @@ class AutopilotAdmin:
                     for rule in policy.rules]
         return dict(document=document, policy=policy, limits=asdict(limits), goal=goal, plan=plan, bindings=bindings)
 
-    def preview(self, body):
-        with self._lock, self.runtime.manager._cond, self.controller.coordination(), self.runtime.store.lock:
-            self._identity(body)
-            self._draft = None
-            prepared = self._prepare(body)
-            token = secrets.token_urlsafe(32)
-            self._draft = dict(prepared, token=token, identity=(body['session_id'], body['revision'], self._revision),
-                               expires=time.monotonic() + 300)
-            return dict(preview_id=token, goal=prepared['goal'], plan=prepared['plan'],
-                        policy=copy.deepcopy(prepared['document']), bindings=copy.deepcopy(prepared['bindings']),
-                        limits=dict(prepared['limits']), expires_in_s=300)
+    def preview(self, body, timings=None):
+        # A slow filesystem cannot reserve all workers waiting for this editor.
+        if not self._preview_lock.acquire(blocking=False):
+            raise PreviewInProgress('Preview is already being prepared.')
+        try:
+            deadline = time.monotonic() + PREVIEW_PREPARATION_SECONDS
+            body = copy.deepcopy(body)
+            with measure(timings, 'preview_snapshot'):
+                with self._lock, self.controller.coordination():
+                    self._identity(body)
+                    self._draft = None
+                    epoch = self.runtime.generations.revision
+            # No admin, task manager, session or config lock spans resource I/O.
+            with measure(timings, 'preview_resources'):
+                prepared = self._prepare(body)
+            with measure(timings, 'preview_validate'):
+                with self._lock, self.controller.coordination():
+                    self._identity(body)
+                    if time.monotonic() >= deadline:
+                        raise PreviewTimedOut('Preview preparation timed out; no decision was published.')
+                    if epoch != self.runtime.generations.revision:
+                        raise SessionConflict('Resources changed during preview.')
+                    token = secrets.token_urlsafe(32)
+                    self._draft = dict(prepared, token=token,
+                                       identity=(body['session_id'], body['revision'], self._revision),
+                                       expires=time.monotonic() + 300)
+                    return dict(preview_id=token, goal=prepared['goal'], plan=prepared['plan'],
+                                policy=copy.deepcopy(prepared['document']), bindings=copy.deepcopy(prepared['bindings']),
+                                limits=dict(prepared['limits']), expires_in_s=300)
+        finally:
+            self._preview_lock.release()
 
     def action(self, action, body):
         with self._lock, self.runtime.manager._cond, self.controller.coordination():

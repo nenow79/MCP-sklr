@@ -1,6 +1,8 @@
 """A2b4 panel decisions through the real optional execution composition."""
 import json
 import threading
+from concurrent.futures import ThreadPoolExecutor
+from types import SimpleNamespace
 
 import pytest
 
@@ -284,4 +286,110 @@ def test_mcp_schema_is_pinned_by_server_and_requires_discovery(env):
     registry.revoke_trust(profile['id'], registry.list()['revision'])
     with pytest.raises(ValueError):
         env.admin.action('approve', dict(identity(env), confirmed=True, preview_id=preview['preview_id']))
+    assert not env.autopilot.engaged
+
+
+def test_file_only_delegation_never_scans_unselected_services(env, monkeypatch):
+    def forbidden(*args, **kwargs):
+        pytest.fail('File delegation must not scan knowledge, skills or MCP.')
+    monkeypatch.setattr(env.skills, 'rescan', forbidden)
+    monkeypatch.setattr(env.skills, 'scan_copy', forbidden)
+    monkeypatch.setattr(env.knowledge, '_sync', forbidden)
+    monkeypatch.setattr(env.external.registry, 'list', forbidden)
+    monkeypatch.setattr(env.runtime.skills, 'reference', forbidden)
+    original = env.runtime.files.root_ref
+    checked = []
+    def reference(root):
+        checked.append(root.alias)
+        return original(root)
+    monkeypatch.setattr(env.runtime.files, 'root_ref', reference)
+    approve(env)
+    env.admin.action('reconfirm', dict(identity(env), confirmed=True))
+    assert checked == ['app', 'app', 'app']
+
+
+@pytest.mark.parametrize('change', ['config', 'decision', 'resume'])
+def test_preview_io_does_not_block_controls_and_rejects_stale_results(env, monkeypatch, change):
+    entered, release = threading.Event(), threading.Event()
+    original = env.admin._prepare
+    body = draft(env)
+    def prepare(request):
+        entered.set()
+        assert release.wait(5), 'Preview test did not release I/O'
+        return original(request)
+    monkeypatch.setattr(env.admin, '_prepare', prepare)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        preview = pool.submit(env.admin.preview, body)
+        try:
+            assert entered.wait(2)
+            assert pool.submit(env.admin.status).result(timeout=2)['session_state'] == 'paused'
+            assert pool.submit(env.roots.list_status).result(timeout=2)
+            # A duplicate scan fails immediately rather than reserving a worker.
+            with pytest.raises(SessionConflict):
+                env.admin.preview(body)
+            if change == 'config':
+                def mutate():
+                    env.store.update(lambda data: data.update(preview_probe=True))
+                    env.store.update(lambda data: data.pop('preview_probe'))
+                pool.submit(mutate).result(timeout=2)
+            elif change == 'decision':
+                pool.submit(env.admin.action, 'manual', dict(identity(env), confirmed=True)).result(timeout=2)
+            else:
+                pool.submit(env.manager.prepare_session_resume, '', body['revision'],
+                            allow_missing_checkpoint=True).result(timeout=2)
+        finally:
+            release.set()
+        with pytest.raises(SessionConflict):
+            preview.result(timeout=2)
+    assert env.admin._draft is None
+    assert not env.autopilot.engaged
+    # The scan lock is released even when final validation fails.
+    assert env.admin._preview_lock.acquire(blocking=False)
+    env.admin._preview_lock.release()
+
+
+def test_late_preview_is_discarded_without_authority(env, monkeypatch):
+    ticks = iter([0, 16])
+    monkeypatch.setattr('server.autopilot_admin.time', SimpleNamespace(monotonic=lambda: next(ticks)))
+    with pytest.raises(SessionConflict, match='timed out'):
+        env.admin.preview(draft(env))
+    assert env.admin._draft is None
+    assert not env.autopilot.engaged
+    assert env.audit.history() == ()
+
+
+def test_failed_preview_releases_scan_lock(env, monkeypatch):
+    original = env.admin._prepare
+    def fail(*args):
+        raise OSError('PRIVATE-PATH')
+    monkeypatch.setattr(env.admin, '_prepare', fail)
+    with pytest.raises(OSError):
+        env.admin.preview(draft(env))
+    monkeypatch.setattr(env.admin, '_prepare', original)
+    assert env.admin.preview(draft(env))['preview_id']
+
+
+def test_selected_skill_is_revalidated_without_hashing_others_or_publishing_scan(env, monkeypatch):
+    for name in ('selected', 'unrelated'):
+        folder = env.central / name
+        folder.mkdir()
+        (folder / 'SKILL.md').write_text(
+            '---\nname: ' + name + '\ndescription: Example.\n---\nExample.\n', encoding='utf-8')
+    before = env.skills.snapshot()
+    checked = []
+    original = env.runtime.skills.reference
+    def reference(record):
+        assert record.name == 'selected', 'Unselected skill must not be hashed'
+        checked.append(record.name)
+        return original(record)
+    monkeypatch.setattr(env.runtime.skills, 'reference', reference)
+    body = draft(env, policy={'version': 1, 'rules': [dict(id='skill', kind='skill_read',
+        skill='skill:selected', tools=['activate_skill'], scope={'kind': 'tree', 'path': '.'})]})
+    preview = env.admin.preview(body)
+    assert env.skills.snapshot() == before
+    (env.central / 'selected' / 'SKILL.md').write_text(
+        '---\nname: selected\ndescription: Changed.\n---\nChanged.\n', encoding='utf-8')
+    with pytest.raises(SessionConflict):
+        env.admin.action('approve', dict(identity(env), confirmed=True, preview_id=preview['preview_id']))
+    assert checked == ['selected', 'selected']
     assert not env.autopilot.engaged

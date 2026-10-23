@@ -16,7 +16,7 @@ function node() {
   };
 }
 function harness(options = {}) {
-  const nodes = new Map(), requests = [], windowEvents = {};
+  const nodes = new Map(), requests = [], windowEvents = {}, timers = new Map();
   const get = id => { if (!nodes.has(id)) nodes.set(id, node()); return nodes.get(id); };
   get('ap-kind').value = 'files'; get('ap-scope-kind').value = 'tree'; get('ap-scope').value = 'docs';
   get('ap-goal').value = 'Approved goal'; get('ap-plan').value = 'Approved plan';
@@ -25,6 +25,9 @@ function harness(options = {}) {
     resume_pending: false, state: 'disabled', running: 0, used: 0, reserved: 0,
     remaining_s: 0, remaining_operations: 0, unresolved: [], ...options.state };
   const context = {
+    AbortController,
+    setTimeout(callback, delay) { const id = {}; timers.set(id, { callback, delay }); return id; },
+    clearTimeout(id) { timers.delete(id); },
     document: { getElementById: get, createElement: node,
       createTextNode(text) { const item = node(); item.textContent = text; return item; },
       querySelectorAll() { return get('ap-tools').children.map(label => label.children[0]).filter(input => input && input.checked); } },
@@ -36,6 +39,7 @@ function harness(options = {}) {
       let data = state;
       if (url.endsWith('/resources') && options.resourcesResponse) { return options.resourcesResponse; }
       if (url.endsWith('/resources')) { data = [{ key: 'root:app', kind: 'root', name: 'app', path: '<private>', mode: 'rw' }]; }
+      if (url.endsWith('/preview') && options.previewResponse) { return options.previewResponse; }
       if (url.endsWith('/preview')) { data = { preview_id: 'preview-once', ...body }; }
       return { status: 200, ok: true, json: async () => ({ success: true, data: JSON.parse(JSON.stringify(data)) }) };
     }
@@ -43,7 +47,7 @@ function harness(options = {}) {
   vm.runInNewContext(source, context);
   const flush = async () => { for (let index = 0; index < 40; index++) await Promise.resolve(); };
   const click = async id => { get(id).listeners.click(); await flush(); };
-  return { get, requests, windowEvents, state, click, flush };
+  return { get, requests, windowEvents, state, click, flush, timers };
 }
 
 test('explicit resources/tools, preview required and editing invalidates it', async () => {
@@ -243,4 +247,34 @@ test('slow resource result is discarded after a newer session status', async () 
   await h.flush();
   assert.equal(h.get('ap-resource').children.length, 0);
   assert.equal(h.get('ap-approve').disabled, true);
+});
+
+test('slow preview reports work then releases editor on timeout and ignores late success', async () => {
+  let release;
+  const h = harness({ previewResponse: new Promise(resolve => { release = resolve; }) });
+  await h.click('tab-session'); await h.click('mode-autopilot');
+  h.get('ap-resource').selectedOptions = [{ value: 'root:app' }];
+  h.get('ap-tools').children[1].children[0].checked = true;
+  await h.click('ap-add'); await h.click('ap-preview');
+  assert.equal(h.get('ap-editor').disabled, true);
+  assert(h.get('ap-progress').textContent.includes('Sprawdzanie wybranych zasobów'));
+  await h.click('ap-preview');
+  assert.equal(h.requests.filter(r => r.url.endsWith('/preview')).length, 1);
+  const timer = [...h.timers.values()][0];
+  assert.equal(timer.delay, 15000);
+  timer.callback(); await h.flush();
+  assert.equal(h.get('ap-editor').disabled, false);
+  assert.equal(h.get('ap-approve').disabled, true);
+  assert(h.get('ap-error').textContent.includes('15 sekund'));
+  assert.equal(h.get('ap-goal').value, 'Approved goal');
+  assert.equal(h.get('ap-plan').value, 'Approved plan');
+  assert.equal(h.get('ap-rule-list').children.length, 1);
+  assert.equal(h.get('ap-progress').textContent, '');
+  assert.equal(h.timers.size, 0);
+  release({ status: 200, ok: true, json: async () => ({ success: true, data: {
+    preview_id: 'late', policy: { version: 1, rules: [] }, limits: {} } }) });
+  await h.flush();
+  assert.equal(h.get('ap-preview-section').hidden, true);
+  assert.equal(h.get('ap-approve').disabled, true);
+  assert.equal(h.requests.filter(r => r.url.endsWith('/approve')).length, 0);
 });

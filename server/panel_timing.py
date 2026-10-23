@@ -4,7 +4,8 @@ from time import perf_counter
 
 PHASES = frozenset({'app', 'roots', 'catalog_wait', 'catalog_snapshot', 'catalog_roots',
                     'catalog_knowledge', 'catalog_scan', 'catalog_skills',
-                    'catalog_profiles', 'catalog_validate'})
+                    'catalog_profiles', 'catalog_validate', 'preview_snapshot',
+                    'preview_resources', 'preview_validate'})
 
 
 @contextmanager
