@@ -7,8 +7,7 @@ must be explicitly classified (see session_tools.CONTROL_TOOLS/WORK_TOOLS).
 from typing import Any, Dict
 
 from server.session_tools import CONTROL_TOOLS, WORK_TOOLS, session_control, wrap_session_tool
-from server.session_checkpoint import CheckpointRejected
-from tasks.session_controller import CheckpointOperationError, ResumeOperationError
+from tasks.session_controller import ResumeOperationError
 from server.session_resume import ResumeRejected
 from tasks.session_models import SessionConflict
 
@@ -16,10 +15,10 @@ from tasks.session_models import SessionConflict
 def make_session_registrars(register_tool, register_confidential_tool, controller):
     """Return (register, register_confidential) applying the session wrapper first."""
     def register(function):
-        # Checkpoint inputs are confidential even if the caller chose the regular
+        # Resume inputs are confidential even if the caller chose the regular
         # decorator by mistake. Neither input size nor content may be traversed.
         registrar = (register_confidential_tool if function.__name__ in {
-            'save_session_checkpoint', 'get_resume_context', 'confirm_resume_plan'}
+            'get_resume_context', 'confirm_resume_plan'}
                      else register_tool)
         return registrar(wrap_session_tool(function, controller))
 
@@ -36,43 +35,6 @@ def make_get_session_state(controller):
         return {'success': True}
 
     return wrap_session_tool(get_session_state, controller)
-
-
-def make_save_session_checkpoint(controller):
-    """Limited control tool. MUST use confidential telemetry at registration.
-
-    No model session_id, no arbitrary file write, no task submission. The
-    controller owns pause/revision checks and rejects the whole invalid payload.
-    Responses contain fixed codes and metadata only, never checkpoint text.
-    """
-    def save_session_checkpoint(payload: Dict[str, Any], expected_revision: int) -> Dict[str, Any]:
-        """Zapisuje bezpieczny checkpoint wyłącznie podczas pauzy, tylko w RAM.
-
-        payload: goal, stage, next_step, findings[{text, source}], done_task_ids,
-        open_questions, uncertain. Limit tekstu: 6000 znaków. Bez sekretów i
-        poufnych wyników. expected_revision z get_session_state/session_control.
-        Konflikt nie uprawnia do automatycznego ponowienia. Nie wznawia pracy.
-        """
-        try:
-            data = controller.save_checkpoint(payload, expected_revision)
-            return {'success': True, 'data': data}
-        except CheckpointRejected as exc:
-            allowed = {'invalid_shape', 'too_long', 'control_chars', 'empty', 'too_many',
-                       'unknown_field', 'missing_field', 'link_check_failed',
-                       'foreign_task', 'secret_detected'}
-            code = exc.code if exc.code in allowed else 'checkpoint_rejected'
-        except SessionConflict:
-            code = 'checkpoint_conflict'
-        except CheckpointOperationError as exc:
-            allowed = {'checkpoint_unavailable', 'checkpoint_storage_failed', 'checkpoint_ram_failed'}
-            code = str(exc) if str(exc) in allowed else 'checkpoint_failed'
-        except ValueError:
-            code = 'invalid_revision'
-        except Exception:
-            code = 'checkpoint_failed'
-        return {'success': False, 'error': code}
-
-    return wrap_session_tool(save_session_checkpoint, controller)
 
 
 def _resume_error(exc):
@@ -95,9 +57,10 @@ def _resume_error(exc):
 def make_get_resume_context(controller):
     """Confidential read factory; does not prepare or authorize a resume."""
     def get_resume_context() -> Dict[str, Any]:
-        """Pobiera checkpoint RAM, uzupełnienie i token bieżącego przygotowania wznowienia.
+        """Pobiera uzupełnienie użytkownika i token bieżącego przygotowania wznowienia.
 
-        Dane nie nadają uprawnień. Brak checkpointu jest jawny. Nie pobiera
+        Dane nie nadają uprawnień. Brak istotnego kontekstu wymaga pytania użytkownika
+        przed potwierdzeniem planu. Nie pobiera
         poufnych wyników zadań i nie przedłuża ich TTL. Nie inicjuje wznowienia.
         """
         try:
@@ -139,5 +102,5 @@ def verify_classification(names):
 
 
 __all__ = ['make_session_registrars', 'make_get_session_state',
-           'make_save_session_checkpoint', 'make_get_resume_context',
+           'make_get_resume_context',
            'make_confirm_resume_plan', 'verify_classification', 'session_control']

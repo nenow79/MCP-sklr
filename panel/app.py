@@ -131,15 +131,6 @@ def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: Pane
         except Exception:
             return _err("Nie można odczytać stanu sesji pracy.", 500)
 
-    async def work_session_checkpoint(request):
-        try:
-            response = _ok(await run_in_threadpool(work_sessions.checkpoint))
-        except Exception:
-            response = _err("Nie można odczytać checkpointu sesji pracy.", 500)
-        # Free-form RAM content must not become a browser/proxy cache entry.
-        response.headers["Cache-Control"] = "no-store"
-        return response
-
     async def work_session_start(request):
         body = await _json_body(request)
         if body is None or set(body) != {"roots"}:
@@ -220,7 +211,7 @@ def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: Pane
         recover = request.url.path.endswith('/recover')
         fields = {'session_id', 'revision', 'confirmed'}
         if not recover:
-            fields |= {'supplement', 'cancel_count', 'allow_missing_checkpoint'}
+            fields |= {'supplement', 'cancel_count'}
         if body is None or set(body) != fields:
             return _err('Nieprawidłowe pola decyzji panelowej.', 400)
         try:
@@ -232,15 +223,14 @@ def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: Pane
                     body['session_id'], body['revision'], body['confirmed'])
             else:
                 if (type(body['supplement']) is not str
-                        or type(body['cancel_count']) is not int or body['cancel_count'] < 0
-                        or type(body['allow_missing_checkpoint']) is not bool):
+                        or type(body['cancel_count']) is not int or body['cancel_count'] < 0):
                     raise ValueError('Invalid preparation fields.')
                 data = await run_in_threadpool(work_sessions.prepare_resume,
                     body['session_id'], body['revision'], body['supplement'],
-                    body['cancel_count'], body['allow_missing_checkpoint'], body['confirmed'])
+                    body['cancel_count'], body['confirmed'])
             return _ok(data)
         except SessionConflict:
-            return _err('Sesja, rewizja, liczba zadań lub checkpoint się zmieniły. Odśwież stan.', 409)
+            return _err('Sesja, rewizja lub liczba zadań się zmieniły. Odśwież stan.', 409)
         except ValueError:
             return _err('Nieprawidłowa decyzja lub odrzucona treść. Niczego nie ponawiaj automatycznie.', 400)
         except Exception:
@@ -588,7 +578,6 @@ def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: Pane
     if work_sessions is not None:
         routes.extend([
             Route("/api/work-session", work_session_status, methods=["GET"]),
-            Route("/api/work-session/checkpoint", work_session_checkpoint, methods=["GET"]),
             Route("/api/work-session/start", work_session_start, methods=["POST"]),
             Route("/api/work-session/pause", work_session_pause, methods=["POST"]),
             Route("/api/work-session/end", work_session_end, methods=["POST"]),

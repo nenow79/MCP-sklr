@@ -70,7 +70,8 @@ def registrars(runtime):
 def test_control_registration_confidentiality_and_single_wrapper(runtime):
     reg, conf, names, regular, confidential = registrars(runtime)
     assert set(regular) == {'get_session_state'}
-    assert set(confidential) == {'save_session_checkpoint', 'get_resume_context', 'confirm_resume_plan'}
+    assert set(confidential) == {'get_resume_context', 'confirm_resume_plan'}
+    assert 'save_session_checkpoint' not in names
     for function in list(regular.values()) + list(confidential.values()):
         assert hasattr(function, '__wrapped__')
         assert not hasattr(function.__wrapped__, '__wrapped__')
@@ -83,15 +84,9 @@ def test_control_registration_confidentiality_and_single_wrapper(runtime):
     assert inspect.signature(tool) == inspect.signature(read_file)
     control = tool('a')['session_control']
     assert control['code'] == 'session_not_selected'
-    assert control['checkpoint_available'] is True
+    assert not any(key.startswith('checkpoint') for key in control)
     assert 'Start' in control['instruction'] and 'panelu' in control['instruction']
-    assert 'Bez wybranej sesji nie zapisuj checkpointu' in control['instruction']
     assert 'nie jest jeszcze dostępne' not in control['instruction']
-    checkpoint = confidential['save_session_checkpoint'](
-        {'goal': 'Safe', 'next_step': 'Wait'}, 1)
-    assert checkpoint['success'] is False and checkpoint['error'] == 'checkpoint_conflict'
-    assert checkpoint['session_control']['code'] == 'session_not_selected'
-    assert checkpoint['session_control']['checkpoint_content_available'] is False
     assert calls == []
     assert regular['get_session_state']()['success']
     active = runtime.admin.start(['sklr'])
@@ -99,9 +94,7 @@ def test_control_registration_confidentiality_and_single_wrapper(runtime):
     assert runtime.controller.snapshot()['running_actions'] == 0
     paused = runtime.admin.pause(active['session_id'], active['revision'])
     assert tool('b')['session_control']['code'] == 'session_paused'
-    result = confidential['save_session_checkpoint'](
-        {'goal': 'Safe', 'next_step': 'Wait'}, paused['revision'])
-    assert result['success'] and result['data']['saved']
+    assert 'checkpoint' not in tool('b')['session_control']['instruction']
     assert calls == ['a']
 
 

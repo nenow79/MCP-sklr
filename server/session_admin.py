@@ -34,8 +34,7 @@ class SessionAdmin:
                 raise ValueError('Resume coordinator unavailable.')
             return self._manager.session_resume_preview(sid, revision)
 
-    def prepare_resume(self, sid, revision, supplement, cancel_count,
-                       allow_missing_checkpoint, confirmed):
+    def prepare_resume(self, sid, revision, supplement, cancel_count, confirmed):
         with self._lock:
             if confirmed is not True:
                 raise ValueError('Explicit panel confirmation required.')
@@ -43,8 +42,7 @@ class SessionAdmin:
                 raise ValueError('Resume coordinator unavailable.')
             return self._manager.prepare_session_resume(
                 supplement, revision, panel_session_id=sid,
-                expected_cancel_count=cancel_count,
-                allow_missing_checkpoint=allow_missing_checkpoint)
+                expected_cancel_count=cancel_count)
 
     def resume_plan(self):
         with self._lock:
@@ -88,23 +86,12 @@ class SessionAdmin:
             return {
                 **state,
                 'roots': list(item.roots) if item else [],
-                'checkpoint_available': state.get('checkpoint_available') is True,
-                'checkpoint_content_available': state.get('checkpoint_content_available') is True,
                 'resume_available': self._manager is not None
                     and self._controller._resumes is not None,
                 'ram_lost': bool(item and item.reason == 'server_restarted'),
                 'switch_available': False,
                 'warning': 'Pauza obejmuje wszystkie rozmowy tej instancji sklr.',
             }
-
-    def checkpoint(self):
-        """Authenticated panel read only; no logging, persistence or task results.
-
-        Availability is checked by the controller under its own lock. Durable
-        saved metadata alone does not mean content is present in RAM.
-        """
-        with self._lock:
-            return self._controller.get_checkpoint()
 
     def start(self, roots):
         """Explicit panel user action only. Starts at most one session per instance.
@@ -160,8 +147,6 @@ class SessionAdmin:
                 # Empty/oversized membership fails closed, even if the registry write succeeded.
                 saved = self._store.replace_roots(state['session_id'], state['revision'], aliases)
                 self._controller.update_project_selection_internal(saved)
-                if self._controller._checkpoint_current_revision == state['revision']:
-                    self._controller._checkpoint_current_revision = saved.revision
             return result
 
     def end(self, sid, expected_revision, autopilot=None):

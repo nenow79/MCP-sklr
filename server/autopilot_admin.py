@@ -11,7 +11,7 @@ from autopilot.rules import parse_policy
 from server.autopilot_resources import pin_rules, resource_choices, selected_resources
 from server.autopilot_catalog import capture_catalog, catalog_choices
 from server.panel_timing import measure
-from server.session_checkpoint import _clean, _has_secret
+from server.text_validation import _clean, _has_secret
 from tasks.session_models import SessionConflict
 
 PREVIEW_PREPARATION_SECONDS = 15

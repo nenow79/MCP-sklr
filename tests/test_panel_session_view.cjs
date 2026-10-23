@@ -25,10 +25,10 @@ function text(root) { return all(root, n => !!n._text).map(n => n._text).join('\
 
 const status = (extra = {}) => ({
   scope: 'instance', session_id: null, execution_blocked: true, running_actions: 0, state: null,
-  reason: '', revision: null, checkpoint_state: null, roots: [], checkpoint_available: false,
+  reason: '', revision: null, roots: [],
   resume_available: false, switch_available: false, warning: 'x', ...extra });
 const active = (extra = {}) => status({ session_id: 's1', execution_blocked: false, state: 'active',
-  revision: 3, checkpoint_state: 'pending', roots: ['sklr'], running_actions: 2, ...extra });
+  revision: 3, roots: ['sklr'], running_actions: 2, ...extra });
 const rootsPayload = () => ({ success: true, data: { count: 2, roots: [
   { alias: 'sklr', valid: true }, { alias: 'old', valid: false }, { alias: 'docs', valid: true }] } });
 
@@ -53,12 +53,10 @@ function harness(server) {
       let out;
       if (url === '/api/work-session' && method === 'GET') {
         out = server.getResponse ? server.getResponse() : { status: 200, json: { success: true, data: server.status } };
-      } else if (url === '/api/work-session/checkpoint') {
-        out = server.checkpointResponse || { status: 200, json: { success: true, data: { available: false } } };
       } else if (url.startsWith('/api/work-session/resume-preview?')) {
         out = server.previewResponse || { status: 200, json: { success: true, data: {
           session_id: server.status.session_id, revision: server.status.revision,
-          cancel_count: 2, checkpoint_missing: false } } };
+          cancel_count: 2 } } };
       } else if (url === '/api/work-session/prepare-resume') {
         out = server.prepareResponse;
         if (server.afterPrepare) server.status = server.afterPrepare;
@@ -128,13 +126,12 @@ test('odmowa w potwierdzeniu nie wysyla zadania', async () => {
   assert.equal(h.posts().length, 0);
 });
 
-test('stan sesji: licznik, rewizja, checkpoint niedostepny, brak wznowienia i przelaczenia', async () => {
+test('stan sesji: licznik, rewizja, brak wznowienia i przelaczenia', async () => {
   const h = harness({ status: active({ reason: '<b>x</b>\u202e' }) });
   await h.open();
   const shown = text(h.get('session-state'));
   assert.ok(shown.includes('2'));
   assert.ok(shown.includes('<b>x</b>'));
-  assert.ok(shown.includes('niedostępna'));
   assert.ok(shown.includes('Wznowienie jest niedostępne'));
   assert.ok(!/resume|switch/.test(h.requests.map(r => r.url).join(' ')));
   assert.equal(h.get('session-prepare').disabled, true);
@@ -194,64 +191,13 @@ test('podwojny klik startu wysyla jedno zadanie', async () => {
   assert.equal(h.posts().length, 1);
 });
 
-const savedState = () => active({ state: 'paused', execution_blocked: true, running_actions: 0,
-  checkpoint_state: 'saved', checkpoint_available: true, checkpoint_content_available: true });
-const checkpointRecord = () => ({ available: true, revision: 2, session_revision: 3, saved_at: 'now',
-  checkpoint: { goal: '<b>checkpoint</b>\u202e', stage: 'P3a', next_step: 'Wait',
-    findings: [{ text: 'finding', source: 'docs/spec.md' }], done_task_ids: [7],
-    open_questions: ['question'], uncertain: ['remote outcome uncertain'] } });
-
-test('checkpoint jako tekst, zrodla, pytania i niepewne wyniki', async () => {
-  const h = harness({ status: savedState(), checkpointResponse: {
-    status: 200, json: { success: true, data: checkpointRecord() } } });
+test('pauza nie pobiera checkpointu i nie wymaga jego zapisania', async () => {
+  const h = harness({ status: active({ state: 'paused', execution_blocked: true, running_actions: 0 }) });
   await h.open();
-  const shown = text(h.get('session-checkpoint'));
-  assert.ok(shown.includes('<b>checkpoint</b>') && shown.includes('\\u{202E}'));
-  assert.ok(shown.includes('docs/spec.md') && shown.includes('remote outcome uncertain'));
-  assert.ok(shown.includes('question') && shown.includes('Wait'));
-  assert.equal(h.get('session-checkpoint-section').hidden, false);
-  assert.equal(h.posts().length, 0);
-  await h.click('tab-tasks');
-  assert.equal(text(h.get('session-checkpoint')), '');
-  assert.equal(h.get('session-checkpoint-section').hidden, true);
-});
-
-test('saved bez RAM nie pobiera ani nie deklaruje tresci', async () => {
-  const h = harness({ status: { ...savedState(), checkpoint_content_available: false } });
-  await h.open();
-  assert.ok(text(h.get('session-state')).includes('brak potwierdzonej treści'));
-  assert.equal(h.requests.filter(r => r.url.endsWith('/checkpoint')).length, 0);
-});
-
-test('spozniona odpowiedz po opuszczeniu zakladki nie przywraca checkpointu', async () => {
-  let release;
-  const pending = new Promise(resolve => { release = resolve; });
-  const h = harness({ status: savedState(), checkpointResponse: pending });
-  await h.open();
-  await h.click('tab-tasks');
-  release({ status: 200, json: { success: true, data: checkpointRecord() } });
-  await h.flush();
-  assert.equal(text(h.get('session-checkpoint')), '');
-  assert.equal(h.get('session-checkpoint-section').hidden, true);
-});
-
-test('inna rewizja nie wyswietla starej tresci', async () => {
-  const record = { ...checkpointRecord(), session_revision: 99 };
-  const h = harness({ status: savedState(), checkpointResponse: {
-    status: 200, json: { success: true, data: record } } });
-  await h.open();
-  assert.ok(!text(h.get('session-checkpoint')).includes('<b>checkpoint</b>'));
-  assert.ok(text(h.get('session-checkpoint')).includes('Odśwież'));
-});
-
-test('blad odczytu usuwa poprzednia tresc', async () => {
-  const h = harness({ status: savedState(), checkpointResponse: {
-    status: 200, json: { success: true, data: checkpointRecord() } } });
-  await h.open();
-  h.server.checkpointResponse = { status: 500, json: {} };
   await h.click('session-refresh');
-  assert.ok(!text(h.get('session-checkpoint')).includes('<b>checkpoint</b>'));
-  assert.ok(text(h.get('session-checkpoint')).includes('Nie można'));
+  assert.equal(h.requests.filter(r => r.url.endsWith('/checkpoint')).length, 0);
+  assert.ok(!text(h.get('session-state')).includes('Checkpoint'));
+  assert.ok(!text(h.get('session-summary')).includes('checkpoint'));
 });
 
 test('odswiezenie to tylko przycisk, bez timerow w zakladce', async () => {
@@ -266,7 +212,7 @@ test('odswiezenie to tylko przycisk, bez timerow w zakladce', async () => {
 });
 
 const resumable = (extra = {}) => active({ state: 'paused', execution_blocked: true,
-  running_actions: 0, checkpoint_available: true, checkpoint_content_available: false,
+  running_actions: 0,
   resume_available: true, resume_pending: false, ...extra });
 const ok = data => ({ status: 200, json: { success: true, data } });
 const resumePosts = h => h.posts().filter(r => r.url.endsWith('/prepare-resume'));
@@ -285,29 +231,28 @@ test('przygotowanie: preview, confirm z liczba, jeden POST i oczekiwanie na mode
   assert.equal(h.confirmations.length, 1);
   assert.ok(h.confirmations[0].includes('Anulujemy 2'));
   assert.deepEqual(resumePosts(h)[0].payload, { session_id: 's1', revision: 3,
-    supplement: 'new instructions', cancel_count: 2, allow_missing_checkpoint: false, confirmed: true });
+    supplement: 'new instructions', cancel_count: 2, confirmed: true });
   assert.equal(h.get('session-supplement').value, '');
   assert.ok(text(h.get('session-state')).includes('Oczekiwanie na model'));
   assert.ok(text(h.get('session-state')).includes('sklr nie budzi modelu'));
   assert.equal(h.get('session-prepare').disabled, true);
 });
 
-test('brak checkpointu: osobny confirm przed confirm anulowania', async () => {
+test('wznowienie wymaga tylko potwierdzenia liczby anulowan', async () => {
   const h = harness({ status: resumable(), previewResponse: ok({ session_id: 's1', revision: 3,
-    cancel_count: 0, checkpoint_missing: true }), prepareResponse: ok({ prepared: true }),
-    afterPrepare: resumable({ revision: 4, resume_pending: true }), confirmAnswers: [true, true] });
+    cancel_count: 0 }), prepareResponse: ok({ prepared: true }),
+    afterPrepare: resumable({ revision: 4, resume_pending: true }), confirmAnswers: [true] });
   await h.open();
   await h.click('session-prepare');
-  assert.equal(h.confirmations.length, 2);
-  assert.ok(h.confirmations[0].includes('bez checkpointu'));
-  assert.ok(h.confirmations[1].includes('Anulujemy 0'));
-  assert.equal(resumePosts(h)[0].payload.allow_missing_checkpoint, true);
+  assert.equal(h.confirmations.length, 1);
+  assert.ok(h.confirmations[0].includes('Anulujemy 0'));
+  assert.equal('allow_missing_checkpoint' in resumePosts(h)[0].payload, false);
 });
 
-test('odmowa ktoregokolwiek confirm nie wysyla POST', async () => {
-  for (const answers of [[false], [true, false]]) {
+test('odmowa confirm nie wysyla POST', async () => {
+  for (const answers of [[false]]) {
     const h = harness({ status: resumable(), previewResponse: ok({ session_id: 's1', revision: 3,
-      cancel_count: 2, checkpoint_missing: true }), confirmAnswers: answers.slice() });
+      cancel_count: 2 }), confirmAnswers: answers.slice() });
     await h.open();
     h.get('session-supplement').value = 'keep';
     await h.click('session-prepare');
@@ -356,14 +301,14 @@ test('podwojny klik przygotowania: jedno preview i jeden POST', async () => {
   await h.flush();
   assert.equal(h.requests.filter(r => r.url.includes('/resume-preview?')).length, 1);
   assert.equal(h.get('session-refresh').disabled, true);
-  release(ok({ session_id: 's1', revision: 3, cancel_count: 2, checkpoint_missing: false }));
+  release(ok({ session_id: 's1', revision: 3, cancel_count: 2 }));
   await h.flush();
   assert.equal(resumePosts(h).length, 1);
 });
 
 test('stary preview nie wysyla POST ani confirm', async () => {
   const h = harness({ status: resumable(), previewResponse: ok({ session_id: 's1', revision: 99,
-    cancel_count: 2, checkpoint_missing: false }) });
+    cancel_count: 2 }) });
   await h.open();
   await h.click('session-prepare');
   assert.equal(resumePosts(h).length, 0);
@@ -406,7 +351,7 @@ test('spozniony plan i spozniony preview po opuszczeniu zakladki sa odrzucane', 
     if (target === 'preview') { h.get('session-prepare').listeners.click(); await h.flush(); }
     await h.click('tab-tasks');
     release(ok(target === 'plan' ? { available: true, session_id: 's1', revision: 3, plan: 'late-plan' }
-      : { session_id: 's1', revision: 3, cancel_count: 2, checkpoint_missing: false }));
+      : { session_id: 's1', revision: 3, cancel_count: 2 }));
     await h.flush();
     assert.equal(text(h.get('session-plan')), '');
     assert.equal(resumePosts(h).length, 0);

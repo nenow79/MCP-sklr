@@ -7,7 +7,6 @@ import pytest
 
 from server.session_resume import ResumeRejected
 from tasks.approval import ApprovalService
-from tasks.checkpoint_store import CheckpointStore
 from tasks.manager import TaskManager, TaskResumeError, TaskStateError
 from tasks.models import TaskStatus
 from tasks.resume_store import ResumeStore
@@ -21,7 +20,7 @@ from tasks.store import TaskStore
 def env(tmp_path):
     sessions = SessionStore(tmp_path / 'sessions.db')
     tasks = TaskStore(str(tmp_path / 'tasks.db'))
-    controller = SessionController(sessions, checkpoints=CheckpointStore(), resumes=ResumeStore())
+    controller = SessionController(sessions, resumes=ResumeStore())
     session = sessions.create(['sklr'])
     controller.bind(session.id, session.revision)
     approval = ApprovalService()
@@ -46,8 +45,7 @@ def pause(env):
 
 
 def prepare(env):
-    return env.manager.prepare_session_resume('', env.controller.snapshot()['revision'],
-                                              allow_missing_checkpoint=True)
+    return env.manager.prepare_session_resume('', env.controller.snapshot()['revision'])
 
 
 def confirm(env):
@@ -84,16 +82,14 @@ def test_other_session_terminal_and_missing_rows_are_untouched(env):
     assert env.manager.get(done.id).status == TaskStatus.DONE
 
 
-def test_validation_and_missing_checkpoint_ack_precede_cancellation(env):
+def test_validation_precedes_cancellation(env):
     row = pending(env)[0]
     state = pause(env)
     with pytest.raises(ResumeRejected):
-        env.manager.prepare_session_resume('API_TOKEN=private', state['revision'],
-                                           allow_missing_checkpoint=True)
-    with pytest.raises(SessionConflict):
-        env.manager.prepare_session_resume('', state['revision'])
+        env.manager.prepare_session_resume('API_TOKEN=private', state['revision'])
     assert env.manager.get(row.id).status == TaskStatus.AWAITING_APPROVAL
     assert not env.controller.snapshot()['resume_pending']
+    assert prepare(env)['cancelled_count'] == 1
 
 
 def test_running_row_prevents_any_cancellation(env):
@@ -186,7 +182,7 @@ def test_old_dispatch_is_cancelled_without_closing_resumed_session(env):
     pause(env)
     # Exercise stale dispatch defense independently of coordinator cancellation.
     state = env.controller.snapshot()
-    env.controller.prepare_resume_internal('', state['revision'], allow_missing_checkpoint=True)
+    env.controller.prepare_resume_internal('', state['revision'])
     confirm(env)
     env.manager.resolve_approval(old.id, 'allow')
     assert env.manager.wait(old.id, 5).status == TaskStatus.CANCELLED

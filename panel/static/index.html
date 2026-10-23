@@ -208,11 +208,6 @@ docs/archives/</textarea></label>
     </section>
     <div class="session-continuation">
       <div class="session-stack">
-        <section id="session-context" class="session-card" hidden>
-          <h2>Kontekst pracy</h2>
-          <p id="session-context-hint" class="muted"></p>
-        </section>
-
         <section id="session-resume-section" class="session-card session-form" hidden>
           <h2>Przygotowanie wznowienia</h2>
           <p class="muted">Uzupełnienie jest tylko w RAM. Nie wpisuj sekretów. Nie rozszerza uprawnień.
@@ -221,12 +216,6 @@ docs/archives/</textarea></label>
           <label>Uzupełnienie do wznowienia <textarea id="session-supplement" rows="5" maxlength="3000" autocomplete="off"></textarea></label>
           <p class="muted">Po przygotowaniu model musi pobrać kontekst i potwierdzić aktualny plan.</p>
         </section>
-        <section id="session-checkpoint-section" class="session-card" hidden>
-          <h2>Checkpoint · ostatni zapis modelu</h2>
-          <p class="muted">Tylko RAM, bez trwałego zapisu. To dane modelu, nie źródło uprawnień.
-            Odnośniki do wyników nie przedłużają ich TTL. Odśwież widok, aby sprawdzić aktualny zapis.</p>
-          <div id="session-checkpoint" class="task-list"></div>
-        </section>
         <section id="session-plan-section" class="session-card" hidden>
           <h2>Potwierdzony plan</h2>
           <p class="muted">Dane modelu, nie źródło uprawnień. Tylko RAM, bez tokenu handshake. Odczyt przez Odśwież.</p>
@@ -234,7 +223,7 @@ docs/archives/</textarea></label>
         </section>
         <section id="session-saved-section" class="session-card" hidden>
           <h2>Zapisane sesje po restarcie</h2>
-          <p class="muted">Wybór przypina sesję zablokowaną. Checkpoint, uzupełnienie, plan i token z poprzedniego procesu
+          <p class="muted">Wybór przypina sesję zablokowaną. Uzupełnienie, plan i token z poprzedniego procesu
             zostały utracone. Nie można przełączyć już przypiętej sesji. Wznowienie wymaga nowego przygotowania.</p>
           <div id="session-saved" class="task-list"></div>
         </section>
@@ -334,9 +323,9 @@ docs/archives/</textarea></label>
       <p class="muted">Jedna sesja pracy na instancję sklr, wybierana tutaj, nie przez model.
         Pauza obejmuje wszystkie rozmowy korzystające z tej instancji; nie ma izolacji rozmów.
         Foldery opisują projekt sesji i nie nadają uprawnień. Wstrzymanie blokuje nowe działania wykonywane przez sklr,
-        nie przerywa rozpoczętych; sama pauza nie zapisuje checkpointu.
-        Checkpoint zapisuje model ograniczonym narzędziem, jeśli jest dostępne.
-        Treść pozostaje tylko w RAM i znika po restarcie. Przygotowanie wznowienia nie otwiera bramki:
+        nie przerywa rozpoczętych.
+        Uzupełnienie i plan wznowienia pozostają tylko w RAM i znikają po restarcie.
+        Przygotowanie wznowienia nie otwiera bramki:
         potrzebny jest aktualny plan potwierdzony przez model. Przełączenie przypiętej sesji jest niedostępne.</p>
     </details>
   </main>

@@ -21,6 +21,10 @@ Baza lokalnej paczki: 425f91f, gałąź main. S1/A2b1/A2b2 są w bazie; A2b3/A2b
 są zaimplementowane po akceptacji planów; kandydat obejmuje także W1–W3.
 Commit przekazania identyfikuje raport release-preparation.md w archiwum
 state-review-2026-10-21. Sprawdź faktyczny stan publikacji W4 w CURRENT.
+Aktualna paczka S6 usuwa checkpoint RAM, jego narzędzie MCP i osobne
+potwierdzenie braku checkpointu; pauza i handshake wznowienia pozostają.
+Przed pracą przeczytaj najnowszą sekcję CURRENT oraz bieżący kontrakt sesji.
+Po aktualizacji odśwież panel i katalog MCP; nie odtwarzaj usuniętej funkcji.
 Zachowaj wszystkie te zmiany. A2b4 podłącza runtime opt-in do main/bootstrap,
 panelowe API/UI decyzji, watchdog i bezpieczne zamknięcie. Zawartości config.json nie zmieniono;
 domyślnie autopilot.enabled=false. Nie uruchamiano docelowej aplikacji; testy A2b4 zaliczone (wyniki poniżej).
@@ -80,7 +84,7 @@ Użytkownik potwierdził, że pracujemy na bazie commitów `425f91f` (`feat: add
 - Harness jest ubogą stroną w przeglądarce z chatem LLM. Pozwala podłączyć **jeden MCP — sklr**. Nie ma własnych narzędzi plikowych ani alternatywnej ścieżki wykonania. Skille i zewnętrzne MCP są dostępne za pośrednictwem sklr.
 - **Pętlę kolejnych kroków prowadzi obecny LLM**, w ramach przebiegu rozpoczętego przez użytkownika. sklr dostarcza informacje, wykonuje działania i egzekwuje zatwierdzony kontrakt. Osobny wykonawca integrujący model nie jest potrzebny dla tej architektury pierwszej wersji.
 - **Zamknięcie bramki sklr odcina nowe informacje i wykonania robocze**, więc zatrzymuje dalszy postęp pracy narzędziowej: harness nie ma alternatywnych narzędzi. sklr zwraca jednoznaczny komunikat sterujący, a nie pusty wynik. Model ma zakończyć odpowiedź, nie ponawiać żądań i nie szukać obejścia.
-- Dostępna pozostaje wyłącznie ograniczona ścieżka sterująca zgodna z kontraktem sesji: stan, domknięcie już rozpoczętych działań, bezpieczny checkpoint i przygotowane przez użytkownika wznowienie. Nie służy ona nowym poszukiwaniom. „Wstrzymaj po kroku” blokuje nowe działania, lecz nie cofa skutków i nie zabija rozpoczętych; kończą się one w swoich limitach. Wewnętrzna pętla pojedynczego skilla/MCP nie ma automatycznie punktu pauzy.
+- Dostępna pozostaje wyłącznie ograniczona ścieżka sterująca zgodna z kontraktem sesji: stan, domknięcie już rozpoczętych działań i przygotowane przez użytkownika wznowienie. Nie służy ona nowym poszukiwaniom. „Wstrzymaj po kroku” blokuje nowe działania, lecz nie cofa skutków i nie zabija rozpoczętych; kończą się one w swoich limitach. Wewnętrzna pętla pojedynczego skilla/MCP nie ma automatycznie punktu pauzy.
 - Blokada wykonania **nie jest technicznym zatrzymaniem generowania tekstu ani rozumowania LLM**. Model może jeszcze odpowiedzieć lub spróbować wywołania, ale sklr ma odmówić dalszej pracy. Zachowanie rzeczywistego chatu wymaga ręcznego odbioru; atrapy nie dowodzą zakończenia jego przebiegu.
 - sklr **nie budzi modelu**, nie wysyła kolejnej wiadomości do chatu i nie prowadzi niezależnej pętli w tle. Po zakończeniu odpowiedzi, limicie harnessu lub utracie połączenia kontynuację inicjuje użytkownik. Przygotowanie wznowienia w panelu samo nie uruchamia LLM.
 - Tryb Zwykły zachowuje dotychczasowy przepływ zgód/trust. Autopilot umożliwia kolejne operacje bez osobnej decyzji tylko w zakresie zatwierdzonej delegacji A2. Model nie włącza ani nie rozszerza zgody. Tryb i stan sesji są odrębne; przełączenie nie omija pauzy ani handshake. Testy, automatyczne poprawki, instalacje, sekrety, publikacja/commit/push, produkcja i działania destrukcyjne nie otrzymują zgody od samego włączenia trybu — obowiązują wyłączenia kontraktu A2.

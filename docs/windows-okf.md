@@ -21,7 +21,7 @@ A3/A3b i A4 nie muszą blokować bety samego A2, ale taka beta nie obejmuje auto
 
 ## Co jest dostępne
 
-- Sesje pracy opt-in: Start, „Wstrzymaj po kroku”, checkpoint RAM, przygotowanie wznowienia i potwierdzenie zaktualizowanego planu przez model. Jedna sesja obejmuje wszystkie rozmowy instancji. Domyślnie work_sessions.enabled=false; po włączeniu brak Startu blokuje narzędzia robocze. [Kontrakt](specs/work-session-pause.md).
+- Sesje pracy opt-in: Start, „Wstrzymaj po kroku”, przygotowanie wznowienia i potwierdzenie zaktualizowanego planu przez model. Jedna sesja obejmuje wszystkie rozmowy instancji. Domyślnie work_sessions.enabled=false; po włączeniu brak Startu blokuje narzędzia robocze. [Kontrakt](specs/work-session-pause.md).
 - Zewnętrzne MCP: profile i trust w panelu, HTTP/SSE/stdio, katalog i wywołania przez model. Odbiór częściowy; bez deklaracji pełnej ochrony SSRF lub sandboxu. [Kontrakt](specs/external-mcp-support.md).
 - Panel Wiedza: dodanie konfiguracji bundle, wyłączenie/włączenie, usunięcie
   konfiguracji bez usuwania plików, diagnostyka i odświeżenie indeksu.
@@ -176,10 +176,10 @@ Pracuj na testowym roocie i niepoufnych danych. W lokalnym configu ustaw work_se
 1. Przed Startem odczytaj get_session_state i spróbuj krótkiego read_file. Oczekuj session_not_selected/execution_blocked i braku odczytu; get_session_state działa nadal. Sam odczyt stanu nie potwierdza odmowy wykonania.
 2. Wybierz testowe roots i Start. Odczyt roboczy ma działać z session_active. Nie próbuj przełączać przypiętej sesji jako sposobu obejścia pauzy.
 3. Uruchom znany ograniczony testowy skill/MCP o dłuższym działaniu. W panelu „Wstrzymaj po kroku”: nowe działanie ma być odrzucone, rozpoczęte ma się zakończyć w swoim limicie z dostępnym wynikiem i metainformacją pauzy. Licznik spada do zera, stan paused. „Anuluj” pozostaje osobną decyzją.
-4. Podczas pauzy model zapisuje bezpieczny checkpoint przez save_session_checkpoint z aktualną rewizją; sprawdź potwierdzenie i tekst w panelu. Model kończy odpowiedź i czeka. Odmowa kolejnego read_file ma nadal działać. sklr nie budzi modelu samodzielnie.
+4. Podczas pauzy model kończy odpowiedź i czeka, bez zapisu checkpointu lub automatycznego zapisu docs. Odmowa kolejnego read_file ma nadal działać; nie powstaje nowe zadanie. Panel nie pokazuje statusu checkpointu. sklr nie budzi modelu samodzielnie. Po przygotowaniu wznowienia sprawdź, że model pyta przy braku istotnego kontekstu zamiast zgadywać; zwykłe odczyty przed potwierdzeniem planu pozostają zablokowane.
 5. Odrębny przebieg z faktycznymi awaiting_approval/queued: przygotuj je przed pauzą w testowym zakresie, sprawdź zgodę/wygaśnięcie podczas pauzy bez wykonania. Przygotowanie wznowienia pokazuje rzeczywistą liczbę anulowań; potwierdź ją i sprawdź anulowane statusy. Nie deklaruj odbioru anulowania, gdy licznik wynosił zero.
 6. Dodaj uzupełnienie i przygotuj wznowienie. Bramka pozostaje zamknięta; model pobiera get_resume_context i potwierdza zaktualizowany plan bieżącą rewizją/tokenem. Sprawdź plan w panelu, active i udany odczyt. Nowe zadania wymagają obecnych zgód.
-7. Zrestartuj MCP: brak automatycznego wyboru/wznowienia. Jawnie odzyskaj zapisaną sesję: paused, brak RAM checkpointu. Przygotuj wznowienie z osobnym potwierdzeniem brakującego checkpointu, potem potwierdź plan przez model. Nie odtwarzaj automatycznie poufnych wyników ani nie ponawiaj operacji o niepewnym skutku.
+7. Zrestartuj MCP: brak automatycznego wyboru/wznowienia. Jawnie odzyskaj zapisaną sesję: paused, brak poprzedniego uzupełnienia/planu/tokena RAM. Przygotuj wznowienie z potwierdzeniem liczby anulowań, potem potwierdź aktualny plan przez model. Nie odtwarzaj automatycznie poufnych wyników ani nie ponawiaj operacji o niepewnym skutku.
 
 Zapisz commit, wersje Python/SDK, wynik każdej próby i ograniczenia w raporcie odbioru; do CURRENT przenieś zwięzłe potwierdzenia. Błędy trafiają wyłącznie do backlogu. Te próby odbierają fundament sesji; delegację A2 sprawdza następna procedura, A3/A3b i A4 pozostają niewdrożone.
 
@@ -197,7 +197,7 @@ w uwierzytelnionym panelu. Nie rozszerzaj delegacji na repo sklr ani jego instru
    wybierz ten root, wyłącznie read_file/create_file, zakres tree=`allowed`,
    overwrite=false, cel i konkretny plan utworzenia sztucznego pliku.
    Przygotuj podgląd, sprawdź przypięcia i limity, zatwierdź. Bramka pozostaje zamknięta.
-2. Przygotuj wznowienie; przy braku checkpointu potwierdź go osobno. Model pobiera
+2. Przygotuj wznowienie z potwierdzeniem liczby anulowań. Model pobiera
    get_resume_context i potwierdza aktualny plan przez confirm_resume_plan.
    Utwórz `allowed/first.txt` z niepoufną treścią: oczekuj zadania done, rzeczywistego
    pliku i jednej zużytej operacji bez osobnego Allow. Obserwacja kolejki zgodnie
@@ -209,7 +209,7 @@ w uwierzytelnionym panelu. Nie rozszerzaj delegacji na repo sklr ani jego instru
    W osobnym przebiegu sprawdź batch obejmujący allowed i outside: odmowa całej
    operacji, bez częściowego odczytu. Na Windows uwzględnij case, aliasy, UNC
    i junction poza zakresem; brak możliwości próby zapisz jako nieodebrany scenariusz.
-5. Po dozwolonym działaniu wstrzymaj sesję, zapisz checkpoint i odśwież delegację.
+5. Po dozwolonym działaniu wstrzymaj sesję i odśwież delegację.
    Samo potwierdzenie planu nie zastępuje ponownej decyzji panelowej. Potwierdź ten sam
    zakres i pozostałe limity, przygotuj wznowienie i potwierdź nowy plan. Licznik
    zużycia nie maleje, a czas pauzy zmniejsza pozostały czas delegacji.

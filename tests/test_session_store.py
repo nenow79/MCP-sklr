@@ -60,17 +60,17 @@ def test_invalid_session_ids(store, value):
         store.get(value)
 
 
-def test_pause_and_checkpoint_are_independent(store):
+def test_pause_keeps_legacy_checkpoint_unavailable(store):
     item = store.create(['sklr'])
     requested = store.request_pause(item.id, 1)
     assert requested.state == SessionState.PAUSE_REQUESTED
-    assert requested.checkpoint_state == CheckpointState.PENDING
+    assert requested.checkpoint_state == CheckpointState.UNAVAILABLE
     assert requested.revision == 2
     assert requested.reason == 'user_requested_pause'
     assert store.request_pause(item.id, 2) == requested
     paused = store.mark_paused(item.id, 2)
     assert paused.state == SessionState.PAUSED and paused.revision == 3
-    assert paused.checkpoint_state == CheckpointState.PENDING
+    assert paused.checkpoint_state == CheckpointState.UNAVAILABLE
     assert store.mark_paused(item.id, 3) == paused
     assert store.request_pause(item.id, 3) == paused
 

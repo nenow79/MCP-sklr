@@ -138,7 +138,7 @@ def test_stale_preparation_after_revocation_never_opens_gate(env):
     env.approve([env.file_rule('read_file')])
     env.pause()
     env.autopilot.panel_reconfirm(env.sessions.snapshot()['revision'])
-    env.manager.prepare_session_resume('', env.sessions.snapshot()['revision'], allow_missing_checkpoint=True)
+    env.manager.prepare_session_resume('', env.sessions.snapshot()['revision'])
     context = env.sessions.get_resume_context()
     env.autopilot.revoke()
     with pytest.raises(SessionConflict):

@@ -67,7 +67,7 @@ def test_panel_approval_handshake_and_real_write_without_allow(env):
     approve(env)
     assert env.autopilot.snapshot()['state'] == 'prepared'
     assert env.sessions.snapshot()['execution_blocked']
-    env.manager.prepare_session_resume('', env.sessions.snapshot()['revision'], allow_missing_checkpoint=True)
+    env.manager.prepare_session_resume('', env.sessions.snapshot()['revision'])
     context = env.sessions.get_resume_context()
     assert context['autopilot_scope']['rules'][0]['resource'] == 'root:app'
     context['autopilot_scope']['rules'].clear()
@@ -152,7 +152,7 @@ def test_pause_requires_panel_reconfirmation_and_preserves_budget(env):
 
 def test_revoke_invalidates_pending_handshake_and_manual_is_explicit(env):
     approve(env)
-    env.manager.prepare_session_resume('', env.sessions.snapshot()['revision'], allow_missing_checkpoint=True)
+    env.manager.prepare_session_resume('', env.sessions.snapshot()['revision'])
     context = env.sessions.get_resume_context()
     env.admin.action('revoke', dict(identity(env), confirmed=True))
     with pytest.raises(SessionConflict):
@@ -335,8 +335,7 @@ def test_preview_io_does_not_block_controls_and_rejects_stale_results(env, monke
             elif change == 'decision':
                 pool.submit(env.admin.action, 'manual', dict(identity(env), confirmed=True)).result(timeout=2)
             else:
-                pool.submit(env.manager.prepare_session_resume, '', body['revision'],
-                            allow_missing_checkpoint=True).result(timeout=2)
+                pool.submit(env.manager.prepare_session_resume, '', body['revision']).result(timeout=2)
         finally:
             release.set()
         with pytest.raises(SessionConflict):

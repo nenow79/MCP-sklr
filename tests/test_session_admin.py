@@ -25,7 +25,7 @@ def test_status_does_not_start_work(env):
     state = env.admin.status()
     assert state['session_id'] is None and state['execution_blocked']
     assert state['roots'] == [] and state['scope'] == 'instance'
-    assert not state['checkpoint_available']
+    assert 'checkpoint_available' not in state
     assert not state['resume_available'] and not state['switch_available']
     assert 'wszystkie rozmowy' in state['warning']
 
@@ -55,7 +55,7 @@ def test_pause_is_idempotent_at_current_revision_and_does_not_save_checkpoint(en
     active = env.admin.start(['sklr'])
     paused = env.admin.pause(active['session_id'], active['revision'])
     assert paused['state'] == 'paused' and paused['execution_blocked']
-    assert paused['checkpoint_state'] == 'pending' and not paused['checkpoint_available']
+    assert not any(key.startswith('checkpoint') for key in paused)
     assert env.admin.pause(paused['session_id'], paused['revision']) == paused
     with pytest.raises(SessionBlocked):
         env.controller.begin_action()

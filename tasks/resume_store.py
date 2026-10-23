@@ -8,7 +8,6 @@ from dataclasses import dataclass, field, replace
 import secrets
 import threading
 
-from server.session_checkpoint import Checkpoint
 from server.session_resume import ResumeText
 from tasks.session_models import SessionConflict, positive_int, session_id
 
@@ -19,7 +18,6 @@ class ResumePreparation:
     revision: int
     token: str = field(repr=False)
     supplement: ResumeText = field(repr=False)
-    checkpoint: object = field(repr=False)
     plan: object = field(default=None, repr=False)
     contract_binding: object = field(default=None, repr=False)
 
@@ -28,8 +26,6 @@ class ResumePreparation:
         return {
             'revision': self.revision, 'preparation_token': self.token,
             'supplement': self.supplement.text,
-            'checkpoint_missing': self.checkpoint is None,
-            'checkpoint': self.checkpoint.to_public() if self.checkpoint else None,
         }
 
 
@@ -38,11 +34,10 @@ class ResumeStore:
         self._lock = threading.RLock()
         self._item = None
 
-    def prepare(self, sid, revision, supplement, checkpoint=None, *, contract_binding=None):
+    def prepare(self, sid, revision, supplement, *, contract_binding=None):
         session_id(sid)
         positive_int(revision)
-        if type(supplement) is not ResumeText or (
-                checkpoint is not None and type(checkpoint) is not Checkpoint):
+        if type(supplement) is not ResumeText:
             raise ValueError('Expected validated resume data.')
         with self._lock:
             if self._item is not None:
@@ -51,7 +46,7 @@ class ResumeStore:
                 from autopilot.models import ContractBinding
                 if type(contract_binding) is not ContractBinding or contract_binding.session_id != sid:
                     raise ValueError('invalid_resume_contract')
-            item = ResumePreparation(sid, revision, secrets.token_hex(32), supplement, checkpoint,
+            item = ResumePreparation(sid, revision, secrets.token_hex(32), supplement,
                                      contract_binding=contract_binding)
             self._item = item
             return item

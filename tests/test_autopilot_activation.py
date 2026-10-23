@@ -84,7 +84,7 @@ def test_real_bootstrap_is_detached_until_explicit_lifecycle_start(tmp_path):
 def test_idle_expiry_watchdog_pauses_without_model_call(tmp_path):
     with composition(tmp_path) as e:
         prepare(e)
-        e.manager.prepare_session_resume('', e.work.controller.snapshot()['revision'], allow_missing_checkpoint=True)
+        e.manager.prepare_session_resume('', e.work.controller.snapshot()['revision'])
         context = e.work.controller.get_resume_context()
         e.work.controller.confirm_resume_plan('Read app.', context['revision'], context['preparation_token'])
         now = [100.0]

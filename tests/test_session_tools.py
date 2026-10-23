@@ -10,7 +10,6 @@ from server.session_tools import (
     CONTROL_TOOLS, WORK_TOOLS, session_control, tool_role, wrap_session_tool,
 )
 from tasks.session_controller import SessionController
-from tasks.checkpoint_store import CheckpointStore
 from tasks.session_store import SessionStore
 
 
@@ -40,7 +39,7 @@ def test_all_production_registered_tools_explicitly_classified():
     assert not CONTROL_TOOLS & WORK_TOOLS
     assert registered <= CONTROL_TOOLS | WORK_TOOLS
     assert CONTROL_TOOLS - registered == {
-        'get_session_state', 'save_session_checkpoint', 'get_resume_context', 'confirm_resume_plan'}
+        'get_session_state', 'get_resume_context', 'confirm_resume_plan'}
     with pytest.raises(ValueError):
         tool_role('new_unclassified_tool')
 
@@ -71,7 +70,7 @@ def test_each_work_tool_blocked_without_calling_it(env, name):
         assert result['success'] is False
         control = result['session_control']
         assert control['reason'] == 'user_requested_pause'
-        assert control['execution_blocked'] and not control['checkpoint_available']
+        assert control['execution_blocked'] and 'checkpoint_available' not in control
         assert 'Nie ponawiaj' in control['instruction']
     assert calls == []
 
@@ -112,16 +111,13 @@ def test_recovered_session_reports_restart_reason(env):
     assert control['execution_blocked']
     assert control['state'] == 'paused'
     assert control['reason'] == 'server_restarted'
-    assert control['checkpoint_state'] == 'unavailable'
-    assert not control['checkpoint_available']
+    assert not any(key.startswith('checkpoint') for key in control)
 
 
-@pytest.mark.parametrize('checkpoint_available', [False, True])
-def test_missing_selection_reports_actual_reason(tmp_path, checkpoint_available):
+def test_missing_selection_reports_actual_reason(tmp_path):
     store = SessionStore(tmp_path / 'sessions.db')
     try:
-        controller = SessionController(
-            store, checkpoints=CheckpointStore() if checkpoint_available else None)
+        controller = SessionController(store)
         fn = named('read_file', lambda: pytest.fail('must not execute'))
         result = wrap_session_tool(fn, controller)()
         control = result['session_control']
@@ -130,11 +126,10 @@ def test_missing_selection_reports_actual_reason(tmp_path, checkpoint_available)
         assert control['reason'] == 'user_selection_required'
         assert control['execution_blocked'] is True
         assert control['session_id'] is None
-        assert control['checkpoint_available'] is checkpoint_available
-        assert control['checkpoint_content_available'] is False
+        assert not any(key.startswith('checkpoint') for key in control)
         instruction = control['instruction']
         assert 'Start' in instruction and 'odzyskać' in instruction and 'panelu' in instruction
-        assert 'Bez wybranej sesji nie zapisuj checkpointu' in instruction
+        assert 'checkpoint' not in instruction
         assert 'nie jest jeszcze dostępne' not in instruction
     finally:
         store.close()

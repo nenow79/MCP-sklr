@@ -6,15 +6,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from server.session_checkpoint import CheckpointRejected
 from server.session_resume import ResumeRejected
 from tasks.approval import ApprovalService
-from tasks.checkpoint_store import CheckpointStore
 from tasks.manager import TaskManager, TaskResumeError
 from tasks.models import TaskStatus
 from tasks.resume_store import ResumeStore
 from tasks.session_controller import (
-    CheckpointOperationError, ResumeOperationError, SessionBlocked, SessionController,
+    ResumeOperationError, SessionBlocked, SessionController,
 )
 from tasks.session_models import SessionConflict
 from tasks.session_store import SessionStore
@@ -25,13 +23,13 @@ from tasks.store import TaskStore
 def env(tmp_path):
     sessions = SessionStore(tmp_path / 'sessions.db')
     tasks = TaskStore(str(tmp_path / 'tasks.db'))
-    checkpoints, resumes = CheckpointStore(), ResumeStore()
-    controller = SessionController(sessions, checkpoints=checkpoints, resumes=resumes)
+    resumes = ResumeStore()
+    controller = SessionController(sessions, resumes=resumes)
     session = sessions.create(['sklr'])
     controller.bind(session.id, session.revision)
     manager = TaskManager(tasks, ApprovalService(), max_queued=100,
                           session_controller=controller)
-    yield SimpleNamespace(sessions=sessions, tasks=tasks, checkpoints=checkpoints,
+    yield SimpleNamespace(sessions=sessions, tasks=tasks,
                           resumes=resumes, controller=controller, manager=manager,
                           sid=session.id, path=tmp_path / 'sessions.db')
     manager.shutdown()
@@ -47,18 +45,13 @@ def pending(env, count=1):
             for _ in range(count)]
 
 
-def pause(env, checkpoint=True):
-    state = env.controller.request_pause(env.controller.snapshot()['revision'])
-    if checkpoint:
-        env.controller.save_checkpoint(
-            {'goal': 'checkpoint-marker', 'next_step': 'Review plan'}, state['revision'])
-    return env.controller.snapshot()
+def pause(env):
+    return env.controller.request_pause(env.controller.snapshot()['revision'])
 
 
-def prepare(env, allow_missing=False):
+def prepare(env):
     return env.manager.prepare_session_resume(
-        'supplement-marker', env.controller.snapshot()['revision'],
-        allow_missing_checkpoint=allow_missing)
+        'supplement-marker', env.controller.snapshot()['revision'])
 
 
 def confirm(env):
@@ -87,68 +80,6 @@ def assert_blocked(env):
         env.controller.begin_action()
 
 
-def test_checkpoint_replacement_invalidates_handshake_and_allows_manager_prepare(env):
-    pending(env)
-    pause(env)
-    prepare(env)
-    old = env.controller.get_resume_context()
-    saved = env.controller.save_checkpoint(
-        {'goal': 'Replacement', 'next_step': 'Review updated plan'}, old['revision'])
-    assert saved['revision'] == old['revision'] + 1
-    assert not env.controller.snapshot()['resume_pending']
-    assert env.controller.get_resume_context() == {'available': False}
-    with pytest.raises(SessionConflict):
-        env.controller.confirm_resume_plan('Old', old['revision'], old['preparation_token'])
-    prepare(env)
-    new = env.controller.get_resume_context()
-    assert new['preparation_token'] != old['preparation_token']
-    assert new['checkpoint']['goal'] == 'Replacement'
-    assert_blocked(env)
-
-
-@pytest.mark.parametrize('reason', ['stale', 'secret', 'foreign_task'])
-def test_rejected_checkpoint_does_not_destroy_handshake(env, reason):
-    pause(env)
-    prepare(env)
-    old = env.controller.get_resume_context()
-    payload = {'goal': 'API_TOKEN=private' if reason == 'secret' else 'Safe',
-               'next_step': 'Review plan'}
-    if reason == 'foreign_task':
-        payload['done_task_ids'] = [9999]
-    expected_error = SessionConflict if reason == 'stale' else CheckpointRejected
-    expected_message = {
-        'stale': r'^Session revision changed\.$',
-        'secret': '^secret_detected$',
-        'foreign_task': '^foreign_task$',
-    }[reason]
-    with pytest.raises(expected_error, match=expected_message):
-        env.controller.save_checkpoint(payload, old['revision'] - int(reason == 'stale'))
-    assert env.controller.get_resume_context() == old
-    assert_blocked(env)
-
-
-@pytest.mark.parametrize('commit_first', [False, True])
-def test_uncertain_checkpoint_save_leaves_no_dead_handshake(env, monkeypatch, commit_first):
-    pause(env)
-    prepare(env)
-    old = env.controller.get_resume_context()
-    original = env.sessions.mark_checkpoint_saved
-    def fail(*args):
-        if commit_first:
-            original(*args)
-        raise RuntimeError('PRIVATE')
-    with monkeypatch.context() as patch:
-        patch.setattr(env.sessions, 'mark_checkpoint_saved', fail)
-        with pytest.raises(CheckpointOperationError):
-            env.controller.save_checkpoint(
-                {'goal': 'New', 'next_step': 'Review updated plan'}, old['revision'])
-    assert env.controller.get_resume_context() == {'available': False}
-    assert not env.controller.snapshot()['checkpoint_content_available']
-    prepare(env, allow_missing=True)
-    assert env.controller.get_resume_context()['preparation_token'] != old['preparation_token']
-    assert_blocked(env)
-
-
 @pytest.mark.parametrize('target', ['prepare', 'confirm'])
 def test_ram_mutation_then_error_allows_fresh_preparation(env, monkeypatch, target):
     pause(env)
@@ -163,7 +94,6 @@ def test_ram_mutation_then_error_allows_fresh_preparation(env, monkeypatch, targ
         with pytest.raises(TaskResumeError if target == 'prepare' else ResumeOperationError):
             prepare(env) if target == 'prepare' else confirm(env)
     assert env.controller.get_resume_context() == {'available': False}
-    assert env.controller.get_checkpoint()['available']
     assert_blocked(env)
     prepare(env)
     assert env.controller.get_resume_context()['available']
@@ -199,7 +129,7 @@ def test_failed_clear_cannot_revive_leftover_confirmed_ram(env, monkeypatch):
 
 
 @pytest.mark.parametrize('commit_first', [False, True])
-def test_uncertain_prepare_commit_requires_fresh_state_and_missing_ack(env, monkeypatch, commit_first):
+def test_uncertain_prepare_commit_requires_fresh_explicit_preparation(env, monkeypatch, commit_first):
     pause(env)
     revision = env.controller.snapshot()['revision']
     original = env.sessions.prepare_resume
@@ -213,10 +143,8 @@ def test_uncertain_prepare_commit_requires_fresh_state_and_missing_ack(env, monk
             prepare(env)
     assert env.controller.snapshot()['revision'] == revision + int(commit_first)
     assert env.controller.get_resume_context() == {'available': False}
-    with pytest.raises(SessionConflict):
-        prepare(env)
-    prepare(env, allow_missing=True)
-    assert env.controller.get_resume_context()['checkpoint_missing']
+    prepare(env)
+    assert env.controller.get_resume_context()['available']
     assert_blocked(env)
 
 
@@ -234,12 +162,10 @@ def test_uncertain_confirm_requires_new_coordinated_handshake(env, monkeypatch, 
     with pytest.raises(SessionConflict):
         env.controller.normalize_resume_internal(state['revision'])
     with pytest.raises(SessionConflict):
-        env.controller.prepare_resume_internal('', state['revision'], allow_missing_checkpoint=True)
+        env.controller.prepare_resume_internal('', state['revision'])
     with pytest.raises(SessionConflict):
         env.controller.confirm_resume_plan('Old', old['revision'], old['preparation_token'])
-    with pytest.raises(SessionConflict):
-        prepare(env)  # lost/untrusted checkpoint requires a separate acknowledgement
-    prepare(env, allow_missing=True)
+    prepare(env)
     new = env.controller.get_resume_context()
     assert new['preparation_token'] != old['preparation_token']
     assert env.controller.snapshot()['state'] == 'paused'
@@ -264,11 +190,11 @@ def test_normalization_failure_can_be_explicitly_prepared_again(env, monkeypatch
     with monkeypatch.context() as patch:
         patch.setattr(env.sessions, target, fail)
         with pytest.raises(TaskResumeError):
-            prepare(env, allow_missing=True)
+            prepare(env)
     assert env.controller.snapshot()['resume_recovery_required']
     assert env.controller.get_resume_context() == {'available': False}
     assert_blocked(env)
-    prepare(env, allow_missing=True)
+    prepare(env)
     assert env.controller.snapshot()['state'] == 'paused'
     assert_blocked(env)
 
@@ -281,10 +207,9 @@ def test_running_row_and_invalid_input_precede_recovery_mutations(env, monkeypat
     running = env.tasks.create(status=TaskStatus.RUNNING)
     env.sessions.link_task(env.sid, running.id, state['revision'])
     with pytest.raises(ResumeRejected):
-        env.manager.prepare_session_resume('API_TOKEN=private', state['revision'],
-                                           allow_missing_checkpoint=True)
+        env.manager.prepare_session_resume('API_TOKEN=private', state['revision'])
     with pytest.raises(TaskResumeError):
-        prepare(env, allow_missing=True)
+        prepare(env)
     assert env.controller.snapshot() == state
     assert env.manager.get(running.id).status == TaskStatus.RUNNING
     assert_blocked(env)
@@ -314,7 +239,7 @@ def test_restart_after_uncertain_confirm_does_not_restore_authorization(env, mon
     prepare(env)
     old = uncertain_confirmation(env, monkeypatch, True)
     env.sessions.recover_after_restart()
-    restarted = SessionController(env.sessions, checkpoints=CheckpointStore(), resumes=ResumeStore())
+    restarted = SessionController(env.sessions, resumes=ResumeStore())
     item = env.sessions.get(env.sid)
     restarted.bind(item.id, item.revision)
     assert restarted.snapshot()['execution_blocked']
@@ -330,10 +255,10 @@ def test_recovery_text_and_tokens_never_enter_sqlite_or_wal(env, monkeypatch):
     pause(env)
     prepare(env)
     old = uncertain_confirmation(env, monkeypatch, True)
-    prepare(env, allow_missing=True)
+    prepare(env)
     new = env.controller.get_resume_context()
     confirm(env)
-    markers = ['checkpoint-marker', 'supplement-marker', 'plan-marker',
+    markers = ['supplement-marker', 'plan-marker',
                old['preparation_token'], new['preparation_token']]
     dump = '\n'.join(env.sessions._conn.iterdump())
     for marker in markers:

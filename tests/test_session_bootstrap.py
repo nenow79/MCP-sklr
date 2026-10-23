@@ -138,8 +138,8 @@ def test_get_session_state_is_read_only_and_reflects_pause(runtime):
     control = tool()['session_control']
     assert tool()['success'] is True
     assert control['code'] == 'session_paused' and control['reason'] == 'user_requested_pause'
-    assert control['checkpoint_available'] is True and control['instruction']
-    assert control['checkpoint_content_available'] is False
+    assert control['instruction'] and 'checkpoint' not in control['instruction']
+    assert 'checkpoint_content_available' not in control
 
 
 def test_verify_classification_detects_missing_and_unknown():
@@ -167,7 +167,7 @@ def test_all_main_tools_are_classified():
     names = _main_tool_names()
     assert 'read_file' in names and 'get_session_state' not in names
     assert verify_classification(names | {
-        'get_session_state', 'save_session_checkpoint', 'get_resume_context', 'confirm_resume_plan'}) is True
+        'get_session_state', 'get_resume_context', 'confirm_resume_plan'}) is True
 
 
 def test_main_integrates_sessions_only_through_explicit_opt_in():

@@ -19,7 +19,6 @@ from skills_engine.registry import SkillRegistry
 from skills_engine.trust import TrustStore
 from state import load_config
 from tasks.approval import ApprovalService
-from tasks.checkpoint_store import CheckpointStore
 from tasks.manager import TaskManager
 from tasks.resume_store import ResumeStore
 from tasks.session_controller import SessionController
@@ -39,7 +38,7 @@ class Environment(SimpleNamespace):
 
     def resume(self):
         state = self.sessions.snapshot()
-        self.manager.prepare_session_resume('', state['revision'], allow_missing_checkpoint=True)
+        self.manager.prepare_session_resume('', state['revision'])
         context = self.sessions.get_resume_context()
         self.sessions.confirm_resume_plan('Continue approved work.', context['revision'], context['preparation_token'])
 
@@ -74,7 +73,7 @@ def environment(tmp_path, *, clock=None):
     roots.add(other, 'rw', alias='other')
     session_store = SessionStore(tmp_path / 'sessions.db')
     item = session_store.create(['app'])
-    sessions = SessionController(session_store, checkpoints=CheckpointStore(), resumes=ResumeStore())
+    sessions = SessionController(session_store, resumes=ResumeStore())
     sessions.bind(item.id, item.revision)
     task_store = TaskStore(str(tmp_path / 'tasks.db'))
     approvals = []

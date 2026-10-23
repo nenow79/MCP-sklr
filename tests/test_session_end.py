@@ -8,7 +8,6 @@ import pytest
 from server.session_admin import SessionAdmin
 from server.session_tools import session_control
 from tasks.approval import ApprovalService
-from tasks.checkpoint_store import CheckpointStore
 from tasks.manager import TaskManager
 from tasks.resume_store import ResumeStore
 from tasks.session_controller import SessionBlocked, SessionController
@@ -21,7 +20,7 @@ from tasks.store import TaskStore
 def env(tmp_path):
     sessions = SessionStore(tmp_path / 'sessions.db')
     tasks = TaskStore(str(tmp_path / 'tasks.db'))
-    controller = SessionController(sessions, CheckpointStore(), ResumeStore())
+    controller = SessionController(sessions, resumes=ResumeStore())
     manager = TaskManager(tasks, ApprovalService(), max_parallel=1, session_controller=controller)
     entries = [{'alias': 'old', 'valid': True}, {'alias': 'new', 'valid': True}]
     admin = SessionAdmin(sessions, controller, SimpleNamespace(list_status=lambda: entries))
@@ -39,16 +38,14 @@ def env(tmp_path):
     sessions.close()
 
 
-def test_discard_checkpoint_handshake_and_start_with_other_roots(env):
+def test_discard_handshake_and_start_with_other_roots(env):
     active = env.admin.start(['old'])
     paused = env.admin.pause(active['session_id'], active['revision'])
-    saved = env.controller.save_checkpoint({'goal': 'Old goal', 'next_step': 'Wait'}, paused['revision'])
-    env.admin.prepare_resume(active['session_id'], saved['revision'], 'Old supplement', 0, False, True)
+    env.admin.prepare_resume(active['session_id'], paused['revision'], 'Old supplement', 0, True)
     context = env.controller.get_resume_context()
     state = env.admin.status()
     ended = env.admin.end(state['session_id'], state['revision'])
     assert ended['session_id'] is None and ended['execution_blocked']
-    assert len(env.controller._checkpoints) == 0
     assert env.controller._resumes.get() is None
     assert env.admin.saved_sessions()['sessions'] == []
     with pytest.raises(SessionConflict):
@@ -56,7 +53,7 @@ def test_discard_checkpoint_handshake_and_start_with_other_roots(env):
     fresh = env.admin.start(['new'])
     assert fresh['session_id'] != active['session_id']
     assert fresh['roots'] == ['new'] and not fresh['execution_blocked']
-    assert not fresh['checkpoint_content_available'] and not fresh['resume_pending']
+    assert not fresh['resume_pending']
     with pytest.raises(SessionConflict):
         env.admin.end(active['session_id'], state['revision'])
     assert env.admin.status() == fresh
@@ -78,16 +75,14 @@ def test_end_drains_running_cancels_pending_and_never_requests_checkpoint(env):
     approval = env.manager.submit({}, lambda cancel: calls.append(True), True)
     ended = env.admin.end(active['session_id'], active['revision'])
     assert ended['state'] == 'ending' and ended['running_actions'] == 1
-    assert ended['checkpoint_state'] == 'unavailable'
+    assert not any(key.startswith('checkpoint') for key in ended)
     control = session_control(env.controller)
     assert control['code'] == 'session_ending'
-    assert 'Nie zapisuj checkpointu' in control['instruction']
+    assert 'Zakończ odpowiedź' in control['instruction'] and 'checkpoint' not in control['instruction']
     for task in (queued, approval):
         assert env.manager.get(task.id).status.value == 'cancelled'
     with pytest.raises(SessionBlocked):
         env.controller.begin_action()
-    with pytest.raises(SessionConflict):
-        env.controller.save_checkpoint({'goal': 'Discard', 'next_step': 'Wait'}, ended['revision'])
     with pytest.raises(SessionConflict):
         env.admin.change_folders(lambda: None, ended)
     with pytest.raises(SessionConflict):
@@ -130,7 +125,7 @@ def test_end_marker_survives_restart_and_cannot_be_recovered(env):
     assert env.sessions.recover_after_restart() == 0
     item = env.sessions.get(active['session_id'])
     assert item.lifecycle == 'ended'
-    restarted = SessionController(env.sessions, CheckpointStore(), ResumeStore())
+    restarted = SessionController(env.sessions, resumes=ResumeStore())
     with pytest.raises(SessionConflict):
         restarted.bind(item.id, item.revision)
     with pytest.raises(SessionConflict):

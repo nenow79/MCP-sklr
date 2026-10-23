@@ -139,9 +139,9 @@ def test_session_tab_static():
         assert f'id="{element_id}"' in html, element_id
     assert "wszystkie rozmowy" in html and "Przygotowanie wznowienia nie otwiera bramki" in html
     assert "Przełączenie przypiętej sesji jest niedostępne" in html
-    assert "tylko w RAM" in html and "/api/work-session/checkpoint" in js
+    assert "tylko w RAM" in html and "/api/work-session/checkpoint" not in js
     for element_id in ("session-checkpoint", "session-checkpoint-section"):
-        assert f'id="{element_id}"' in html
+        assert f'id="{element_id}"' not in html
     assert "/api/work-session/start" in js and "/api/work-session/pause" in js
     assert "work-session/switch" not in js
     for suffix in ("resume-preview", "prepare-resume", "resume-plan", "saved", "recover"):

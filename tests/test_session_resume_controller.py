@@ -5,7 +5,6 @@ from types import SimpleNamespace
 import pytest
 
 from server.session_resume import ResumeRejected
-from tasks.checkpoint_store import CheckpointStore
 from tasks.resume_store import ResumeStore
 from tasks.session_controller import ResumeOperationError, SessionBlocked, SessionController
 from tasks.session_models import SessionConflict
@@ -16,21 +15,17 @@ from tasks.session_store import SessionStore
 def env(tmp_path):
     path = tmp_path / 'sessions.db'
     store = SessionStore(path)
-    checkpoints, resumes = CheckpointStore(), ResumeStore()
-    controller = SessionController(store, checkpoints=checkpoints, resumes=resumes)
+    resumes = ResumeStore()
+    controller = SessionController(store, resumes=resumes)
     item = store.create(['sklr'])
     controller.bind(item.id, item.revision)
-    yield SimpleNamespace(store=store, checkpoints=checkpoints, resumes=resumes,
+    yield SimpleNamespace(store=store, resumes=resumes,
                           controller=controller, sid=item.id, path=path)
     store.close()
 
 
-def paused(env, with_checkpoint=True):
-    state = env.controller.request_pause(env.controller.snapshot()['revision'])
-    if with_checkpoint:
-        env.controller.save_checkpoint({'goal': 'checkpoint-marker', 'next_step': 'Wait'},
-                                       state['revision'])
-    return env.controller.snapshot()
+def paused(env):
+    return env.controller.request_pause(env.controller.snapshot()['revision'])
 
 
 def prepared(env):
@@ -48,8 +43,7 @@ def test_prepare_stays_paused_and_gate_closed_until_confirmation(env):
     env.controller.bind(env.sid, state['revision'])  # cannot bypass handshake
     assert env.controller.snapshot()['execution_blocked']
     assert context['available'] and context['supplement'] == 'supplement-marker'
-    assert context['checkpoint']['goal'] == 'checkpoint-marker'
-    assert not context['checkpoint_missing']
+    assert not {'checkpoint', 'checkpoint_missing'} & context.keys()
     result = env.controller.confirm_resume_plan('plan-marker', context['revision'],
                                                 context['preparation_token'])
     assert result['confirmed'] and result['revision'] == context['revision'] + 1
@@ -69,20 +63,21 @@ def test_model_confirmation_cannot_initiate_resume(env):
 
 def test_prepare_requires_fully_paused_session(env):
     with pytest.raises(SessionConflict):
-        env.controller.prepare_resume_internal('', 1, allow_missing_checkpoint=True)
+        env.controller.prepare_resume_internal('', 1)
     token = env.controller.begin_action()
     requested = env.controller.request_pause(1)
     with pytest.raises(SessionConflict):
-        env.controller.prepare_resume_internal('', requested['revision'], allow_missing_checkpoint=True)
+        env.controller.prepare_resume_internal('', requested['revision'])
     env.controller.finish_action(token)
 
 
-def test_missing_checkpoint_requires_explicit_acknowledgement(env):
-    state = paused(env, with_checkpoint=False)
-    with pytest.raises(SessionConflict):
-        env.controller.prepare_resume_internal('', state['revision'])
-    env.controller.prepare_resume_internal('', state['revision'], allow_missing_checkpoint=True)
-    assert env.controller.get_resume_context()['checkpoint_missing']
+def test_resume_requires_no_checkpoint(env):
+    state = paused(env)
+    env.controller.prepare_resume_internal('', state['revision'])
+    context = env.controller.get_resume_context()
+    assert context['available'] and context['supplement'] == ''
+    assert not {'checkpoint', 'checkpoint_missing'} & context.keys()
+    assert env.controller.snapshot()['execution_blocked']
 
 
 def test_invalid_or_secret_text_does_not_prepare(env):
@@ -124,7 +119,7 @@ def test_pause_invalidates_handshake_even_when_pause_request_has_stale_revision(
 def test_restart_does_not_restore_pending_context(env):
     context = prepared(env)
     env.store.recover_after_restart()
-    restarted = SessionController(env.store, checkpoints=CheckpointStore(), resumes=ResumeStore())
+    restarted = SessionController(env.store, resumes=ResumeStore())
     item = env.store.get(env.sid)
     restarted.bind(item.id, item.revision)
     assert restarted.get_resume_context() == {'available': False}
@@ -192,7 +187,7 @@ def test_concurrent_confirmation_opens_once(env):
 def test_sqlite_and_wal_never_contain_supplement_plan_or_token(env):
     context = prepared(env)
     env.controller.confirm_resume_plan('plan-marker', context['revision'], context['preparation_token'])
-    markers = ['supplement-marker', 'checkpoint-marker', 'plan-marker', context['preparation_token']]
+    markers = ['supplement-marker', 'plan-marker', context['preparation_token']]
     dump = '\n'.join(env.store._conn.iterdump())
     for marker in markers:
         assert marker not in dump

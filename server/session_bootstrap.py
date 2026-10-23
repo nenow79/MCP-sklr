@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from server.session_admin import SessionAdmin
 from tasks.session_controller import SessionController
 from tasks.session_store import SessionStore
-from tasks.checkpoint_store import CheckpointStore
 from tasks.resume_store import ResumeStore
 
 
@@ -28,15 +27,11 @@ class WorkSessionRuntime:
     recovered: int
 
     def close(self):
-        # Release checkpoint content with the runtime, not just on process exit.
         try:
-            self.controller._checkpoints.clear()
+            if self.controller._resumes is not None:
+                self.controller._resumes.clear()
         finally:
-            try:
-                if self.controller._resumes is not None:
-                    self.controller._resumes.clear()
-            finally:
-                self.store.close()
+            self.store.close()
 
 
 def build_work_session(db_path, roots, *, enabled):
@@ -54,7 +49,7 @@ def build_work_session(db_path, roots, *, enabled):
     try:
         store = SessionStore(db_path)
         recovered = store.recover_after_restart()
-        controller = SessionController(store, checkpoints=CheckpointStore(), resumes=ResumeStore())
+        controller = SessionController(store, resumes=ResumeStore())
         admin = SessionAdmin(store, controller, roots)
         return WorkSessionRuntime(store, controller, admin, recovered)
     except Exception:

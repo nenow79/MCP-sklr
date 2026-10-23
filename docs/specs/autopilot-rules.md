@@ -147,7 +147,7 @@ Decyzja ma tylko allowed (bool), code z zamkniętej listy oraz posortowane match
 
 Decyzja nie rezerwuje/zużywa budżetu, nie anuluje zadania, nie pauzuje sesji i nie rozpoczyna efektu. A2b3 zamieni odmowę na sterowanie sesją zgodne z kontraktem. Funkcje dopasowania są deterministyczne, bez globalnych rejestrów i mutacji wejścia.
 
-Narzędzia sterujące istniejącą sesją/checkpointem i odczyt wyniku już rozpoczętego zadania pozostają w obecnej ścieżce sterującej. Nie są dopuszczane przez ogólny wildcard matchera i nie stanowią nowej delegacji. Ich rozdział od narzędzi roboczych pozostaje jawny w integracji.
+Narzędzia sterujące istniejącą sesją i odczyt wyniku już rozpoczętego zadania pozostają w obecnej ścieżce sterującej. Nie są dopuszczane przez ogólny wildcard matchera i nie stanowią nowej delegacji. Ich rozdział od narzędzi roboczych pozostaje jawny w integracji.
 
 ## 8. Kryteria sprawdzenia paczki
 

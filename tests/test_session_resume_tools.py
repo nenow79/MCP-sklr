@@ -26,8 +26,6 @@ def runtime(tmp_path):
 def prepare(runtime):
     active = runtime.admin.start(['sklr'])
     paused = runtime.admin.pause(active['session_id'], active['revision'])
-    runtime.controller.save_checkpoint({'goal': 'private-checkpoint-marker', 'next_step': 'Wait'},
-                                       paused['revision'])
     runtime.controller.prepare_resume_internal('private-supplement-marker',
                                                runtime.controller.snapshot()['revision'])
     return runtime.controller.get_resume_context()
@@ -54,7 +52,7 @@ def test_context_confirmation_and_pending_instruction(runtime):
     assert 'get_resume_context' in control['instruction'] and 'confirm_resume_plan' in control['instruction']
     assert 'save_session_checkpoint' not in control['instruction']
     read = make_get_resume_context(runtime.controller)()
-    assert read['data']['checkpoint']['goal'] == 'private-checkpoint-marker'
+    assert not {'checkpoint', 'checkpoint_missing'} & read['data'].keys()
     assert read['data']['supplement'] == 'private-supplement-marker'
     result = make_confirm_resume_plan(runtime.controller)(
         'private-plan-marker', context['revision'], context['preparation_token'])
@@ -116,17 +114,17 @@ def test_both_tools_forced_to_confidential_telemetry(runtime, monkeypatch):
     result = confirm('private-plan-marker', context['revision'], context['preparation_token'])
     assert result['success'] and len(records) == 2
     assert all(record['input_bytes'] == record['output_bytes'] == '' for record in records)
-    for marker in ('private-plan-marker', 'private-checkpoint-marker',
+    for marker in ('private-plan-marker',
                    'private-supplement-marker', context['preparation_token']):
         assert marker not in repr(records)
 
 
-def test_close_clears_checkpoint_and_resume_ram(tmp_path):
+def test_close_clears_resume_ram(tmp_path):
     runtime = build_work_session(tmp_path / 'close.db', ROOTS, enabled=True)
     try:
         prepare(runtime)
-        checkpoints, resumes = runtime.controller._checkpoints, runtime.controller._resumes
-        assert len(checkpoints) == 1 and resumes.get() is not None
+        resumes = runtime.controller._resumes
+        assert resumes.get() is not None
     finally:
         runtime.close()
-    assert len(checkpoints) == 0 and resumes.get() is None
+    assert resumes.get() is None

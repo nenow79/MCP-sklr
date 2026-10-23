@@ -3,7 +3,6 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from server.session_checkpoint import validate_checkpoint
 from server.session_resume import validate_resume_plan, validate_supplement
 from tasks.resume_store import ResumeStore
 from tasks.session_models import SessionConflict
@@ -13,8 +12,7 @@ OTHER = 'b' * 32
 
 
 def prepare(store):
-    checkpoint = validate_checkpoint({'goal': 'checkpoint-marker', 'next_step': 'Wait'}, lambda i: False)
-    return store.prepare(SID, 4, validate_supplement('supplement-marker'), checkpoint)
+    return store.prepare(SID, 4, validate_supplement('supplement-marker'))
 
 
 def test_prepare_context_and_immutable_data():
@@ -22,18 +20,19 @@ def test_prepare_context_and_immutable_data():
     item = prepare(store)
     assert store.get() is item and len(item.token) == 64
     view = item.to_context()
-    assert not view['checkpoint_missing'] and view['supplement'] == 'supplement-marker'
-    view['checkpoint']['goal'] = 'changed'
-    assert item.to_context()['checkpoint']['goal'] == 'checkpoint-marker'
+    assert view['supplement'] == 'supplement-marker'
+    assert not {'checkpoint', 'checkpoint_missing'} & view.keys()
+    view['supplement'] = 'changed'
+    assert item.to_context()['supplement'] == 'supplement-marker'
     assert item.token not in repr(item) and 'supplement-marker' not in repr(item)
     with pytest.raises(SessionConflict):
         prepare(store)
 
 
-def test_missing_checkpoint_and_clear():
+def test_empty_supplement_and_clear():
     store = ResumeStore()
     first = store.prepare(SID, 1, validate_supplement(''))
-    assert first.to_context()['checkpoint_missing'] and first.to_context()['checkpoint'] is None
+    assert first.to_context()['supplement'] == ''
     store.clear()
     assert store.get() is None
     second = store.prepare(SID, 2, validate_supplement(''))
@@ -71,7 +70,7 @@ def test_requires_validated_types_and_identifiers():
         store.prepare(SID, True, validate_supplement(''))
     with pytest.raises(ValueError):
         store.prepare(SID, 1, 'raw text')
-    with pytest.raises(ValueError):
+    with pytest.raises(TypeError):
         store.prepare(SID, 1, validate_supplement(''), {})
     item = prepare(store)
     with pytest.raises(ValueError):

@@ -522,8 +522,7 @@
 
   function showTab(name) {
     state.tab = name;
-    if (name !== "session" && $("session-checkpoint")) {
-      clearSessionCheckpoint();
+    if (name !== "session" && $("session-supplement")) {
       clearSessionResume();
       $("session-supplement").value = "";
     }
@@ -1519,7 +1518,6 @@
   var sessionRootsLoaded = false;
   var sessionStateLoaded = false;
   var sessionBusy = false;
-  var sessionCheckpointGeneration = 0;
   var sessionGeneration = 0;
 
   function clearSessionResume() {
@@ -1618,15 +1616,12 @@
           !Number.isInteger(view.cancel_count) || view.cancel_count < 0) {
         showBanner("Podgląd dotyczy innego stanu. Odśwież sesję.", false); return;
       }
-      var missing = view.checkpoint_missing === true;
-      if (missing && !window.confirm("Brak potwierdzonego checkpointu w RAM. Przygotować wznowienie bez checkpointu? " +
-          "Model musi uwzględnić utratę kontekstu.")) { return; }
       if (!window.confirm("Przygotować wznowienie? Anulujemy " + view.cancel_count +
           " starych zadań oczekujących/queued. Rozpoczęte i zakończone pozostają bez zmian. " +
           "Sesja pozostanie zablokowana do potwierdzenia aktualnego planu przez model.")) { return; }
       return api("POST", "/api/work-session/prepare-resume", {
         session_id: view.session_id, revision: view.revision, supplement: supplement,
-        cancel_count: view.cancel_count, allow_missing_checkpoint: missing, confirmed: true
+        cancel_count: view.cancel_count, confirmed: true
       }).then(function (posted) {
         if (!sessionCurrent(generation)) { return; }
         if (posted.status === 401) { authFailed(); return; }
@@ -1642,62 +1637,6 @@
     }).catch(function () {
       if (sessionCurrent(generation)) { showBanner("Niepewny wynik przygotowania. Odśwież stan; nie ponawiaj automatycznie.", false); }
     }).then(function () { sessionBusy = false; sessionButtons(); });
-  }
-
-  function clearSessionCheckpoint() {
-    sessionCheckpointGeneration += 1;
-    $("session-checkpoint").textContent = "";
-    $("session-checkpoint-section").hidden = true;
-  }
-
-  function refreshSessionCheckpoint() {
-    clearSessionCheckpoint();
-    var data = sessionData;
-    if (!data || !data.checkpoint_content_available || state.tab !== "session" || state.stopped) {
-      return Promise.resolve();
-    }
-    var generation = sessionCheckpointGeneration;
-    var sid = data.session_id;
-    var revision = data.revision;
-    $("session-checkpoint-section").hidden = false;
-    $("session-checkpoint").textContent = "Odczyt checkpointu…";
-    return api("GET", "/api/work-session/checkpoint").then(function (res) {
-      if (generation !== sessionCheckpointGeneration || state.tab !== "session") { return; }
-      if (res.status === 401) { clearSessionCheckpoint(); authFailed(); return; }
-      if (!sessionData || sessionData.session_id !== sid || sessionData.revision !== revision || state.stopped) {
-        clearSessionCheckpoint(); return;
-      }
-      var box = $("session-checkpoint");
-      box.textContent = "";
-      if (res.status !== 200 || !res.json.success) {
-        box.textContent = "Nie można odczytać checkpointu. Odśwież stan."; return;
-      }
-      var record = res.json.data;
-      if (!record || !record.available || record.session_revision !== revision) {
-        box.textContent = "Treść niedostępna lub stan się zmienił. Odśwież stan."; return;
-      }
-      var checkpoint = record.checkpoint;
-      box.appendChild(sessionLine("Rewizja zapisu", record.revision));
-      box.appendChild(sessionLine("Czas zapisu", record.saved_at));
-      box.appendChild(sessionLine("Cel", checkpoint.goal));
-      box.appendChild(sessionLine("Etap", checkpoint.stage));
-      (checkpoint.findings || []).forEach(function (finding) {
-        box.appendChild(sessionLine("Ustalenie", finding.text));
-        box.appendChild(sessionLine("Źródło", finding.source));
-      });
-      box.appendChild(sessionLine("Zadania", (checkpoint.done_task_ids || []).join(", ")));
-      (checkpoint.open_questions || []).forEach(function (question) {
-        box.appendChild(sessionLine("Pytanie", question));
-      });
-      (checkpoint.uncertain || []).forEach(function (uncertain) {
-        box.appendChild(sessionLine("Niepewny wynik", uncertain));
-      });
-      box.appendChild(sessionLine("Następny krok", checkpoint.next_step));
-    }).catch(function () {
-      if (generation === sessionCheckpointGeneration && state.tab === "session") {
-        $("session-checkpoint").textContent = "Nie można odczytać checkpointu. Odśwież stan.";
-      }
-    });
   }
 
   function sessionChosen() {
@@ -1745,7 +1684,7 @@
         hint = "Poprzednie potwierdzenie ma niepewny wynik. Nowe działania pozostają zablokowane.";
       } else if (data.state === "active" && !data.execution_blocked) {
         title = "Sesja aktywna";
-        hint = "Możesz wstrzymać pracę po bieżącym kroku. Sama pauza nie zapisuje checkpointu.";
+        hint = "Możesz wstrzymać pracę po bieżącym kroku.";
         tone = "is-active";
       } else if (data.state === "pause_requested" || data.running_actions > 0) {
         title = "Trwa wstrzymywanie sesji";
@@ -1753,7 +1692,7 @@
         tone = "is-paused";
       } else {
         title = "Sesja wstrzymana";
-        hint = data.resume_available ? "Sprawdź checkpoint i tryb pracy, a następnie przygotuj wznowienie." : "Wznowienie jest niedostępne w tej wersji serwera.";
+        hint = data.resume_available ? "Sprawdź tryb pracy i dodaj potrzebne uzupełnienie, a następnie przygotuj wznowienie." : "Wznowienie jest niedostępne w tej wersji serwera.";
         tone = "is-paused";
       }
     }
@@ -1769,7 +1708,6 @@
   }
 
   function renderSession() {
-    clearSessionCheckpoint();
     var box = $("session-state");
     var data = sessionData;
     box.textContent = "";
@@ -1784,12 +1722,6 @@
       box.appendChild(sessionLine("Rewizja", data.revision));
       box.appendChild(sessionLine("Foldery", (data.roots || []).join(", ")));
       if (data.reason) { box.appendChild(sessionLine("Powód", data.reason)); }
-      var checkpointInfo = " — funkcja zapisu niedostępna; zapis nie jest deklarowany";
-      if (data.checkpoint_available) {
-        checkpointInfo = data.checkpoint_content_available ?
-          " — treść dostępna tylko w RAM" : " — brak potwierdzonej treści w RAM";
-      }
-      box.appendChild(sessionLine("Checkpoint", (data.checkpoint_state || "brak") + checkpointInfo));
       if (data.ram_lost) { box.appendChild(sessionLine("Restart", "RAM poprzedniego procesu został utracony.")); }
       if (data.resume_pending) {
         box.appendChild(sessionLine("Wznowienie", "Oczekiwanie na model. Przekaż modelowi polecenie pobrania get_resume_context " +
@@ -1804,11 +1736,6 @@
     }
     $("session-select").hidden = !data || !!data.session_id;
     $("session-resume-section").hidden = !sessionCanPrepare();
-    $("session-context").hidden = !data || !data.session_id || data.state === "ending" || data.checkpoint_content_available || !!sessionCanPrepare();
-    $("session-context-hint").textContent = data && data.ram_lost ?
-      "Kontekst poprzedniego procesu został utracony po restarcie. Do dalszej pracy potrzebne jest nowe przygotowanie wznowienia." :
-      data && data.checkpoint_available ? "Brak potwierdzonego checkpointu w RAM. Gdy model zapisze kontekst pracy, zobaczysz go tutaj po odświeżeniu. Sama pauza nie tworzy zapisu." :
-      "Zapis checkpointu jest niedostępny w tej wersji serwera. Panel nie deklaruje zapisanego kontekstu pracy.";
     renderSessionSummary();
     renderSessionRoots();
     sessionButtons();
@@ -1840,7 +1767,6 @@
   }
 
   function refreshSession() {
-    clearSessionCheckpoint();
     clearSessionResume();
     sessionRootsLoaded = false;
     sessionUnavailable = false;
@@ -1884,7 +1810,7 @@
         $("session-supplement").value = "";
       }
       renderSession();
-      return Promise.all([refreshSessionCheckpoint(), refreshSessionResume(generation)]);
+      return refreshSessionResume(generation);
     }).catch(function () {
       if (sessionCurrent(generation)) {
         sessionData = null; renderSession();
@@ -1934,18 +1860,17 @@
       if (!chosen.length || !sessionData || sessionData.session_id) { return; }
       sessionPost("/api/work-session/start", { roots: chosen },
         "Rozpocząć sesję pracy dla folderów: " + chosen.join(", ") + "? Pauza obejmie wszystkie rozmowy " +
-        "całej instancji sklr. Checkpoint jest tylko w RAM. Wznowienie wymaga przygotowania i planu modelu; możesz zakończyć sesję bez zapisywania i rozpocząć nową.");
+        "całej instancji sklr. Wznowienie wymaga przygotowania i planu modelu; możesz zakończyć sesję bez zapisywania i rozpocząć nową.");
     });
     $("session-end").addEventListener("click", function () {
       if (!sessionStateLoaded || !sessionData || !sessionData.session_id || sessionData.state === "ending" && sessionData.running_actions > 0) { return; }
       sessionPost("/api/work-session/end", {
         session_id: sessionData.session_id, revision: sessionData.revision, confirmed: true
-      }, "Zakończyć sesję bez zapisywania? Checkpoint i plan wznowienia zostaną usunięte, " +
+      }, "Zakończyć sesję bez zapisywania? Uzupełnienie i plan wznowienia zostaną usunięte, " +
         "a zgoda autopilota unieważniona. Oczekujące zadania zostaną anulowane; rozpoczęte dokończą się w swoich limitach. " +
         "Zmiany już wykonane w plikach i historia zadań pozostaną. Potem możesz zmienić foldery i rozpocząć świeżą sesję.")
         .then(function () {
           if (sessionData && !sessionData.session_id) {
-            clearSessionCheckpoint();
             clearSessionResume();
           }
         });
@@ -1954,7 +1879,7 @@
       if (!sessionStateLoaded || !sessionData || sessionData.state !== "active") { return; }
       sessionPost("/api/work-session/pause", { session_id: sessionData.session_id, revision: sessionData.revision },
         "Wstrzymać sesję? Nowe działania sklr zostaną zablokowane we wszystkich rozmowach tej instancji. " +
-        "Rozpoczęte działania dokończą się w swoich limitach. Checkpoint jest tylko w RAM. " +
+        "Rozpoczęte działania dokończą się w swoich limitach. " +
         "Dalsza praca pozostanie zablokowana do przygotowania wznowienia i potwierdzenia aktualnego planu modelu.");
     });
     sessionButtons();

@@ -11,7 +11,7 @@ import logging
 import threading
 from contextlib import contextmanager
 
-from tasks.session_models import CheckpointState, SessionConflict, SessionNotFound, SessionState
+from tasks.session_models import SessionConflict, SessionNotFound, SessionState
 
 
 class SessionBlocked(RuntimeError):
@@ -22,25 +22,17 @@ class StaleSessionTask(SessionBlocked):
     """Old generation of this session; reject task without closing its gate."""
 
 
-class CheckpointOperationError(RuntimeError):
-    """Fixed operational error; never checkpoint contents or storage details."""
-
-
 class ResumeOperationError(RuntimeError):
     """Fixed resume error; no user/model text or storage details."""
 
 
 class SessionController:
-    def __init__(self, store, checkpoints=None, resumes=None):
+    def __init__(self, store, resumes=None):
         self._store = store
         self._lock = threading.RLock()
         self._selected = None
         self._blocked = True
         self._tokens = set()
-        self._checkpoints = checkpoints
-        # Accepted durable revision of the local RAM record. Finalizing the
-        # same pause may advance this without changing its original save revision.
-        self._checkpoint_current_revision = None
         self._resumes = resumes
         self._resume_pending_revision = None
         self._resume_recovery_required = False
@@ -137,7 +129,6 @@ class SessionController:
                     or item.state != SessionState.PAUSED or item.reason != 'server_restarted'):
                 raise SessionConflict('Session is not a current restart recovery candidate.')
             self._invalidate_resume()
-            self._checkpoint_current_revision = None
             self._resume_recovery_required = False
             self._selected = item.id
             self.update_project_selection_internal(item)
@@ -266,9 +257,6 @@ class SessionController:
         self._invalidate_resume()
         if self._resumes is not None:
             self._resumes.clear()
-        self._checkpoint_current_revision = None
-        if self._checkpoints is not None:
-            self._checkpoints.discard(sid)
         if self._autopilot is not None:
             self._autopilot.session_ended_internal()
 
@@ -308,107 +296,14 @@ class SessionController:
         if item is None:
             raise SessionNotFound('Session not found.')
         if item.state == SessionState.PAUSE_REQUESTED:
-            finalized = self._store.mark_paused(item.id, item.revision)
-            if self._checkpoint_current_revision == item.revision:
-                self._checkpoint_current_revision = finalized.revision
-
-    def save_checkpoint(self, payload, expected_revision):
-        """Limited checkpoint operation; server-selected session, no model sid.
-
-        Lock order: controller -> session store/RAM. Never calls TaskManager.
-        SQLite and RAM are NOT one transaction: a failed publication can leave
-        durable saved metadata, but availability stays false and no success is
-        returned. A stale request cannot invalidate the previous checkpoint.
-        """
-        from server.session_checkpoint import validate_checkpoint
-
-        with self._lock:
-            if self._checkpoints is None:
-                raise CheckpointOperationError('checkpoint_unavailable')
-            if self._selected is None:
-                raise SessionConflict('No session is selected.')
-            try:
-                item = self._store.get(self._selected)
-            except Exception:
-                raise CheckpointOperationError('checkpoint_storage_failed') from None
-            if (item is None or item.lifecycle != 'open' or item.state not in
-                    (SessionState.PAUSE_REQUESTED, SessionState.PAUSED)):
-                raise SessionConflict('Checkpoint requires a paused session.')
-            if type(expected_revision) is not int or expected_revision < 1:
-                raise ValueError('Expected a positive revision.')
-            if item.revision != expected_revision:
-                raise SessionConflict('Session revision changed.')
-
-            def owns_task(task_id):
-                link = self._store.get_task_link(task_id)
-                return link is not None and link.session_id == item.id
-
-            checkpoint = validate_checkpoint(payload, owns_task)
-            # Only a validated, current save invalidates the old handshake.
-            # Even an uncertain commit must not leave a usable old token.
-            self._invalidate_resume()
-            try:
-                saved = self._store.mark_checkpoint_saved(item.id, expected_revision)
-            except SessionConflict:
-                raise
-            except Exception:
-                # The commit outcome may be uncertain. Do not advertise an old
-                # RAM record as matching the current durable metadata.
-                self._checkpoint_current_revision = None
-                raise CheckpointOperationError('checkpoint_storage_failed') from None
-            self._checkpoint_current_revision = None
-            try:
-                record = self._checkpoints.put(saved.id, saved.revision, checkpoint)
-            except Exception:
-                # Keep the error independent from payload, paths and RAM internals.
-                # Availability remains false even if discard itself fails.
-                try:
-                    self._checkpoints.discard(saved.id)
-                except Exception:
-                    pass
-                raise CheckpointOperationError('checkpoint_ram_failed') from None
-            self._checkpoint_current_revision = saved.revision
-            return {'saved': True, 'revision': saved.revision,
-                    'size': checkpoint.size, 'saved_at': record.saved_at}
-
-    def _checkpoint_record(self, item):
-        """Read under controller lock; mismatch/restart never revives old RAM."""
-        if (self._checkpoints is None or item is None
-                or item.state not in (SessionState.PAUSE_REQUESTED, SessionState.PAUSED)
-                or item.checkpoint_state != CheckpointState.SAVED
-                or self._checkpoint_current_revision != item.revision):
-            return None
-        try:
-            return self._checkpoints.get(item.id)
-        except Exception:
-            raise CheckpointOperationError('checkpoint_ram_failed') from None
-
-    def get_checkpoint(self):
-        """User-panel data, only during pause; caller must enforce panel auth.
-
-        Fresh structured copy; no persistence, logging or confidential result
-        lookup. Entry revision is its save revision, not necessarily the current
-        session revision after finalization of the same pause.
-        """
-        with self._lock:
-            try:
-                item = self._store.get(self._selected) if self._selected else None
-            except Exception:
-                raise CheckpointOperationError('checkpoint_storage_failed') from None
-            record = self._checkpoint_record(item)
-            if record is None:
-                return {'available': False}
-            return {'available': True, 'revision': record.revision,
-                    'session_revision': item.revision, 'saved_at': record.saved_at,
-                    'checkpoint': record.checkpoint.to_public()}
+            self._store.mark_paused(item.id, item.revision)
 
     @contextmanager
-    def resume_coordination(self, supplement, expected_revision, *, allow_missing_checkpoint=False,
-                            expected_session_id=None):
+    def resume_coordination(self, supplement, expected_revision, *, expected_session_id=None):
         """Internal manager scope: caller already holds manager condition.
 
         Holds controller lock across preflight, cancellation and preparation.
-        Validates text/acknowledgement BEFORE any cancellation. Never calls
+        Validates text BEFORE any cancellation. Never calls
         back into TaskManager; pause/confirmation cannot race this scope.
         """
         from server.session_resume import validate_supplement
@@ -421,8 +316,6 @@ class SessionController:
                 session_id(expected_session_id)
                 if self._selected != expected_session_id:
                     raise SessionConflict('Panel session is not selected.')
-            if type(allow_missing_checkpoint) is not bool:
-                raise ValueError('Expected a boolean acknowledgement.')
             item = self._resume_item(expected_revision)
             if self._tokens or (item.state != SessionState.PAUSED
                                 and not self._resume_recovery_required):
@@ -430,8 +323,6 @@ class SessionController:
             if self._resume_pending_revision is not None:
                 raise SessionConflict('Resume preparation already exists.')
             validate_supplement(supplement)
-            if self._checkpoint_record(item) is None and not allow_missing_checkpoint:
-                raise SessionConflict('Missing checkpoint requires acknowledgement.')
             self._blocked = True
             try:
                 links = self._store.list_task_links(item.id)
@@ -461,7 +352,6 @@ class SessionController:
             if self._tokens or not self._blocked:
                 raise SessionConflict('Resume recovery requires closed admission.')
             self._invalidate_resume()
-            self._checkpoint_current_revision = None
             try:
                 self._store.request_pause(item.id, item.revision)
                 self._finalize_pause()
@@ -473,7 +363,7 @@ class SessionController:
             self._resume_recovery_required = False
             return recovered.revision
 
-    def prepare_resume_internal(self, supplement, expected_revision, *, allow_missing_checkpoint=False):
+    def prepare_resume_internal(self, supplement, expected_revision):
         """DETACHED internal handshake foundation, NOT a panel/model endpoint.
 
         Future TaskManager coordinator MUST first cancel old pending tasks under
@@ -486,8 +376,6 @@ class SessionController:
         with self._lock:
             if self._resumes is None:
                 raise ResumeOperationError('resume_unavailable')
-            if type(allow_missing_checkpoint) is not bool:
-                raise ValueError('Expected a boolean acknowledgement.')
             item = self._resume_item(expected_revision)
             if self._resume_recovery_required:
                 raise SessionConflict('Resume recovery requires TaskManager coordination.')
@@ -496,9 +384,6 @@ class SessionController:
             if self._resume_pending_revision is not None:
                 raise SessionConflict('Resume preparation already exists.')
             text = validate_supplement(supplement)
-            record = self._checkpoint_record(item)
-            if record is None and not allow_missing_checkpoint:
-                raise SessionConflict('Missing checkpoint requires acknowledgement.')
             self._blocked = True
             try:
                 self._resumes.clear()
@@ -510,28 +395,21 @@ class SessionController:
             except SessionConflict:
                 raise
             except Exception:
-                self._checkpoint_current_revision = None
                 self._invalidate_resume()
                 raise ResumeOperationError('resume_prepare_failed') from None
-            # The same checkpoint is still valid after a known PAUSED commit,
-            # including when subsequent RAM publication fails.
-            if record is not None:
-                self._checkpoint_current_revision = prepared.revision
             try:
                 binding = (self._autopilot.resume_prepared_internal(prepared.revision)
                            if self._autopilot is not None else None)
                 if binding is None:
-                    self._resumes.prepare(prepared.id, prepared.revision, text,
-                                          record.checkpoint if record else None)
+                    self._resumes.prepare(prepared.id, prepared.revision, text)
                 else:
                     self._resumes.prepare(prepared.id, prepared.revision, text,
-                                          record.checkpoint if record else None, contract_binding=binding)
+                                          contract_binding=binding)
             except Exception:
                 self._invalidate_resume()
                 raise ResumeOperationError('resume_prepare_failed') from None
             self._resume_pending_revision = prepared.revision
-            return {'prepared': True, 'revision': prepared.revision,
-                    'checkpoint_missing': record is None}
+            return {'prepared': True, 'revision': prepared.revision}
 
     def _resume_item(self, expected_revision):
         if self._selected is None:
@@ -602,13 +480,11 @@ class SessionController:
                 confirmed = self._store.confirm_resume(item.id, item.revision)
             except Exception:
                 self._resume_recovery_required = True
-                self._checkpoint_current_revision = None
                 self._invalidate_resume()
                 if self._autopilot is not None:
                     self._autopilot.stop('recovery_required', uncertain=True)
                 raise ResumeOperationError('resume_confirm_failed') from None
             self._resume_pending_revision = None
-            self._checkpoint_current_revision = None
             self._confirmed_plan_revision = confirmed.revision
             self._blocked = False
             self.update_project_selection_internal(confirmed)
@@ -636,19 +512,13 @@ class SessionController:
                     'plan': prepared.plan.text}
 
     def snapshot(self):
-        """Detached structured state; no task outputs or checkpoint contents.
+        """Detached structured state; no task outputs or free-text context.
 
         execution_blocked is separate from durable state in case persistence
         failed. A selected session applies to ALL clients of this instance.
         """
         with self._lock:
             item = self._store.get(self._selected) if self._selected else None
-            checkpoint_fields = {}
-            if self._checkpoints is not None:
-                checkpoint_fields = {
-                    'checkpoint_available': True,
-                    'checkpoint_content_available': self._checkpoint_record(item) is not None,
-                }
             resume_fields = {}
             if self._resumes is not None:
                 resume_fields = {
@@ -658,7 +528,6 @@ class SessionController:
                         and self._resume_pending_revision == item.revision),
                 }
             return {
-                **checkpoint_fields,
                 **resume_fields,
                 'scope': 'instance',
                 'session_id': self._selected,
@@ -667,5 +536,4 @@ class SessionController:
                 'state': ('ending' if item.lifecycle != 'open' else item.state.value) if item else None,
                 'reason': item.reason if item else '',
                 'revision': item.revision if item else None,
-                'checkpoint_state': item.checkpoint_state.value if item else None,
             }

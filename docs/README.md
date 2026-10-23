@@ -22,7 +22,7 @@ Zacznij od [AGENTS](../AGENTS.md) i krótkiego [CURRENT](plan/CURRENT.md). Otwar
 | Format OKF 0.2 | [Mapa standardu](specs/OKF/SPEC.md), potem wybrany rozdział |
 | Skills i zaufanie | [Obsługa skills](specs/skills-support.md) |
 | Pliki, roots, zgody i sekrety | [Bezpieczeństwo narzędzi](specs/files-and-approvals.md) |
-| Sesje pracy — pauza, checkpoint RAM i wznowienie (opt-in) | [Kontrakt sesji](specs/work-session-pause.md) |
+| Sesje pracy — pauza i wznowienie (opt-in) | [Kontrakt sesji](specs/work-session-pause.md) |
 | Autopilot A2 — zaakceptowany kontrakt delegacji | [Kontrakt autonomii](specs/autopilot-contract.md); implementacja i odbiór w CURRENT |
 | Reguły A2 — zaakceptowany format i ocena operacji | [Format reguł i ocena operacji](specs/autopilot-rules.md) |
 | Autonomia — dalszy zakres i przygotowanie Windows | [Priorytety i warunki przekazania](plan/backlog.md) |

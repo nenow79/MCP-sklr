@@ -398,17 +398,16 @@ class TaskManager:
             if self._stopped or self._sessions is None:
                 raise TaskStateError('Resume coordination unavailable.')
             with self._sessions.resume_coordination(
-                    '', expected_revision, allow_missing_checkpoint=True,
+                    '', expected_revision,
                     expected_session_id=panel_session_id) as links:
                 count = len(self._resume_candidates(links, expected_revision))
                 state = self._sessions.snapshot()
                 return {'session_id': panel_session_id, 'revision': expected_revision,
                         'cancel_count': count,
-                        'checkpoint_missing': not state.get('checkpoint_content_available', False),
                         'resume_recovery_required': state.get('resume_recovery_required', False)}
 
-    def prepare_session_resume(self, supplement, expected_revision, *, allow_missing_checkpoint=False,
-                               panel_session_id=None, expected_cancel_count=None):
+    def prepare_session_resume(self, supplement, expected_revision, *, panel_session_id=None,
+                               expected_cancel_count=None):
         """Internal panel coordinator; never expose as a model tool.
 
         Manager -> controller -> stores. No running task cancellation, retries,
@@ -427,7 +426,6 @@ class TaskManager:
             cancelled = 0
             with self._sessions.resume_coordination(
                     supplement, expected_revision,
-                    allow_missing_checkpoint=allow_missing_checkpoint,
                     expected_session_id=panel_session_id) as links:
                 try:
                     candidates = self._resume_candidates(links, expected_revision)
@@ -448,8 +446,7 @@ class TaskManager:
                         self._discard_context(task_id)
                         self._volatile.discard(task_id)
                     prepared = self._sessions.prepare_resume_internal(
-                        supplement, preparation_revision,
-                        allow_missing_checkpoint=allow_missing_checkpoint)
+                        supplement, preparation_revision)
                     return {**prepared, 'cancelled_count': cancelled}
                 except Exception:
                     raise TaskResumeError(cancelled) from None

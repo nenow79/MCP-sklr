@@ -26,14 +26,14 @@ def test_no_automatic_selection(env):
     assert store.get(item.id) == item
 
 
-def test_idle_pause_and_checkpoint_are_independent(env):
+def test_idle_pause_requires_no_context_save(env):
     _, item, controller = env
     controller.bind(item.id, 1)
     state = controller.request_pause(1)
     assert state['state'] == 'paused'
     assert state['execution_blocked'] is True
     assert state['running_actions'] == 0
-    assert state['checkpoint_state'] == 'pending'
+    assert 'checkpoint_state' not in state
     with pytest.raises(SessionBlocked):
         controller.begin_action()
     assert controller.request_pause(state['revision']) == state

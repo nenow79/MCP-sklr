@@ -70,7 +70,7 @@ Adresy URL dopuszcza się przez jawny scheme/host/port i ograniczenia ścieżki,
 
 Wymagane work_sessions.enabled=true i wybrana sesja. Kontrakt nie działa w trybie bez kontrolera sesji. Wyłączenie A2 w konfiguracji zachowuje obecne zachowanie serwera; nie zmienia domyślnego false sesji ani istniejącego trust.
 
-Włączenie proponuje się wyłącznie dla sesji paused bez rozpoczętych działań. Użytkownik przegląda w panelu zakres, konkretne narzędzia, wyjątki i budżety, a następnie jawnie zatwierdza delegację. Przygotowanie wznowienia odbywa się obecnym przepływem TaskManager: aktualna rewizja/liczba anulowań, uzupełnienie i osobna decyzja o brakującym checkpointcie. Do przygotowania przypinany jest odcisk kontraktu.
+Włączenie proponuje się wyłącznie dla sesji paused bez rozpoczętych działań. Użytkownik przegląda w panelu zakres, konkretne narzędzia, wyjątki i budżety, a następnie jawnie zatwierdza delegację. Przygotowanie wznowienia odbywa się obecnym przepływem TaskManager: aktualna rewizja/liczba anulowań, uzupełnienie; po S6 brak checkpointu nie wymaga decyzji. Do przygotowania przypinany jest odcisk kontraktu.
 
 Model pobiera kontekst zawierający opis ograniczeń jako zaufaną metainformację obok niezaufanego tekstu uzupełnienia. Potwierdzenie planu nie tworzy zgody: otwiera wykonania tylko przy zgodnej sesji, rewizji, tokenie i zatwierdzonym kontrakcie. Zmiana/utrata kontraktu unieważnia przygotowanie. Błąd publikacji lub niepewny commit pozostawia bramkę zamkniętą.
 
@@ -103,7 +103,7 @@ Jednostką jest logiczna operacja użytkowa: bezpośredni odczyt liczy się raz,
 
 Przy zgłoszeniu zadania rezerwuje się miejsce w budżecie, aby nie przyjąć nieograniczonej kolejki. Anulowanie przed rozpoczęciem zwalnia rezerwację. Przejście rezerwacja → rozpoczęcie jest jednokrotne i zsynchronizowane; bez przenoszenia rezerwacji między kontraktami. Niespójność liczników blokuje dalsze działania.
 
-Narzędzia sterujące do odczytu stanu/domknięcia już istniejących zadań oraz checkpoint/replanowanie nie zużywają budżetu roboczego i pozostają dostępne podczas pauzy. Są nadal ograniczone swoimi limitami. Wewnętrzne odświeżanie indeksu nie jest dodatkową delegacją modelu i zachowuje własne limity; nie może posłużyć do wykonania zablokowanego narzędzia.
+Narzędzia sterujące do odczytu stanu/domknięcia już istniejących zadań oraz replanowanie nie zużywają budżetu roboczego i pozostają dostępne podczas pauzy. Są nadal ograniczone swoimi limitami. Wewnętrzne odświeżanie indeksu nie jest dodatkową delegacją modelu i zachowuje własne limity; nie może posłużyć do wykonania zablokowanego narzędzia.
 
 Czas mierzy zegar monotoniczny procesu. UTC służy wyłącznie prezentacji/audytowi; przesunięcie zegara systemowego nie wydłuża uprawnienia. Restart odbiera uprawnienie zamiast rekonstruować deadline. Lekki serwerowy nadzór wykrywa wygaśnięcie również bez następnego wywołania modelu; każda próba przyjęcia/dispatch niezależnie kontroluje termin. Nie używa się pollingu LLM.
 
@@ -128,19 +128,19 @@ Zmiana zakresu, błąd walidacji planu, wycofany trust lub polityka wymagająca 
 
 Panel udostępnia „Cofnij zgodę autopilota” niezależnie od „Anuluj zadanie”. Cofnięcie jest idempotentne, natychmiast zamyka nowe przyjęcia i żąda pauzy całej sesji. Rozpoczęte działania kończą się w swoich istniejących limitach; nie gwarantuje to rollbacku ich skutków. Queued nie przechodzą automatycznie na ręczne zgody ani nie ruszają po ponownym włączeniu.
 
-Wygaśnięcie lub wyczerpanie budżetu powoduje ten sam rodzaj blokady z odrębnym reason. Bez samoczynnego resetu, przedłużenia lub powrotu do trybu legacy. Niespójność pamięci/magazynu to fail-closed, nie zwykłe zużycie limitu. Brak rozpoczętych działań oznacza paused, ale nie potwierdza checkpointu.
+Wygaśnięcie lub wyczerpanie budżetu powoduje ten sam rodzaj blokady z odrębnym reason. Bez samoczynnego resetu, przedłużenia lub powrotu do trybu legacy. Niespójność pamięci/magazynu to fail-closed, nie zwykłe zużycie limitu. Brak rozpoczętych działań oznacza paused.
 
-Timeout, zerwane połączenie po wysłaniu lub niepewny lokalny commit zatrzymują kolejne działania wymagające ustalenia skutku. Wynik jest oznaczony jako niepewny, nie jako „nic nie wykonano”. Bez automatycznego retry, innego profilu, nowej sesji lub alternatywnego narzędzia. Model może zachować bezpieczne ustalenia w checkpointcie; dalsza praca wymaga jawnego rozstrzygnięcia użytkownika. A2 nie jest silnikiem samonaprawy A4.
+Timeout, zerwane połączenie po wysłaniu lub niepewny lokalny commit zatrzymują kolejne działania wymagające ustalenia skutku. Wynik jest oznaczony jako niepewny, nie jako „nic nie wykonano”. Bez automatycznego retry, innego profilu, nowej sesji lub alternatywnego narzędzia. Model nie ponawia operacji ani nie zapisuje checkpointu; dalsza praca wymaga jawnego rozstrzygnięcia użytkownika. A2 nie jest silnikiem samonaprawy A4.
 
 ## 8. Metadane sterujące i panel
 
-Stan autopilota jest odrębny od stanu sesji i obecności checkpointu. Proponowane stany: disabled, prepared, active, suspended, revoked, expired, exhausted, recovery_required. prepared nie otwiera bramki. Session active bez autopilota nadal oznacza zwykły dotychczasowy tryb, o ile użytkownik jawnie go wybrał przy wznowieniu.
+Stan autopilota jest odrębny od stanu sesji. Proponowane stany: disabled, prepared, active, suspended, revoked, expired, exhausted, recovery_required. prepared nie otwiera bramki. Session active bez autopilota nadal oznacza zwykły dotychczasowy tryb, o ile użytkownik jawnie go wybrał przy wznowieniu.
 
 Odpowiedź zawiera serwerowe metadane: stan, bezpieczny reason, identyfikator/rewizję kontraktu, blokadę wykonania, czas pozostały i budżet. Oddziela je od wyników narzędzi. Kod/metainstrukcja pochodzi z serwera; obca treść nie może nadpisać tych pól. Dokładny schemat jest częścią planu API przed kodem.
 
-Przy zatrzymaniu instrukcja dla modelu wymaga: nie ponawiaj działań, nie obchodź ograniczeń, zapisz dozwolony bezpieczny checkpoint po spełnieniu warunków sesji, zakończ odpowiedź i czekaj. Polecenie replanowania nie oznacza prawa do rozszerzenia delegacji. Wyniki rozpoczętych działań pozostają dostępne zgodnie z dotychczasowym TTL.
+Przy zatrzymaniu instrukcja dla modelu wymaga: nie ponawiaj działań, nie obchodź ograniczeń, zakończ odpowiedź i czekaj. Polecenie replanowania nie oznacza prawa do rozszerzenia delegacji. Wyniki rozpoczętych działań pozostają dostępne zgodnie z dotychczasowym TTL.
 
-Panel pokazuje zakres i wyłączenia, tryb zwykły/autopilot, limity z rezerwacjami/zużyciem, termin, rozpoczęte działania i ostatni powód zatrzymania. Mutacje wymagają aktualnej sesji panelu, Host/Origin, potwierdzenia oraz oczekiwanej rewizji; konflikty kart nie nadpisują decyzji. Brak MCP do zatwierdzania i brak automatycznego pollingu modelu. Interfejs nie przedstawia pauzy jako odebranego przez model komunikatu ani zapisanego checkpointu.
+Panel pokazuje zakres i wyłączenia, tryb zwykły/autopilot, limity z rezerwacjami/zużyciem, termin, rozpoczęte działania i ostatni powód zatrzymania. Mutacje wymagają aktualnej sesji panelu, Host/Origin, potwierdzenia oraz oczekiwanej rewizji; konflikty kart nie nadpisują decyzji. Brak MCP do zatwierdzania i brak automatycznego pollingu modelu. Interfejs nie przedstawia pauzy jako odebranego przez model komunikatu.
 
 Lekki status panelu jest niezależny od pomocniczego katalogu zasobów. Wejście w zakładkę, zwykłe odświeżenie oraz zmiana stanu sesji nie uruchamiają skanu katalogu. Katalog jest pobierany przy jawnym konfigurowaniu autopilota. Jego odłączone skany nie trzymają globalnych blokad sesji, kolejki i konfiguracji oraz nie publikują generacji wykonawczych. Zmiana sesji, decyzji albo generacji konfiguracji/rejestru podczas skanu unieważnia wynik; konflikt nie uruchamia automatycznej powtórki. Etykiety i dostępność w katalogu są pomocnicze: preview, zatwierdzenie, ponowne potwierdzenie i dispatch nadal sprawdzają aktualne serwerowe wiązania i uprawnienia. `Server-Timing` raportuje wyłącznie stałe nazwy etapów i czasy liczbowe, bez treści delegacji i zasobów.
 
@@ -167,7 +167,7 @@ Odbiór implementacji musi potwierdzić:
 - Zmiana kontraktu podczas resume_pending unieważnia handshake; model nie otwiera bramki samym potwierdzeniem starego planu. Zwykły tryb po cofnięciu wymaga jawnej decyzji użytkownika.
 - Błędy SQLite/RAM, publikacji wyniku i niepewny commit są fail-closed. Restart nie odtwarza wykonawców, reguł ani zgód. Brak retry operacji o niepewnym skutku.
 - SQLite/WAL, logi i telemetria nie otrzymują poufnych treści; wyniki zachowują dotychczasowy TTL i dostęp. Retencja nie usuwa rozliczenia rozpoczętej operacji.
-- Regresja obecnych zgód/trust/sesji/checkpointów i panelu pozostaje zielona. Osobny ręczny odbiór Windows: panel → zatwierdzenie kontraktu → potwierdzenie planu → dozwolony zapis → blokada poza zakresem → checkpoint → nowe wznowienie; również cofnięcie podczas działania i restart.
+- Regresja obecnych zgód/trust/sesji i panelu pozostaje zielona. Osobny ręczny odbiór Windows: panel → zatwierdzenie kontraktu → potwierdzenie planu → dozwolony zapis → blokada poza zakresem → nowe wznowienie; również cofnięcie podczas działania i restart.
 
 Testy logiki i atrap nie zastępują odbioru rzeczywistego MCP/panelu/harnessu. Pytest i serwery uruchamiane wyłącznie na wyraźne polecenie. Ten projekt nie stanowi wyniku testów ani zgody na ich wykonanie.
 

@@ -8,7 +8,6 @@ from panel.app import create_panel_app
 from panel.auth import COOKIE_NAME, PanelAuth
 from server.session_admin import SessionAdmin
 from tasks.approval import ApprovalService
-from tasks.checkpoint_store import CheckpointStore
 from tasks.manager import TaskManager
 from tasks.models import TaskStatus
 from tasks.resume_store import ResumeStore
@@ -25,7 +24,7 @@ PATH = '/api/work-session'
 def env(tmp_path):
     sessions = SessionStore(tmp_path / 'sessions.db')
     tasks = TaskStore(str(tmp_path / 'tasks.db'))
-    controller = SessionController(sessions, CheckpointStore(), ResumeStore())
+    controller = SessionController(sessions, resumes=ResumeStore())
     entries = [{'alias': 'sklr', 'valid': True}]
     roots = SimpleNamespace(list_status=lambda: entries)
     admin = SessionAdmin(sessions, controller, roots)
@@ -56,7 +55,7 @@ def post(env, suffix, body):
     return env.client.post(PATH + suffix, headers=env.headers, json=body)
 
 
-def paused(env, count=0, checkpoint=True):
+def paused(env, count=0):
     response = post(env, '/start', {'roots': ['sklr']})
     assert response.status_code == 201
     active = response.json()['data']
@@ -65,9 +64,6 @@ def paused(env, count=0, checkpoint=True):
     response = post(env, '/pause', {'session_id': active['session_id'], 'revision': active['revision']})
     assert response.status_code == 200
     state = response.json()['data']
-    if checkpoint:
-        env.controller.save_checkpoint({'goal': 'checkpoint-marker', 'next_step': 'Review'},
-                                       state['revision'])
     return env.admin.status(), rows
 
 
@@ -80,7 +76,7 @@ def preview(env):
 def body_from(view):
     return {'session_id': view['session_id'], 'revision': view['revision'],
             'supplement': 'supplement-marker', 'cancel_count': view['cancel_count'],
-            'allow_missing_checkpoint': False, 'confirmed': True}
+            'confirmed': True}
 
 
 def confirm(env):
@@ -97,7 +93,7 @@ def test_complete_api_flow_counts_all_links_and_plan_has_no_token(env):
     response = preview(env)
     assert response.status_code == 200
     view = response.json()['data']
-    assert view['cancel_count'] == 25 and not view['checkpoint_missing']
+    assert view['cancel_count'] == 25 and 'checkpoint_missing' not in view
     assert env.admin.status() == before
     assert all(env.manager.get(row.id).status != TaskStatus.CANCELLED for row in rows)
     assert get(env, '/resume-plan').json()['data'] == {'available': False}
@@ -157,16 +153,17 @@ def test_invalid_prepare_rejected_before_cancellation(env, field, value):
     assert env.manager.get(rows[0].id).status == TaskStatus.AWAITING_APPROVAL
 
 
-def test_missing_checkpoint_requires_separate_acknowledgement(env):
-    state, rows = paused(env, count=1, checkpoint=False)
+def test_resume_without_checkpoint_and_old_client_rejected_before_effects(env):
+    state, rows = paused(env, count=1)
     view = preview(env).json()['data']
-    assert view['checkpoint_missing']
+    assert 'checkpoint_missing' not in view
     body = body_from(view)
-    assert post(env, '/prepare-resume', body).status_code == 409
+    assert post(env, '/prepare-resume', dict(body, allow_missing_checkpoint=True)).status_code == 400
+    assert env.admin.status() == state
     assert env.manager.get(rows[0].id).status == TaskStatus.AWAITING_APPROVAL
-    body['allow_missing_checkpoint'] = True
     assert post(env, '/prepare-resume', body).status_code == 200
-    assert env.controller.get_resume_context()['checkpoint_missing']
+    assert env.controller.get_resume_context()['available']
+    assert env.admin.status()['execution_blocked']
 
 
 @pytest.mark.parametrize('suffix', ['/resume-preview', '/resume-plan', '/saved',
@@ -213,9 +210,8 @@ def test_uncertain_confirmation_plan_not_advertised_and_api_can_recover(env, mon
             confirm(env)
     assert get(env, '/resume-plan').json()['data'] == {'available': False}
     view = preview(env).json()['data']
-    assert view['resume_recovery_required'] and view['checkpoint_missing']
+    assert view['resume_recovery_required']
     body = body_from(view)
-    body['allow_missing_checkpoint'] = True
     assert post(env, '/prepare-resume', body).status_code == 200
     assert env.admin.status()['execution_blocked']
     confirm(env)
@@ -261,7 +257,7 @@ def test_explicit_restart_recovery_pins_blocked_and_forbids_switching(env):
     assert response.status_code == 200
     state = response.json()['data']
     assert state['session_id'] == first.id and state['ram_lost'] and state['execution_blocked']
-    assert not state['checkpoint_content_available']
+    assert not any(key.startswith('checkpoint') for key in state)
     with pytest.raises(SessionBlocked):
         env.controller.begin_action()
     other = env.sessions.get(second.id)
@@ -271,7 +267,6 @@ def test_explicit_restart_recovery_pins_blocked_and_forbids_switching(env):
     assert post(env, '/start', {'roots': ['sklr']}).status_code == 409
     assert all(not row['recoverable'] for row in get(env, '/saved').json()['data']['sessions'])
     prepare_body = body_from(preview(env).json()['data'])
-    prepare_body['allow_missing_checkpoint'] = True
     assert post(env, '/prepare-resume', prepare_body).status_code == 200
     assert env.admin.status()['execution_blocked']
 
@@ -291,7 +286,7 @@ def test_unavailable_roots_and_active_session_are_not_recovery_candidates(env):
 
 
 def test_manager_mismatch_is_rejected(env):
-    with pytest.raises(ValueError, match='^Work-session manager mismatch\.$'):
+    with pytest.raises(ValueError, match=r'^Work-session manager mismatch\.$'):
         env.admin.attach_manager(SimpleNamespace(_sessions=SessionController(env.sessions)))
     with pytest.raises(ValueError):
         env.admin.attach_manager(SimpleNamespace(_sessions=env.controller))
@@ -324,7 +319,7 @@ def test_resume_text_not_persisted_after_panel_flow(env):
     context, _ = confirm(env)
     for store in (env.sessions, env.tasks):
         dump = '\n'.join(store._conn.iterdump())
-        for marker in ('checkpoint-marker', 'supplement-marker', 'plan-marker', context['preparation_token']):
+        for marker in ('supplement-marker', 'plan-marker', context['preparation_token']):
             assert marker not in dump
 
 

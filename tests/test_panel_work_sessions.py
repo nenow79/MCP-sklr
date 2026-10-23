@@ -9,7 +9,6 @@ from panel.app import create_panel_app
 from panel.auth import COOKIE_NAME, PanelAuth
 from server.session_admin import SessionAdmin
 from tasks.approval import ApprovalService
-from tasks.checkpoint_store import CheckpointStore
 from tasks.manager import TaskManager
 from tasks.session_controller import SessionController
 from tasks.session_store import SessionStore
@@ -63,14 +62,14 @@ def test_status_start_and_pause(env):
     assert response.status_code == 200
     state = response.json()['data']
     assert state['execution_blocked'] and state['state'] == 'paused'
-    assert not state['checkpoint_available'] and not state['resume_available']
+    assert 'checkpoint_available' not in state and not state['resume_available']
     assert state['roots'] == ['sklr']
     assert 'wszystkie rozmowy' in state['warning']
     assert env.client.post(PATH + '/start', json={'roots': ['sklr']},
                            headers=env.headers).status_code == 409
 
 
-@pytest.mark.parametrize('suffix,body', [('', None), ('/checkpoint', None), ('/start', {'roots': ['sklr']}),
+@pytest.mark.parametrize('suffix,body', [('', None), ('/start', {'roots': ['sklr']}),
     ('/pause', {'session_id': '0' * 32, 'revision': 1}),
     ('/end', {'session_id': '0' * 32, 'revision': 1, 'confirmed': True})])
 def test_endpoints_require_panel_auth(env, suffix, body):
@@ -124,7 +123,7 @@ def test_stale_revision_reports_conflict_and_real_latch(env):
 
 
 @pytest.mark.parametrize('operation,suffix,body', [
-    ('status', '', None), ('checkpoint', '/checkpoint', None),
+    ('status', '', None),
     ('start', '/start', {'roots': ['sklr']}),
     ('pause', '/pause', {'session_id': '0' * 32, 'revision': 1}),
 ])
@@ -161,38 +160,6 @@ def test_approval_during_panel_pause_does_not_run_task(env, monkeypatch):
     assert calls == [] and current.started_at is None
     assert env.client.post(f'/api/tasks/{task.id}/cancel', headers=env.headers).status_code == 200
     assert env.manager.get(task.id).status.value == 'cancelled'
-
-
-def test_checkpoint_absent_with_legacy_controller(env):
-    response = env.client.get(PATH + '/checkpoint', headers=env.headers)
-    assert response.status_code == 200 and response.json()['data'] == {'available': False}
-    assert response.headers['cache-control'] == 'no-store'
-
-
-def test_checkpoint_api_returns_ram_content_but_status_only_metadata(env):
-    # Existing fixture exercises the legacy no-RAM controller; enable RAM only
-    # in this test, before any session is selected.
-    env.controller._checkpoints = CheckpointStore()
-    active = start(env)
-    assert env.client.get(PATH + '/checkpoint', headers=env.headers).json()['data'] == {'available': False}
-    paused = env.client.post(PATH + '/pause', headers=env.headers, json={
-        'session_id': active['session_id'], 'revision': active['revision']}).json()['data']
-    marker = 'RAM-only-checkpoint-panel-marker'
-    saved = env.controller.save_checkpoint({'goal': marker, 'next_step': 'Wait'}, paused['revision'])
-    status = env.client.get(PATH, headers=env.headers)
-    assert marker not in status.text
-    assert status.json()['data']['checkpoint_available'] is True
-    assert status.json()['data']['checkpoint_content_available'] is True
-    response = env.client.get(PATH + '/checkpoint', headers=env.headers)
-    assert response.status_code == 200 and response.headers['cache-control'] == 'no-store'
-    view = response.json()['data']
-    assert view['available'] and view['checkpoint']['goal'] == marker
-    assert view['revision'] == saved['revision']
-    assert env.client.post(PATH + '/checkpoint', json={}, headers=env.headers).status_code == 405
-    env.controller._checkpoints.clear()
-    status = env.client.get(PATH, headers=env.headers).json()['data']
-    assert status['checkpoint_state'] == 'saved' and not status['checkpoint_content_available']
-    assert env.client.get(PATH + '/checkpoint', headers=env.headers).json()['data'] == {'available': False}
 
 
 def test_endpoints_absent_without_adapter(env):

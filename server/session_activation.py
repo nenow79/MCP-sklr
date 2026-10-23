@@ -7,7 +7,7 @@ import time
 
 from server.session_bootstrap import build_work_session
 from server.session_registration import (
-    make_session_registrars, make_get_session_state, make_save_session_checkpoint,
+    make_session_registrars, make_get_session_state,
     make_get_resume_context, make_confirm_resume_plan, verify_classification,
 )
 
@@ -46,7 +46,7 @@ def session_registrars(register_tool, register_confidential_tool, runtime):
         return regular, confidential, names
     controller = runtime.controller
     regular(make_get_session_state(controller))
-    for factory in (make_save_session_checkpoint, make_get_resume_context, make_confirm_resume_plan):
+    for factory in (make_get_resume_context, make_confirm_resume_plan):
         confidential(factory(controller))
     wrapped, wrapped_confidential = make_session_registrars(regular, confidential, controller)
     return wrapped, wrapped_confidential, names

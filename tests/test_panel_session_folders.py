@@ -75,7 +75,7 @@ def test_edit_revokes_delegation_and_resume_scope(env):
 
 def test_pending_handshake_prevents_folder_edit(env):
     env.e.pause()
-    env.e.manager.prepare_session_resume('', identity(env)['revision'], allow_missing_checkpoint=True)
+    env.e.manager.prepare_session_resume('', identity(env)['revision'])
     response = env.client.post('/api/roots/other/delete', headers=env.headers, json=identity(env))
     assert response.status_code == 409
     assert env.e.roots.get('other') is not None

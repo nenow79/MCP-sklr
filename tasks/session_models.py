@@ -12,6 +12,7 @@ class SessionState(str, Enum):
 
 
 class CheckpointState(str, Enum):
+    """Legacy SQLite field only; never used for admission or public state."""
     PENDING = "pending"
     SAVED = "saved"
     UNAVAILABLE = "unavailable"

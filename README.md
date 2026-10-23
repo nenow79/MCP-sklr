@@ -37,6 +37,12 @@ Samo dodanie do `.gitignore` nie chroni pliku, który starszy commit nadal śled
 - Sekcja `tasks` w `config.json`: `max_parallel`, `max_queued`, `max_wait_s` (limit 8), `retention_days`, `retention_max`, `approval_expiry_min` (wygaśnięcie oczekującego zadania, domyślnie 60). Stare klucze `approval_ui` i `approval_timeout_s` (okno tkinter wycofane) są ignorowane.
 
 ## Panel zatwierdzeń
+
+Sesje pracy opt-in obsługują Start, pauzę i przygotowanie wznowienia. Po pauzie
+model kończy odpowiedź bez zapisu checkpointu. Wznowienie wymaga decyzji panelu
+i potwierdzenia aktualnego planu przez model; szczegóły w [kontrakcie sesji](docs/specs/work-session-pause.md).
+Po aktualizacji S6 odśwież panel i katalog narzędzi klienta MCP.
+
 - Zadania wymagające zatwierdzenia obsługuje panel webowy na `http://127.0.0.1:8102` (tylko localhost).
 - Przy starcie serwera w konsoli pojawia się link z jednorazowym tokenem sesji (`http://127.0.0.1:8102/#token=...`), a przeglądarka otwiera się automatycznie. Token jest generowany przy każdym starcie i nie jest nigdzie zapisywany; po restarcie serwera użyj nowego linku.
 - Panel: lista zadań, szczegóły (podgląd skryptu, stdout/stderr), zatwierdzanie, odrzucanie, anulowanie, powiadomienia (dźwięk, licznik w tytule karty).

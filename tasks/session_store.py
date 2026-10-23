@@ -163,16 +163,14 @@ class SessionStore:
                 if item.state != SessionState.PAUSE_REQUESTED:
                     raise SessionConflict('Pause was not requested.')
                 state = SessionState.PAUSED
-                checkpoint = item.checkpoint_state
             else:
                 if item.state != SessionState.ACTIVE:
                     return item
                 state = SessionState.PAUSE_REQUESTED
-                checkpoint = CheckpointState.PENDING
             self._conn.execute(
                 'UPDATE work_sessions SET state=?, checkpoint_state=?, '
                 'revision=revision+1, reason=?, updated_at=? WHERE id=?',
-                (state.value, checkpoint.value, 'user_requested_pause', now_iso(), sid))
+                (state.value, CheckpointState.UNAVAILABLE.value, 'user_requested_pause', now_iso(), sid))
             return self.get(sid)
 
     def replace_roots(self, sid, expected_revision, roots):
@@ -186,23 +184,6 @@ class SessionStore:
             self._conn.execute(
                 'UPDATE work_sessions SET roots=?, revision=revision+1, updated_at=? WHERE id=?',
                 (json.dumps(aliases), now_iso(), sid))
-            return self.get(sid)
-
-    def mark_checkpoint_saved(self, sid, expected_revision):
-        """Metadata only; no checkpoint content enters SQLite.
-
-        Caller owns RAM publication and must report missing content separately.
-        Every accepted save advances the session revision, even a replacement.
-        """
-        with self._lock, self._conn:
-            self._conn.execute('BEGIN IMMEDIATE')
-            item = self._require(sid, expected_revision)
-            if item.state not in (SessionState.PAUSE_REQUESTED, SessionState.PAUSED):
-                raise SessionConflict('Checkpoint requires a paused session.')
-            self._conn.execute(
-                'UPDATE work_sessions SET checkpoint_state=?, revision=revision+1, '
-                'updated_at=? WHERE id=?',
-                (CheckpointState.SAVED.value, now_iso(), sid))
             return self.get(sid)
 
     def prepare_resume(self, sid, expected_revision):
@@ -291,7 +272,7 @@ class SessionStore:
 
         Includes already paused sessions so stale callbacks cannot be accepted.
         Repeated bootstrap calls invalidate revisions again; opening alone does not.
-        No checkpoint contents exist in P1; their state becomes UNAVAILABLE.
+        Legacy checkpoint metadata becomes UNAVAILABLE; no context is restored.
         """
         with self._lock, self._conn:
             self._conn.execute('BEGIN IMMEDIATE')

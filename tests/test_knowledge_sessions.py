@@ -73,7 +73,7 @@ def ids(e):
 
 def resume(e):
     state = e.controller.snapshot()
-    e.manager.prepare_session_resume('', state['revision'], allow_missing_checkpoint=True)
+    e.manager.prepare_session_resume('', state['revision'])
     context = e.controller.get_resume_context()
     return e.controller.confirm_resume_plan('Continue work.', context['revision'], context['preparation_token'])
 
