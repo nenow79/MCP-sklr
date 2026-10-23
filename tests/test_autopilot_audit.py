@@ -1,5 +1,5 @@
 """Metadata journal: fail-closed transactions, restart and protected retention."""
-from dataclasses import replace
+from dataclasses import asdict, replace
 import json
 import sqlite3
 
@@ -79,9 +79,20 @@ def test_retention_caps_history_but_keeps_old_unresolved_operation(tmp_path):
     now[0] = 31 * 86400
     store.purge()
     assert store.history() == () and len(store.unresolved()) == 1
-    for _ in range(1005):
-        store.append(AuditEvent(BINDING, 'reserved', 'active'))
+    # Prepare the full history in one transaction. Repeating 1000 durable
+    # commits measures disk flush latency rather than the retention boundary.
+    # The overflow and pruning still use the real public append transaction.
+    payload = json.dumps(asdict(AuditEvent(BINDING, 'reserved', 'active')))
+    with store._db:
+        store._db.executemany('INSERT INTO autopilot_events(utc, metadata) VALUES (?, ?)',
+                             [(now[0], payload)] * 1000)
+    first = store._db.execute('SELECT MIN(sequence) FROM autopilot_events').fetchone()[0]
+    assert len(store.history()) == 1000
+    for used in range(1, 6):
+        store.append(AuditEvent(BINDING, 'reserved', 'active', used=used))
     assert len(store.history()) == 1000 and len(store.unresolved()) == 1
+    assert store._db.execute('SELECT MIN(sequence) FROM autopilot_events').fetchone()[0] == first + 5
+    assert [row['used'] for row in store.history()[-5:]] == [1, 2, 3, 4, 5]
     store.close()
 
 

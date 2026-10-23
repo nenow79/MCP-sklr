@@ -49,7 +49,7 @@ def test_index_has_skills_tab_and_view():
                        "skills-refresh", "skills-dev-dirs"):
         assert f'id="{element_id}"' in html, element_id
     assert "/api/skills" in js
-    for tab in ("tasks", "roots", "skills"):
+    for tab in ("tasks", "session", "skills"):
         assert f'id="tab-{tab}"' in html
         assert f'id="{tab}-view"' in html
     assert "To nie jest sandbox" in html

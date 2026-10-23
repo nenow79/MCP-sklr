@@ -6,6 +6,18 @@ tags: [sklr, project-state, sessions, autonomy, windows, testing]
 ---
 # Aktualny stan — 2026-10-23
 
+## D14 — lokalne poprawki testów i diagnostyka po akceptacji planu
+
+Baza `97dfc40`; użytkownik zaakceptował plan diagnozy i naprawy regresji Windows. Poprawiono statyczną asercję panelu na istniejącą zakładkę sesji. Test profili mixed/legacy/docs wymaga teraz DONE i ready przed oceną wyników wyszukiwania. Rozdzielono sygnały wejścia/zakończenia skanu w trzech testach współbieżności bez zmiany limitów oczekiwania. Fixtures projektowego OKF i autopilota zamykają KnowledgeService; projektowa dodatkowo klienta oraz workery przed zamknięciem bazy. Nie jest to potwierdzenie przyczyny wszystkich opóźnień.
+
+Test retencji przygotowuje 1000 wpisów w jednej transakcji zamiast powtarzać 1000 trwałych append; pięć przekroczeń limitu nadal przechodzi przez publiczne append. Zachowano kontrolę 30 dni/1000 zdarzeń i nierozstrzygniętej operacji, dodano kontrolę usunięcia dokładnie pięciu najstarszych wpisów i zachowania nowych. Ustawienia SQLite, trwałość produkcyjnego dziennika, kolejka/zgody i timeouty bez zmian. Brak pomiaru przyspieszenia na Windows.
+
+Dodano opcjonalny `scripts.pytest_diagnostics`: metryki faz pytest, SQLite, ścieżek/OKF/kolejki i ograniczone próbki stosów, bez SQL/argumentów/wyników/locals/cookies. Dodano testy zachowania wyników/wyjątków i transakcji diagnostyki. Komendy małej paczki i D14 oraz interpretacja/ograniczenia raportu w [instrukcji Windows](../windows-okf.md#diagnostyka-regresji-windows-d14). Plugin wymaga jawnej flagi i nie startuje serwerów.
+
+Walidacja Linux po osobnym poleceniu użytkownika: mała paczka z instrukcji Windows **7 passed in 0.53s**; D14 (pięć plików) z diagnostyką **112 passed in 12.15s**; szersza paczka S6/sesje/autopilot/OKF/edycje według komendy poniżej z `--durations=30`, bez pluginu **934 passed in 131.13s**. Pierwszy przebieg D14 w sandboxie zatrzymał się w TestClient/AnyIO; zapisano stosy i przerwano wyłącznie ten proces, bez wyniku paczki. Ukończone D14 i szersza regresja wykonane poza sandboxem. Nie jest to pełna regresja repo. AST siedmiu nowych/zmienionych plików Python i whitespace poprawne. Istniejące środowisko: Python 3.14.4, SQLite 3.46.1, pytest 9.1.1, fastmcp 4.1.3, mcp 2.3.0, Starlette 1.9.0, AnyIO 4.15.1.
+
+Raport ukończonego D14: lokalny, ignorowany `logs/pytest-diagnostics-20261023-174322-031480.jsonl`; wszystkie 112 call i wyniki, bez obcięcia zdarzeń. Jedyne próbki wolnych stosów dotyczą celowo ponad-ośmiosekundowego testu oczekiwania. Retencja: 0.13 s call w małej paczce z pluginem, 1.70 s w szerszej paczce bez pluginu; nie porównywać tych zakresów ani dawnego Windows 157.98 s jako kontrolowanego pomiaru przyspieszenia. **Windows, docelowe serwery i panel/harness nieodebrane.** D14 pozostaje otwarte na docelowy raport, ustalenie przyczyny pozostałych opóźnień/błędów i ewentualne poprawki runtime. Zielony Linux nie zamyka D14/I6. Bez zmian lokalnego configu, baz użytkownika i środowiska. Użytkownik zlecił commit i push paczki na origin/main; punkt przekazania identyfikuje historia Git. Raporty logs pozostają lokalnie.
+
 ## Przekazanie po regresji Windows — naprawa na innym komputerze
 
 Użytkownik przekazał wynik szerszej paczki sesje/autopilot/panel/OKF: **17 failed, 993 passed, 1 skipped in 3277.31s (54:37)**. Baza checkoutu odczytana po przebiegu: `2a182bf` (`feat: remove session checkpoints`), main; brak śledzonych zmian przed zapisem tego podsumowania. Dokładna komenda, wersje Python/pytest/SDK oraz osobny wynik dedykowanej paczki S6 i Node nie zostały przekazane. To nie pełna regresja repo ani odbiór rzeczywistego panelu; brak nazw testów S6 na liście błędów nie stanowi osobnego potwierdzenia całej paczki S6.
@@ -20,7 +32,7 @@ Po akceptacji kontraktu i planu na bazie `0b02410` usunięto magazyn/walidator c
 
 SQLite zachowuje wewnętrzną kolumnę checkpoint_state dla zgodności v1/v2, bez przebudowy lub usunięcia bazy/historii. Nowe rekordy i przejścia pauzy używają unavailable; dawne pending/saved nie są publikowane ani sprawdzane jako uprawnienie. Walidację tekstu autopilota przeniesiono do server/text_validation.py z zachowaniem reguł i kodów błędów. Dostosowano testy sesji/kolejki/panelu/autopilota oraz dodano scenariusze zgodności bazy, usuniętego API/katalogu, blokady do potwierdzenia i walidatora. Kontrakty i instrukcje Windows uaktualnione. Bez zmian lokalnej konfiguracji, środowiska, danych wiedzy, polityki OKF, timeoutów lub polityki oczekiwania P8/P9.
 
-Walidacja Linux: Node **8/8 plików**, składnia JS i AST zmienionych/nowych plików Python oraz whitespace poprawne. **Pytest, docelowe serwery i odbiór MCP/panelu Windows niewykonane.** Po aktualizacji wymagane restart aplikacji przez użytkownika, odświeżenie panelu i katalogu MCP. S6 pozostaje otwarte wyłącznie na walidację backendu i odbiór docelowy; ta sekcja zastępuje starsze opisy obowiązkowego checkpointu poniżej.
+Walidacja Linux: Node **8/8 plików**, składnia JS i AST zmienionych/nowych plików Python oraz whitespace poprawne. Po osobnym poleceniu użytkownika wykonano wskazaną poniżej paczkę backendu: **934 passed in 131.13s** (szczegóły w D14 powyżej). **Docelowe serwery i odbiór MCP/panelu Windows niewykonane.** Po aktualizacji wymagane restart aplikacji przez użytkownika, odświeżenie panelu i katalogu MCP. S6 pozostaje otwarte na odbiór docelowy; ta sekcja zastępuje starsze opisy obowiązkowego checkpointu poniżej.
 
 Komenda w istniejącym venv/conda (do wykonania na wyraźne polecenie):
 

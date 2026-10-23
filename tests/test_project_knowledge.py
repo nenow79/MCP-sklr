@@ -61,7 +61,12 @@ def env(tmp_path):
     for task in manager.list(limit=100):
         if not task.is_terminal:
             manager.wait(task.id, 8)
+    client.close()
+    assert service.close()
     manager.shutdown()
+    for worker in manager._workers:
+        worker.join(5)
+    assert not any(worker.is_alive() for worker in manager._workers)
     task_store.close()
 
 
@@ -132,7 +137,10 @@ def test_project_profiles_plain_markdown_search_get_and_exclusions(env, profile,
         (env.work / name).write_text("# Alpha\nlegacy or instructions\n", encoding="utf-8")
     add(env, profile=profile, subpath=subpath)
     cold = env.service.search(query="alpha", scope="project")
-    env.manager.wait(cold["refresh_tasks"][0]["task_id"], 8)
+    task = env.manager.wait(cold["refresh_tasks"][0]["task_id"], 8)
+    assert task.status.value == "done", f"refresh task {task.id}: {task.status.value}"
+    state = env.service.index.state("project")
+    assert state.state == "ready", f"index: {state.state}; error: {state.error}"
     hits = env.service.search(query="alpha", scope="project", refresh="cached")["results"]
     assert {hit["concept_id"] for hit in hits} == expected
     assert all(hit["scope"] == "project" and hit["format"] == "markdown" for hit in hits)

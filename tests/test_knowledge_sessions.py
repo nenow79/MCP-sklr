@@ -51,7 +51,7 @@ def env(tmp_path):
     finally:
         for release in e.release:
             release.set()
-        service.close()
+        assert service.close()
         manager.shutdown()
         for worker in manager._workers:
             worker.join(5)
@@ -62,7 +62,8 @@ def env(tmp_path):
 
 def settle(e):
     for task in e.manager.list(limit=100):
-        assert e.manager.wait(task.id, 5).is_terminal
+        completed = e.manager.wait(task.id, 5)
+        assert completed.is_terminal, f"task {task.id}: {completed.status.value}"
     with e.manager._cond:
         assert e.manager._cond.wait_for(lambda: not e.controller.snapshot()['running_actions'], timeout=5)
 
@@ -194,19 +195,20 @@ def test_repeated_bind_does_not_schedule_more_refreshes(env):
 @pytest.mark.parametrize('change', ['disable', 'root', 'limits'])
 def test_change_then_restore_cannot_publish_old_central_refresh(env, monkeypatch, change):
     from okf_engine import service as module
-    entered, release = threading.Event(), threading.Event()
+    entered, scanned, release = threading.Event(), threading.Event(), threading.Event()
     env.release.append(release)
     original = module.scan_bundle
 
     def blocked(*args, **kwargs):
-        result = original(*args, **kwargs)
         entered.set()
+        result = original(*args, **kwargs)
+        scanned.set()
         assert release.wait(5)
         return result
 
     monkeypatch.setattr(module, 'scan_bundle', blocked)
     task_id = start_background_refresh(env.service, env.manager)['general']
-    assert entered.wait(5)
+    assert scanned.wait(5), f"scan did not finish; entered={entered.is_set()}"
     baseline = env.store.snapshot()
 
     def mutate(config):
@@ -226,19 +228,20 @@ def test_change_then_restore_cannot_publish_old_central_refresh(env, monkeypatch
 
 def test_unrelated_folder_change_during_central_scan_does_not_cancel_it(env, monkeypatch):
     from okf_engine import service as module
-    entered, release = threading.Event(), threading.Event()
+    entered, scanned, release = threading.Event(), threading.Event(), threading.Event()
     env.release.append(release)
     original = module.scan_bundle
 
     def blocked(*args, **kwargs):
-        result = original(*args, **kwargs)
         entered.set()
+        result = original(*args, **kwargs)
+        scanned.set()
         assert release.wait(5)
         return result
 
     monkeypatch.setattr(module, 'scan_bundle', blocked)
     task_id = start_background_refresh(env.service, env.manager)['general']
-    assert entered.wait(5)
+    assert scanned.wait(5), f"scan did not finish; entered={entered.is_set()}"
     env.store.update(lambda config: config['roots'][1].update(mode='ro'))
     env.service.bundles()
     release.set()
@@ -247,21 +250,23 @@ def test_unrelated_folder_change_during_central_scan_does_not_cancel_it(env, mon
 
 def test_pending_project_scan_cannot_publish_after_session_end(env, monkeypatch):
     from okf_engine import service as module
-    entered, release = threading.Event(), threading.Event()
+    entered, scanned, release = threading.Event(), threading.Event(), threading.Event()
     env.release.append(release)
     original = module.scan_bundle
 
     def blocked(reader, bundle_id, *args, **kwargs):
-        result = original(reader, bundle_id, *args, **kwargs)
         if bundle_id != 'general':
             entered.set()
+        result = original(reader, bundle_id, *args, **kwargs)
+        if bundle_id != 'general':
+            scanned.set()
             assert release.wait(5)
         return result
 
     monkeypatch.setattr(module, 'scan_bundle', blocked)
     start_background_refresh(env.service, env.manager)
     state = env.admin.start(['a'])
-    assert entered.wait(5)
+    assert scanned.wait(5), f"scan did not finish; entered={entered.is_set()}"
     env.admin.end(state['session_id'], state['revision'])
     release.set()
     settle(env)

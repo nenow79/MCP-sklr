@@ -169,6 +169,26 @@ Testy zewnętrznych skilli zależą od ich dostępności na danej maszynie.
 
 Starsze wyniki paczek są w CURRENT i archiwum; nie oznaczają pełnej regresji przekazywanego commita. Wszystkie powyższe komendy są instrukcją dla użytkownika, nie raportem ich wykonania. Komenda Node korzysta z PowerShell, aby przekazać całą aktualną listę testów panelu.
 
+## Diagnostyka regresji Windows D14
+
+Po osobnym poleceniu uruchomienia pytest zacznij od małej paczki poniżej w istniejącym środowisku. Zapisz `git rev-parse HEAD`, `git status --short` i dokładną komendę. Nie powtarzaj od razu przebiegu trwającego 54 minuty. Lokalna paczka naprawia nieaktualny test zakładki, uzupełnia kontrolę wyniku refresh i sprzątanie fixtures; nie jest jeszcze potwierdzeniem usunięcia opóźnień Windows.
+
+```powershell
+python -m pytest tests/test_pytest_diagnostics.py tests/test_autopilot_audit.py::test_retention_caps_history_but_keeps_old_unresolved_operation tests/test_knowledge_sessions.py::test_startup_refreshes_only_central_without_selecting_session tests/test_autopilot_executors.py::test_central_trusted_skill_is_rechecked_and_charged_once -q -rs --durations=0 -p scripts.pytest_diagnostics --windows-diagnostics
+```
+
+Opcjonalny plugin zapisuje `logs/pytest-diagnostics-*.jsonl`: wersje Python/SQLite/pytest/SDK, osobne czasy kolekcji/setup/call/teardown, liczniki i czasy operacji SQLite, rozwiązywania ścieżek, źródeł/skanu/publikacji OKF oraz kolejki. Zdarzenia kolejki zawierają wyłącznie ID, status i czas wejścia/powrotu z wait oraz wejścia/wyjścia workera; nie potwierdzają samego rozpoczęcia skutku wykonawcy. Dla faz przekraczających 2 s pobierane są maksymalnie trzy próbki stosów wątków, bez locals, linii źródłowych i pełnych ścieżek. `--diagnostic-slow-seconds` zmienia jedynie próg próbkowania, nie timeouty zadań. Identyfikatory parametrów testów są pomijane; wariant rozpoznaje się po indeksie przypadku i kolejności kolekcji. Zdarzenia kolejki są ograniczone do 2000 na fazę, z jawną flagą obcięcia.
+
+Raport nie zawiera SQL, argumentów/wyników narzędzi, treści plików, wyjątków ani cookies. To osobny raport; zwykły stdout/traceback pytest nadal może zawierać takie dane i nie powinien być przekazywany bez oczyszczenia. Diagnostyka działa tylko po jawnym załadowaniu pluginu i podaniu flagi, w przebiegu sekwencyjnym. Nie uruchamia aplikacji ani nie ładuje lokalnego configu/baz. Opakowuje wywołania podczas testów, pozostawiając ustawienia SQLite i reguły wykonania bez zmian. Pomiary mają narzut i są inkluzywne: nie sumuj zagnieżdżonych operacji ani nie porównuj bezpośrednio z przebiegiem bez pluginu.
+
+Jeśli mała paczka przejdzie, uruchom zakres D14 (następnie osobno S6 i szerszą regresję z CURRENT):
+
+```powershell
+python -m pytest tests/test_autopilot_executors.py tests/test_autopilot_integration.py tests/test_panel_static.py tests/test_knowledge_sessions.py tests/test_project_knowledge.py -q -rs --durations=30 -p scripts.pytest_diagnostics --windows-diagnostics
+```
+
+Przy błędzie wyodrębnij wskazany nodeid i porównaj przebieg osobny z paczką. Interpretacja: wysoki `sqlite.*.transaction_exit`/`commit` wskazuje koszt finalizacji transakcji; `filesystem.resolve` i `okf.current` koszt ponownych kontroli ścieżek; stosy pozwalają sprawdzić, czy wątek jest w I/O, oczekuje na blokadę czy wykonuje skan. To dane diagnostyczne, nie samodzielny dowód deadlocku lub winy dysku. Zielony Linux nie zamyka D14/Windows.
+
 ## Odbiór sesji w rzeczywistym panelu i harnessie
 
 Pracuj na testowym roocie i niepoufnych danych. W lokalnym configu ustaw work_sessions na obiekt z enabled=true, zrestartuj przez dotychczasowe uruchomienie (python main.py w lokalnym venv) i odśwież narzędzia klienta. Domyślne false nie testuje bramki. Panel wymaga nowego linku/tokena po restarcie.

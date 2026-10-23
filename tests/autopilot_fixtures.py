@@ -52,7 +52,7 @@ class Environment(SimpleNamespace):
     def settle(self, response):
         assert response['success'], response
         task = self.manager.wait(response['data']['task_id'], 5)
-        assert task.is_terminal, task
+        assert task.is_terminal, f"task {task.id}: {task.status.value}"
         def finalized():
             with self.autopilot.coordination():
                 return not any(ticket.task_id == task.id for ticket in self.autopilot._tickets)
@@ -94,6 +94,7 @@ def environment(tmp_path, *, clock=None):
     try:
         yield e
     finally:
+        assert knowledge.close()
         manager.shutdown()
         for worker in manager._workers:
             worker.join(timeout=5)
