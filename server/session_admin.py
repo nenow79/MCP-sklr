@@ -159,6 +159,7 @@ class SessionAdmin:
                 aliases = [r['alias'] for r in self._roots.list_status() if r.get('valid') is True]
                 # Empty/oversized membership fails closed, even if the registry write succeeded.
                 saved = self._store.replace_roots(state['session_id'], state['revision'], aliases)
+                self._controller.update_project_selection_internal(saved)
                 if self._controller._checkpoint_current_revision == state['revision']:
                     self._controller._checkpoint_current_revision = saved.revision
             return result

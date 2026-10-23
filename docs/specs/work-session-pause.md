@@ -48,6 +48,8 @@ To zaufana metainformacja sklr, oddzielona od niezaufanej treści zewnętrznego 
 
 Po żądaniu pauzy każda następna odpowiedź związana z sesją powinna informować model o pauzie. Wynik rozpoczętego zadania pozostaje dostępny zgodnie z dotychczasowym kontraktem, z osobną metainformacją sterującą. get_task/wait_task mogą służyć domknięciu już rozpoczętych działań, nie rozpoczynaniu nowych poszukiwań. Odczyt stanu i zapis checkpointu pozostają dostępne; wyszukiwanie nowych danych, wykonywanie skilli/MCP i mutacje robocze są blokowane w tej sesji.
 
+Utrzymanie centralnego indeksu OKF jest wewnętrzną pracą procesu, niezależną od wyboru/pauzy/zakończenia sesji; nie przyznaje modelowi dostępu do narzędzi podczas blokady. Zadania `knowledge_refresh` projektów pozostają przypisane do sesji i jej generacji. Start i potwierdzenie planu wznowienia mogą zlecić nowe odświeżenie bieżących projektów, bez retry starych zadań i bez rozszerzania delegacji autopilota. Zakres wiedzy i publikacji opisuje [kontrakt OKF](okf-integration/index-and-refresh.md).
+
 Jeśli model kontynuuje mimo komunikatu, bramka blokuje nowe działania, bez zakładania nowych zadań za każdym ponowieniem. Nie organizować automatycznego pollingu przez LLM. sklr nie potrafi obudzić modelu: pauza staje się dla niego widoczna przy kolejnym wywołaniu/odpowiedzi. Panel musi odróżniać blokadę wykonania od potwierdzonego odbioru komunikatu i checkpointu.
 
 ## 4. Checkpoint

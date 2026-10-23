@@ -10,7 +10,16 @@ Mapa i pozostałe kontrakty: [obsługa OKF](../okf-support.md). Standard formatu
 
 ## Status kontraktu
 
-Aktualny runtime używa SQLite jako podpisanego publicznego cache i RAM jako indeksu wyszukiwania. [Trwały indeks](persistent-index.md) rozróżnia wdrożony zakres od docelowych rozszerzeń. Po starcie cache ładowany jest bez odczytu źródeł jako cache_unchecked; pełne uzgodnienie planowane jest w tle. Użytkownik może pracować bez czekania na pełny skan, z ograniczeniami świeżości wyników opisanymi poniżej.
+Aktualny runtime używa SQLite jako podpisanego publicznego cache i RAM jako indeksu wyszukiwania. [Trwały indeks](persistent-index.md) rozróżnia wdrożony zakres od docelowych rozszerzeń. Po starcie cache dostępnych zbiorów ładowany jest bez odczytu źródeł jako cache_unchecked; pełne uzgodnienie planowane jest w tle. Przy włączonych sesjach start procesu obejmuje wiedzę centralną, a wiedza projektowa staje się dostępna po jawnym wyborze sesji. Użytkownik może pracować bez czekania na pełny skan, z ograniczeniami świeżości wyników opisanymi poniżej.
+
+## Sesja i zakres odświeżania
+
+- Wiedza `central`: odświeżenie przy starcie MCP jest wewnętrzną operacją utrzymania indeksu bez przypisania do sesji. Działa również bez wybranej sesji i podczas pauzy; nadal wymaga włączonego zbioru, aktualnego zatwierdzonego roota oraz działającego panelu. Zakończenie sesji nie anuluje tej pracy. Shutdown i anulowanie zadania nadal obowiązują.
+- Wiedza `project`: dostępne są wyłącznie zbiory folderów wybranej sesji. Start i potwierdzone `confirm_resume_plan` zlecają odświeżenie w tle, z deduplikacją trwającego skanu. Samo odzyskanie sesji po restarcie ani przygotowanie handshake nie uruchamia skanu. Zmiany folderów podczas pauzy aktualizują zakres; odświeżenie nowych zbiorów następuje po potwierdzeniu wznowienia.
+- Projektowe zadania nadal przechodzą bramkę TaskManager/sesji i są przypisane do jej generacji. Wewnętrzny wyjątek dla centralnego indeksu nie jest argumentem narzędzia MCP i nie obejmuje zapisów, skilli ani zewnętrznych MCP. Narzędzia modelu, także odczyt wiedzy centralnej, nadal wymagają aktywnej sesji.
+- Wersje indeksu/publikacji są rozdzielone per zbiór. Zmiana niezwiązanego folderu lub członkostwa sesji nie usuwa centralnej generacji ani nie przerywa jej skanu. Zmiana wiązania, uprawnień, nakładających się zakresów, limitów lub właściwej konfiguracji nadal unieważnia dotknięte zbiory, również po zmianie i przywróceniu konfiguracji. Kończenie sesji usuwa jej projektowy zakres z aktywnego indeksu przy kolejnej kontroli; spóźniony skan nie może go odtworzyć.
+
+Przy wyłączonych sesjach zachowany jest dotychczasowy start wszystkich dostępnych zbiorów oraz domyślny projekt wyszukiwania. Brak sesji nie jest błędem odświeżania projektów: panel pokazuje oczekiwanie na Start. Samo pojawienie się nowego `docs` podczas aktywnej sesji bez jej wznowienia nadal wymaga zwykłego search/force; nie dodano watchera.
 
 Dokumenty przetwarza dedykowany worker z kontynuacją między partiami; TaskManager pozostaje uchwytem oczekiwania/anulowania. Inventory pełnego refresh nadal używa ograniczonego skanu 90 s. Dla backendu cache publikacja ma osobny kooperacyjny budżet 120 s od zakończenia odczytu; jego wyczerpanie odrzuca niedokończoną generację i zachowuje poprzednią RAM ze stanem error. Stara ścieżka bez backendu zachowuje 120 s łącznie. Nie jest to twardy timeout blokującego I/O. Pomiary i wyniki odbioru są w CURRENT.
 

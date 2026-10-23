@@ -5,6 +5,8 @@ from functools import wraps
 
 CURRENT = ContextVar('sklr_autopilot_invocation', default=None)
 MAINTENANCE = object()
+# Private capability: only the central OKF adapter may submit sessionless work.
+CENTRAL_KNOWLEDGE = object()
 
 
 def recheck_current():

@@ -59,6 +59,7 @@ M1–M5 są wdrożone, smoke katalogu i zaufanego list_open_tabs zaliczony. Zach
 - [ ] I3: okresowa lekka inventory zmian IDE/git pull, stat jako filtr i force pełnego sprawdzenia; interwały/backoff, bez kasowania niewidzianych wpisów po częściowym skanie.
 - [ ] I4: purge SQLite po usunięciu zbioru/dokumentów, retencja i ACL; DPAPI chroni klucz, nie bazę. Przebudowa/staging-generation po osobnym projekcie.
 - [ ] I5: ręczny smoke create_file/convert, edycja podczas pełnego skanu, retry zaległych zmian, reconcile_required, spóźnione wyniki i awarie. Lokalny smoke-test z dawnych sesji nie istnieje w tym checkout; na docelowym Windows sprawdzić jego obecność i po odbiorze jawnie usunąć oraz potwierdzić brak wpisu po uzgodnieniu.
+- [ ] I6 — odbiór powiązania OKF z sesją: implementacja i izolowane smoke w CURRENT; pytest i ręczny odbiór Windows nadal niewykonane. Uruchomić wskazaną tam regresję pytest, potem Windows: start bez sesji odświeża centralne zbiory bez REFRESH_UNAVAILABLE projektów, Start/wznowienie odświeżają projekty aktualnych folderów, pauza blokuje model, zmiana folderów nie przerywa niezwiązanego centralnego indeksu, zakończenie/nowa sesja odrzuca stary projektowy skan, cofnięcie i przywrócenie dostępu nie wznawia starej publikacji, wiedza centralna nadal wymaga zachowanego zatwierdzonego roota. Sprawdzić katalog autopilota i tryb work_sessions.enabled=false. Użytkownik zlecił publikację paczki na origin/main; publikacja nie zamyka I6. Pytest/serwery tylko na wyraźne polecenie.
 
 ## 6. Diagnostyka i potwierdzony dług
 

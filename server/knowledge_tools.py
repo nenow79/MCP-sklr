@@ -4,22 +4,22 @@
 przechwytuje także nieoczekiwane wyjątki przed ogólnym loggerem kolejki.
 """
 import json
+from contextlib import contextmanager
 
-from okf_engine.bundles import evaluate_bundles, recheck_bundle
-from okf_engine.discovery import effective_knowledge
+from okf_engine.bundles import evaluate_bundles
 from okf_engine.documents import DocumentError
-from okf_engine.limits import parse_limits
 from okf_engine.search import SearchError
 from okf_engine.service import KnowledgeError, KnowledgeService
 from server.path_guard import resolve_path
-from state import resolve_central_skills_dir
 from tasks.manager import QueueFullError, TaskStateError
+from server.knowledge_sources import KnowledgeSources
 
 
 class RefreshQueue:
-    def __init__(self, manager, panel_available):
+    def __init__(self, manager, panel_available, central=None):
         self.manager = manager
         self.panel_available = panel_available
+        self.central = central or (lambda bundle_id: False)
 
     def status(self, task_id):
         task = self.manager.get(task_id)
@@ -71,12 +71,12 @@ class RefreshQueue:
                 return {"started": False, "exit_code": 1, "error": "Odświeżanie OKF nie powiodło się."}
 
         try:
-            from autopilot.context import MAINTENANCE
+            from autopilot.context import MAINTENANCE, CENTRAL_KNOWLEDGE
             task = self.manager.submit(
                 {"kind": "knowledge_refresh", "title": "Odświeżanie indeksu OKF",
                  "payload": {"bundle_id": bundle_id}, "offer_trust": False,
                  "sensitive": True}, executor, needs_approval=False,
-                internal_maintenance=MAINTENANCE)
+                internal_maintenance=CENTRAL_KNOWLEDGE if self.central(bundle_id) else MAINTENANCE)
         except QueueFullError:
             raise KnowledgeError("QUEUE_FULL") from None
         except TaskStateError:
@@ -86,39 +86,10 @@ class RefreshQueue:
 
 def create_service(config_store, roots, manager, panel_available, **kwargs):
     """Jeden serwis/signer na proces; wykrywa docs bez skanu treści i zapisu configu."""
-    evaluated = {}
-
-    def inputs():
-        config = config_store.snapshot()
-        knowledge = config.get("knowledge", {})
-        root_list = roots.list()
-        skills = resolve_central_skills_dir(config)
-        token = json.dumps([knowledge, [root.to_dict() for root in root_list], str(skills)],
-                           sort_keys=True, ensure_ascii=False)
-        return knowledge, root_list, skills, token
-
-    def source():
-        with config_store.lock:
-            knowledge, root_list, skills, token = inputs()
-            knowledge = effective_knowledge(knowledge, root_list)
-            limits, _ = parse_limits(knowledge.get("limits", {}) if isinstance(knowledge, dict) else None)
-            states = evaluate_bundles(knowledge, root_list, skills, allow_project=True)
-            # Prywatny token konfiguracji, bez treści plików; nigdy do odpowiedzi/logów.
-            version = json.dumps([knowledge, [root.to_dict() for root in root_list], str(skills)],
-                                 sort_keys=True, ensure_ascii=False)
-            evaluated.clear()
-            evaluated.update(token=token, states={state.id: state for state in states if state.available})
-            return states, limits, version
-
-    def current_source(bundle_id):
-        with config_store.lock:
-            _, _, skills, token = inputs()
-            if token != evaluated.get("token"):
-                return None  # pełna ocena i unieważnienie generacji w _sync
-            state = evaluated.get("states", {}).get(bundle_id)
-            if state is None:
-                return None
-            return recheck_bundle(state, skills)
+    controller = getattr(manager, '_sessions', None)
+    selection = (lambda: controller.project_selection) if controller is not None else None
+    sources = KnowledgeSources(config_store, roots, selection,
+                               evaluate=lambda *args, **kw: evaluate_bundles(*args, **kw))
 
     def authorize(state, path):
         with config_store.lock:
@@ -126,12 +97,44 @@ def create_service(config_store, roots, manager, panel_available, **kwargs):
             resolved = resolve_path(roots, relative, state.entry.root)
             return resolved.path == path and str(resolved.root.path) == state.entry.root_path
 
-    queue = RefreshQueue(manager, panel_available)
-    service = KnowledgeService(source, authorize, queue.submit, queue.status,
-                               lock=config_store.lock, current_source=current_source,
+    def central(bundle_id):
+        # submit runs under the service/config lock, after _sync evaluated the
+        # current scope. The model never chooses the private queue capability.
+        state = service._states.get(bundle_id)
+        return state is not None and state.entry.scope == 'central'
+
+    queue = RefreshQueue(manager, panel_available, central)
+    service = KnowledgeService(sources.source, authorize, queue.submit, queue.status,
+                               lock=config_store.lock, current_source=sources.current,
+                               project_selection=selection,
                                active_project=lambda: roots.default().alias if roots.default() else None, **kwargs)
+    service.project_reason = sources.project_reason
+    if controller is not None:
+        @contextmanager
+        def coordinate():
+            with manager._cond, controller._lock:
+                yield
+        service._dispatch_context = coordinate
     service.bundles()  # wykrycie przy starcie; indeks dopiero na żądanie
     return service
+
+
+def start_background_refresh(service, manager):
+    """After cache attachment/restore; catch sessions started while panel booted."""
+    controller = getattr(manager, '_sessions', None)
+    if controller is None:
+        return service.refresh_available_background()
+
+    def refresh_projects():
+        with manager._cond, controller._lock:
+            if not manager._stopped and not controller.snapshot()['execution_blocked']:
+                return service.refresh_available_background(scope='project')
+        return {}
+
+    controller.add_activation_listener(refresh_projects)
+    result = service.refresh_available_background(scope='central')
+    result.update(refresh_projects())
+    return result
 
 
 def _call(operation, *args, **kwargs):

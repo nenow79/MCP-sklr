@@ -3,7 +3,7 @@ import hashlib
 import hmac
 import json
 import secrets
-from dataclasses import asdict
+from dataclasses import asdict, replace
 
 from okf_engine.bundles import BundleError, evaluate_bundles, parse_entry
 from okf_engine.coordination import coordinate_refresh
@@ -48,6 +48,10 @@ class KnowledgeAdmin:
             entries = []
             for index, state in enumerate(states):
                 entry = state.entry
+                if state.available and entry.scope == 'project':
+                    reason = getattr(self.service, 'project_reason', lambda root: '')(entry.root)
+                    if reason:
+                        state = replace(state, available=False, writable=False, reason=reason)
                 automatic = index >= manual_count
                 entries.append({"key": "auto:" + state.id if automatic else str(index), "id": state.id,
                                 "automatic": automatic,

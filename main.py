@@ -716,7 +716,7 @@ if __name__ == "__main__":
         restored = KNOWLEDGE.restore_startup_cache()
         print(f"Wiedza: wczytano z cache {sum(restored.values())} dokumentów; "
               "aktualność źródeł niepotwierdzona, sprawdzanie w tle.")
-        KNOWLEDGE.refresh_available_background()
+        knowledge_tools.start_background_refresh(KNOWLEDGE, TASK_MANAGER)
         uvicorn.run(
             mcp.http_app(middleware=get_middleware(), json_response=True),
             host=host,

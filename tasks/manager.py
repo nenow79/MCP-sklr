@@ -77,6 +77,7 @@ class _Ctx:
     approval_preview: Optional[Dict[str, Any]] = None
     autopilot_ticket: object = field(default=None, repr=False)
     maintenance: bool = False
+    session_independent: bool = False
 
 
 class TaskManager:
@@ -114,10 +115,17 @@ class TaskManager:
         with self._cond:
             if self._stopped:
                 raise TaskStateError("Menedżer zadań jest zatrzymany.")
-            from autopilot.context import CURRENT, MAINTENANCE
+            from autopilot.context import CURRENT, MAINTENANCE, CENTRAL_KNOWLEDGE
             scope = CURRENT.get()
             autopilot = getattr(self._sessions, '_autopilot', None)
-            maintenance = internal_maintenance is MAINTENANCE
+            session_independent = internal_maintenance is CENTRAL_KNOWLEDGE
+            maintenance = internal_maintenance is MAINTENANCE or session_independent
+            if session_independent and (
+                    fields.get('kind') != 'knowledge_refresh' or needs_approval is not False
+                    or fields.get('sensitive') is not True or fields.get('offer_trust') is not False
+                    or verify is not None or on_trust is not None
+                    or approval_preview is not None or allow_external_reapproval):
+                raise TaskStateError('Invalid central knowledge maintenance task.')
             ticket = None
             if autopilot is not None and not maintenance and autopilot.engaged:
                 if (scope is None or scope.runtime.controller is not autopilot or not scope.queued
@@ -165,7 +173,7 @@ class TaskManager:
             # Separate SQLite stores: on partial failure keep a safe terminal
             # record if possible; never schedule even if cleanup also fails.
             task = None
-            guard = (self._sessions.task_submission() if self._sessions is not None
+            guard = (self._sessions.task_submission() if self._sessions is not None and not session_independent
                      else nullcontext(None))
             try:
                 with guard as associate:
@@ -190,7 +198,8 @@ class TaskManager:
                                       authorized=external and not needs_approval,
                                       allow_external_reapproval=allow_external_reapproval,
                                       approval_preview=copy.deepcopy(approval_preview),
-                                      autopilot_ticket=ticket, maintenance=maintenance)
+                                      autopilot_ticket=ticket, maintenance=maintenance,
+                                      session_independent=session_independent)
             if ticket is not None:
                 scope.submitted = True
             self._ensure_workers()
@@ -550,7 +559,7 @@ class TaskManager:
                                    finished_at=now_iso(), error='autopilot_manual_required')
                 self._discard_context(task_id)
                 return
-            if self._sessions is not None:
+            if self._sessions is not None and not ctx.session_independent:
                 try:
                     token = self._sessions.begin_task(task_id)
                 except StaleSessionTask:

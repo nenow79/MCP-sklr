@@ -127,6 +127,20 @@ def test_failed_scan_releases_only_its_own_lock(env, monkeypatch):
     assert env.session_admin.status()['state'] == 'active'
 
 
+def test_project_knowledge_catalogue_matches_current_session_membership(env):
+    for folder in (env.app, env.other):
+        (folder / 'docs').mkdir()
+        (folder / 'docs/note.md').write_text('# Project knowledge\n', encoding='utf-8')
+    choices = env.admin.resources()
+    with env.store.lock:
+        _, authoritative = resource_choices(env.runtime)
+    assert choices == authoritative
+    bundles = [row for row in choices if row['kind'] == 'bundle']
+    assert len(bundles) == 1
+    assert bundles[0]['name'] == next(state.id for state in env.knowledge._states.values()
+                                     if state.entry.root == 'app')
+
+
 def test_timing_header_uses_only_fixed_names_and_finite_numbers():
     assert timing_header({'roots': 2.5, 'private path': 10, 'app': float('nan'),
                           'catalog_scan': 'SECRET', 'catalog_wait': True}) == 'roots;dur=2.50'

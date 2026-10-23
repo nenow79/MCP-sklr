@@ -23,6 +23,7 @@ class CatalogSnapshot:
     catalog_time: float
     knowledge_enabled: bool
     mcp_enabled: bool
+    project_selection: object
 
 
 def capture_catalog(runtime):
@@ -37,7 +38,8 @@ def capture_catalog(runtime):
             catalogs = copy.deepcopy(tools.catalogs)
             timestamp = tools.clock()
     return CatalogSnapshot(config, skills, catalogs, timestamp,
-                           runtime.knowledge.service is not None, tools is not None)
+                           runtime.knowledge.service is not None, tools is not None,
+                           runtime.controller.sessions.project_selection)
 
 
 def catalog_choices(snapshot, timings=None):
@@ -63,6 +65,10 @@ def catalog_choices(snapshot, timings=None):
             states = evaluate_bundles(knowledge, root_list,
                                       resolve_central_skills_dir(snapshot.config), allow_project=True)
             for state in sorted(states, key=lambda item: item.id or ''):
+                if state.entry is not None and state.entry.scope == 'project':
+                    sid, aliases = snapshot.project_selection
+                    if sid is None or state.entry.root not in aliases:
+                        continue
                 if state.available:
                     choices.append(dict(key='bundle:' + state.id, kind='bundle', name=state.id))
     with measure(timings, 'catalog_scan'):

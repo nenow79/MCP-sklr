@@ -1,8 +1,8 @@
 """Odczyt OKF i koordynacja odświeżeń, bez FastMCP/TaskManager.
 
 source() zwraca (BundleState[], KnowledgeLimits | None, access_version).
-access_version obejmuje konfigurację bundles, limits, roots i chroniony katalog
-skills. Wszystkie operacje stanu/publikacji korzystają ze wspólnego reentrantnego
+access_version może być skalarem (legacy) lub mapą wersji per bundle; obejmuje
+istotną konfigurację, limits, roots i chroniony katalog skills. Wszystkie operacje stanu/publikacji korzystają ze wspólnego reentrantnego
 locka konfiguracji. Skan działa poza nim; zmiana wersji unieważnia jego ticket.
 submit(bundle_id, run) zwraca id zadania, task_status(id) jego status (napis).
 Callback run(cancel_event) zwraca wyłącznie bezpieczne podsumowanie dla kolejki.
@@ -11,6 +11,7 @@ import hmac
 import json
 import threading
 import time
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 
@@ -102,7 +103,7 @@ def _budget(value):
 class KnowledgeService:
     def __init__(self, source, authorize, submit, task_status, *, lock=None,
                  now=None, clock=time.monotonic, signer=None, active_project=None,
-                 refresh_backend=None, current_source=None):
+                 refresh_backend=None, current_source=None, project_selection=None):
         self._source, self._authorize = source, authorize
         self._current_source = current_source
         self._refresh_backend = refresh_backend
@@ -112,6 +113,7 @@ class KnowledgeService:
         self._now = now or (lambda: datetime.now(timezone.utc))
         self._clock = clock
         self._active_project = active_project or (lambda: None)
+        self._project_selection = project_selection
         self._signer = signer or RevisionSigner(RevisionSigner.new_key())
         self.index = KnowledgeIndex(self._now, prepare=prepare_document)
         self._version = object()
@@ -150,7 +152,7 @@ class KnowledgeService:
                 self._sync()
                 if bundle_id not in self._states:
                     continue
-                version = self._version
+                version = self._bundle_version(bundle_id)
                 ticket = self.index.begin(bundle_id)
                 reader, limits = self._reader(), self._limits
             try:
@@ -158,7 +160,8 @@ class KnowledgeService:
 
                 def valid():
                     self._sync()
-                    return not self._closed and self._version == version and bundle_id in self._states
+                    return (not self._closed and self._bundle_version(bundle_id) == version
+                            and bundle_id in self._states)
 
                 if not self.index.publish(ticket, reader, bundle_id, scan, limits,
                                           commit_lock=self._lock, validate_commit=valid,
@@ -171,12 +174,16 @@ class KnowledgeService:
         return result
 
     @coordinate_refresh
-    def refresh_available_background(self):
+    def refresh_available_background(self, scope='all'):
         """Planuje uzgodnienie po przywróceniu cache, bez oczekiwania na pełne skany."""
         with self._lock:
             self._sync()
+            if scope not in ('all', 'central', 'project'):
+                raise KnowledgeError('INVALID_ARGUMENT')
             result = {}
             for bundle_id in sorted(self._states):
+                if scope != 'all' and self._states[bundle_id].entry.scope != scope:
+                    continue
                 try:
                     result[bundle_id] = self._request_refresh(bundle_id, 'force')
                 except KnowledgeError:
@@ -199,20 +206,26 @@ class KnowledgeService:
             return self._refresh_backend.close(timeout)
         return True
 
+    def _bundle_version(self, bundle_id):
+        return self._version.get(bundle_id) if isinstance(self._version, Mapping) else self._version
+
     def _sync(self):
         if self._closed:
             raise KnowledgeError("SERVICE_CLOSED")
         states, limits, version = self._source()
         available = {state.id: state for state in states if state.available}
         if version != self._version:
-            for bundle_id in set(self._states) | set(self._refreshes):
+            changed = {key for key in set(self._states) | set(self._refreshes)
+                       if not isinstance(version, Mapping) or not isinstance(self._version, Mapping)
+                       or version.get(key) != self._version.get(key)}
+            for bundle_id in changed:
                 self.index.invalidate(bundle_id)
-            for refresh in self._refreshes.values():
-                refresh.cancel.set()
-            self._refreshes.clear()
-            self._retry_at.clear()
-            self._refresh_diagnostics.clear()
-            self._dirty_documents.clear()
+                refresh = self._refreshes.pop(bundle_id, None)
+                if refresh is not None:
+                    refresh.cancel.set()
+                self._retry_at.pop(bundle_id, None)
+                self._refresh_diagnostics.pop(bundle_id, None)
+                self._dirty_documents.pop(bundle_id, None)
             self._version = version
         # Dostępność filesystem może zmienić się bez zmiany configu.
         for bundle_id in self._states.keys() - available.keys():
@@ -266,12 +279,12 @@ class KnowledgeService:
                 raise KnowledgeError("WRITE_FORBIDDEN")
             if self._limits is None:
                 raise KnowledgeError("CONFIG_INVALID")
-            return WriteContext(state, self._limits, self._signer, self._now(), self._version)
+            return WriteContext(state, self._limits, self._signer, self._now(), self._bundle_version(bundle_id))
 
     def check_write_context(self, context):
         with self._lock:
             self._sync()
-            if context.version != self._version:
+            if context.version != self._bundle_version(context.bundle.id):
                 raise KnowledgeError("BUNDLE_UNAVAILABLE")
             state = self._current(context.bundle.id)
             if not state.writable:
@@ -418,10 +431,13 @@ class KnowledgeService:
             if scope != "all" and self._states[bundle_id].entry.scope != scope:
                 raise KnowledgeError("SCOPE_MISMATCH")
             return [bundle_id]
+        # With sessions, the source already restricts project membership; search
+        # includes all those projects. Legacy mode retains the default project.
         active = self._active_project()
         return sorted(key for key, state in self._states.items()
                       if (scope in ("all", "central") and state.entry.scope == "central") or
-                      (scope in ("all", "project") and state.entry.scope == "project" and state.entry.root == active))
+                      (scope in ("all", "project") and state.entry.scope == "project"
+                       and (self._project_selection is not None or state.entry.root == active)))
 
     def _reap(self, bundle_id):
         refresh = self._refreshes.get(bundle_id)
@@ -475,7 +491,7 @@ class KnowledgeService:
         if (targets is None and mode == 'auto' and self._dirty_documents.get(bundle_id)
                 and callable(getattr(self._refresh_backend, 'update', None))):
             targets = tuple(sorted(self._dirty_documents[bundle_id]))
-        refresh = _Refresh(self.index.begin(bundle_id), self._version, targets=targets)
+        refresh = _Refresh(self.index.begin(bundle_id), self._bundle_version(bundle_id), targets=targets)
         self._refreshes[bundle_id] = refresh
         reader, limits = self._reader(), self._limits
 
@@ -502,7 +518,7 @@ class KnowledgeService:
             with self._lock:
                 self._sync()
                 clock()
-                if refresh.version != self._version:
+                if refresh.version != self._bundle_version(bundle_id):
                     raise _Cancelled()
             scan_baseline = reader.measurements()
             scan_started = clock()
@@ -538,7 +554,7 @@ class KnowledgeService:
                 # KnowledgeIndex woła pod wspólnym lockiem tylko przed podmianą.
                 self._sync()
                 clock()
-                return refresh.version == self._version
+                return refresh.version == self._bundle_version(bundle_id)
 
             if refresh.targets is not None:
                 published = self.index.patch(refresh.ticket, reader, bundle_id, scan, limits,

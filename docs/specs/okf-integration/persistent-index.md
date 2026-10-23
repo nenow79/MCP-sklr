@@ -50,6 +50,8 @@ Zapis kolejnych zmian podczas przetwarzania nie może zostać skasowany przez st
 
 Start ładuje tylko zgodny cache dostępnych, enabled zbiorów, z jawnym stanem cache_unchecked do czasu uzgodnienia plików. Zmiana roota/subpath/profile lub wersji parsera/maskowania unieważnia cache; nie może odsłonić starego wpisu w nowym zbiorze. Disabled/utrata roota natychmiast blokuje publikację i zwrot wyników oraz usuwa aktywną generację RAM. Fizyczne czyszczenie SQLite jest osobną czynnością retencji.
 
+Przy włączonych sesjach wiedza centralna jest ładowana/odświeżana przy starcie procesu bez przypisania zadania do sesji. Zbiory projektowe są dopuszczane według folderów jawnie wybranej sesji, a ich uzgodnienie zlecają Start i potwierdzenie planu wznowienia. Szczegóły bramek, wersji per zbiór i trybu bez sesji: [sesja i odświeżanie](index-and-refresh.md). Nadal używana jest jedna baza cache; rozdzielenie lifecycle nie tworzy osobnych kopii wiedzy.
+
 Pierwsza wersja wykrywa zewnętrzne edycje, git pull, kopiowanie i usunięcia przez ograniczoną okresową inwentaryzację w tle, także po starcie. Watcher jest późniejszą opcją, nie zależnością. Interwał, backoff i maksymalny zakres wymagają jawnej konfiguracji i diagnostyki; nie obiecujemy natychmiastowego wykrywania.
 
 Rozmiar/mtime/tożsamość pliku są filtrem kandydatów, nie dowodem identycznej treści. Odśwież indeks wymusza sprawdzenie zawartości wszystkich dostępnych źródeł; identyczny dokument może użyć zgodnego cache bez ponownego parsowania. Przebuduj indeks wymusza parsowanie i maskowanie. Niepełna inwentaryzacja nie pozwala uznać niewidzianych plików za usunięte.

@@ -7,6 +7,7 @@ accepted token in finally. No lock may be held across actual tool execution.
 P2 integration must define lock ordering with TaskManager before using this API.
 """
 import copy
+import logging
 import threading
 from contextlib import contextmanager
 
@@ -48,6 +49,31 @@ class SessionController:
         self._autopilot = None
         self._stopping = False
         self._end_ready = False
+        # Immutable advisory membership, readable under the knowledge/config lock
+        # without acquiring the controller lock in reverse order. Never admission.
+        self._project_selection = (None, ())
+        self._activation_listeners = []
+
+    @property
+    def project_selection(self):
+        return self._project_selection
+
+    def add_activation_listener(self, listener):
+        with self._lock:
+            self._activation_listeners.append(listener)
+
+    def _notify_active(self):
+        # Called after releasing the controller lock: a listener may submit work
+        # using manager -> controller -> config. Failure cannot undo activation.
+        for listener in tuple(self._activation_listeners):
+            try:
+                listener()
+            except Exception:
+                logging.getLogger(__name__).warning('Nie udało się zaplanować odświeżenia wiedzy sesji.')
+
+    def update_project_selection_internal(self, item):
+        """Caller holds controller lock; no I/O or callbacks."""
+        self._project_selection = (item.id, tuple(item.roots))
 
     def _invalidate_resume(self):
         """Logical invalidation precedes best-effort RAM cleanup.
@@ -86,9 +112,13 @@ class SessionController:
                 # Rebinding/reconnecting can never clear the pause latch.
                 return self.snapshot()
             self._selected = sid
+            self.update_project_selection_internal(item)
             self._blocked = item.state != SessionState.ACTIVE or (
                 self._autopilot is not None and self._autopilot._recovery)
-            return self.snapshot()
+            result = self.snapshot()
+        if not result['execution_blocked']:
+            self._notify_active()
+        return result
 
     def recover_selection(self, sid, expected_revision):
         """Explicit panel selection after bootstrap recovery, never ACTIVE bind.
@@ -110,6 +140,7 @@ class SessionController:
             self._checkpoint_current_revision = None
             self._resume_recovery_required = False
             self._selected = item.id
+            self.update_project_selection_internal(item)
             return self.snapshot()
 
     def begin_action(self):
@@ -229,6 +260,7 @@ class SessionController:
         if item is None or item.revision != revision or item.lifecycle not in ('open', 'ending', 'ended'):
             raise SessionConflict('Session revision changed.')
         self._blocked = True
+        self._project_selection = (None, ())
         self._end_ready = False
         self._store.request_end(sid, revision)
         self._invalidate_resume()
@@ -579,7 +611,10 @@ class SessionController:
             self._checkpoint_current_revision = None
             self._confirmed_plan_revision = confirmed.revision
             self._blocked = False
-            return {'confirmed': True, 'revision': confirmed.revision, 'plan_size': validated.size}
+            self.update_project_selection_internal(confirmed)
+            result = {'confirmed': True, 'revision': confirmed.revision, 'plan_size': validated.size}
+        self._notify_active()
+        return result
 
     def get_confirmed_resume_plan(self):
         """Panel-only RAM data without token/supplement; successful commit only."""

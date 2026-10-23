@@ -4,7 +4,19 @@ title: Aktualny stan projektu sklr
 description: Zakres implementacji, potwierdzeń i ograniczeń przed dalszą pracą nad autonomią i odbiorem Windows.
 tags: [sklr, project-state, sessions, autonomy, windows, testing]
 ---
-# Aktualny stan — 2026-10-22
+# Aktualny stan — 2026-10-23
+
+## OKF i lifecycle sesji — paczka do przekazania
+
+Użytkownik zlecił commit i publikację paczki na origin/main. Identyfikator przekazania należy odczytać z historii Git. **Pytest i ręczny odbiór Windows pozostają do wykonania**; publikacja nie oznacza ich zaliczenia. Lista pozostałych prób: I6 w backlogu; komenda regresji poniżej.
+
+Po akceptacji planu rozdzielono odświeżanie: centralne zbiory przy starcie MCP jako wewnętrzne zadania bez przypisania do sesji; projekty po Start i potwierdzonym planie wznowienia, wyłącznie dla folderów bieżącej sesji. Pierwszy start bez sesji nie zleca już projektowych odświeżeń kończących się REFRESH_UNAVAILABLE. Bootstrap obsługuje też sesję uruchomioną w panelu przed zakończeniem inicjalizacji cache. Odzyskanie sesji i samo przygotowanie handshake nie uruchamiają skanu. Projektowe zadania nadal wymagają aktywnej sesji i mają jej przypisanie; wyjątek centralny jest prywatną zdolnością adaptera, nie argumentem MCP. Odczyt wiedzy przez model nadal podlega pauzie. Zatwierdzony root wiedzy centralnej musi pozostać w konfiguracji.
+
+Wyszukiwanie all/project oraz katalog wiedzy autopilota obejmują wszystkie projekty sesji; jawne id spoza niej daje BUNDLE_UNAVAILABLE. Panel pokazuje oczekiwanie na wybór sesji lub brak folderu w jej zakresie. Wersje/publikacje per zbiór zachowują centralną generację i skan po zmianie niezwiązanego folderu/członkostwa sesji. Leaf listener konfiguracji wykrywa zmianę i przywrócenie istotnych zależności bez filesystem I/O ani blokad sesji. Aktualny dostęp do źródeł nadal sprawdzany przy odczycie/publikacji; spóźniony skan projektu po zakończeniu/zmianie sesji jest odrzucany. Bez sesji opt-in zachowane jest dawne odświeżanie wszystkich zbiorów i wyszukiwanie domyślnego projektu. Bez watcherów, zmian timeoutów, lokalnego configu, zależności i danych użytkownika.
+
+Walidacja Linux: Node **8/8 plików**, składnia JS i AST zmienionych/nowych plików Python oraz whitespace poprawne. Izolowany smoke w istniejącym venv na tymczasowej konfiguracji, bazach sesji/zadań i rzeczywistym backendzie cache: centralny start bez sesji, Start i wyszukiwanie dwóch projektów, wymiana folderów podczas pauzy, odświeżenie po potwierdzonym wznowieniu, zachowanie centralnej generacji i centralne odświeżenie po zakończeniu sesji — zaliczone. Osobna kontrolowana próba współbieżności: niezwiązana zmiana folderu nie przerywa centralnego skanu; disable/restore odrzuca stary skan; projektowe zadanie queued podczas pauzy jest anulowane przez istniejący handshake, a po confirm powstaje nowe — zaliczone. Bez pytest, serwerów i odbioru Windows; zapisano testy lifecycle i katalogu autopilota. Pozostały odbiór: I6 w backlogu.
+
+Komenda w aktywnym venv/conda: `python -m pytest tests/test_knowledge_sessions.py tests/test_knowledge_tools.py tests/test_project_knowledge.py tests/test_okf_service.py tests/test_okf_cache_backend.py tests/test_tasks_sessions.py tests/test_session_admin.py tests/test_session_resume_controller.py tests/test_session_end.py tests/test_autopilot_catalog.py tests/test_autopilot_integration.py tests/test_panel_work_sessions.py tests/test_panel_session_folders.py`.
 
 ## Diagnostyka startu panelu Windows — 2026-10-23
 

@@ -57,7 +57,7 @@ knowledge_search(
 )
 ```
 
-- scope: all/central/project; all obejmuje centralne zbiory i bieżący projekt. Jawny bundle musi być zgodny ze scope i może wskazywać inny włączony projekt.
+- scope: all/central/project. Przy włączonych sesjach all obejmuje centralne zbiory i wszystkie dostępne projekty należące do wybranej sesji; project obejmuje te projekty, central wyłącznie wiedzę wspólną. Jawny bundle musi być zgodny ze scope i dla projektu należeć do wybranej sesji, inaczej BUNDLE_UNAVAILABLE. Przy wyłączonych sesjach all/project zachowują wybór domyślnego projektu; jawne id może wskazać inny włączony projekt. Pauza nadal blokuje wywołania narzędzi przez model niezależnie od scope.
 - query do 1000 znaków. terms: Unicode NFC + casefold, słowa alfanumeryczne, wszystkie niepuste terms muszą wystąpić w publicznym dokumencie (metadata lub body); brak AND/OR/SQL interpretowanych jako język zapytań. phrase: dosłowne dopasowanie całego query po NFC/casefold w danym polu/sekcji; nie scala granic pól w sztuczną frazę. Bez stemmingu, usuwania polskich diakrytyków i synonimów w v1.
 - browse=true dopuszcza puste query; query niepuste z browse=true jest błędem. Browse działa tylko z jawnym bundle_id lub co najmniej jednym filtrem type/tags/status i zawsze ma limit.
 - type/status/tags: dopasowanie dokładne po normalizacji/casefold; wszystkie podane tags wymagane. Tags max 20, tag do 100 znaków. Nieznany type jest dozwolony.

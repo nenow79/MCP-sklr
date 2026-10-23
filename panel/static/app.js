@@ -865,9 +865,12 @@
       if (bundle.automatic) { card.appendChild(el("p", {text: "Wykryto automatycznie z folderu projektu."})); }
       card.appendChild(el("p", {text: visibleText((bundle.scope || "?") + " / " + (bundle.profile || "?") +
         " / " + (bundle.root || "?") + ":" + (bundle.subpath || "."))}));
-      card.appendChild(el("p", {text: bundle.available ?
+      var sessionKnowledgeReason = bundle.reason === "session_not_selected" ?
+        "Wiedza projektu zostanie odświeżona po rozpoczęciu sesji." :
+        (bundle.reason === "project_not_in_session" ? "Folder nie należy do bieżącej sesji." : null);
+      card.appendChild(el("p", {text: sessionKnowledgeReason || (bundle.available ?
         "Dostępny, " + (bundle.writable ? "zapis możliwy" : "tylko odczyt") :
-        "Niedostępny: " + visibleText(bundle.reason + (bundle.detail ? " / " + bundle.detail : ""))}));
+        "Niedostępny: " + visibleText(bundle.reason + (bundle.detail ? " / " + bundle.detail : "")))}));
       card.appendChild(el("p", {text: "Indeks: " + visibleText(bundle.index_state) + ", dokumenty: " + bundle.indexed_documents}));
       if (bundle.reasons && bundle.reasons.length) {
         card.appendChild(el("p", {text: "Powody: " + visibleText(bundle.reasons.join(", ")) +
