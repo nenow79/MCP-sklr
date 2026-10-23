@@ -6,6 +6,12 @@ tags: [sklr, project-state, sessions, autonomy, windows, testing]
 ---
 # Aktualny stan — 2026-10-22
 
+## Diagnostyka startu panelu Windows — 2026-10-23
+
+Użytkownik zgłosił brak startu panelu po aktualizacji; sprawdzenie PowerShell nie wykazało nasłuchu na 8102. Przyczyna niepotwierdzona: obecny komunikat nie odróżnia błędu wątku/nasłuchu od przekroczenia 5 sekund. Na prośbę użytkownika dodano `scripts/diagnose_panel.py`: odczyt wersji i wybranych ustawień panelu, bind/listen, osobne procesy dla minimalnej Starlette i rzeczywistej aplikacji panelu bez usług runtime, kontrola HTTP/statycznych plików/401 oraz dodatkowe oczekiwanie do 30 sekund. Bez importu main.py, baz, przeglądarki i wypisywania tokenów/konfiguracji folderów. Raport i tracebacki w ignorowanym `logs/diagnose-panel-*.log`; limit procesu 45 sekund. Skrypt nie naprawia ani nie odbiera startu pełnego runtime.
+
+Uruchomienie na Windows w istniejącym środowisku, po zatrzymaniu MCP: `python scripts/diagnose_panel.py`. Opcjonalnie `--port 8102`. Lokalnie sprawdzono AST, `--help` i whitespace; bez uruchamiania prób serwera i pytest. Odbiór Windows pozostaje po stronie użytkownika.
+
 ## Wydajność panelu „Foldery i sesja” — paczka do przekazania
 
 Użytkownik zlecił commit i publikację tej paczki na origin/main. Identyfikator przekazania należy odczytać z historii Git; publikacja nie oznacza odbioru pytest ani Windows.
