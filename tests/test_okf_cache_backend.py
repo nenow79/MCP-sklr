@@ -1,5 +1,6 @@
 """Backend na tmp_path i rzeczywistym readerze; bez produkcyjnych danych."""
 from datetime import datetime, timezone
+import threading
 
 import pytest
 
@@ -145,15 +146,51 @@ def test_revoked_bundle_aborts_backend(tmp_path):
         assert backend.close()
 
 
-def test_cancel_clock_does_not_leave_waiter_blocked(tmp_path):
+@pytest.mark.parametrize('first', ['worker', 'waiter'])
+@pytest.mark.parametrize('safe_error', [False, True])
+def test_cancel_clock_does_not_leave_waiter_blocked(tmp_path, monkeypatch, first, safe_error):
     _, _, reader = env(tmp_path)
     backend = CacheRefreshBackend(tmp_path / 'cache.sqlite3', b'k' * 32)
 
+    caller = threading.current_thread()
+    entered, release = threading.Event(), threading.Event()
+
     def cancelled():
+        if threading.current_thread() is not caller:
+            entered.set()
+            if first == 'waiter':
+                assert release.wait(5)
+                return 0
+        else:
+            assert first == 'waiter'
+            assert entered.wait(5)
+        if safe_error:
+            raise DocumentError('CACHE_CANCELLED')
         raise RuntimeError('PRIVATE_SENTINEL')
 
+    if first == 'worker':
+        submit = backend._worker.submit
+
+        def submit_and_finish(name):
+            ticket = submit(name)
+            assert backend._jobs[name].done.wait(5)
+            return ticket
+
+        monkeypatch.setattr(backend._worker, 'submit', submit_and_finish)
+
     try:
-        with pytest.raises(DocumentError, match='CACHE_REFRESH_FAILED'):
+        code = 'CACHE_CANCELLED' if safe_error else 'CACHE_REFRESH_FAILED'
+        with pytest.raises(DocumentError) as raised:
             backend.run(reader, 'general', reader.limits, cancelled)
+        assert raised.value.code == code
+        assert 'PRIVATE_SENTINEL' not in str(raised.value)
+        assert backend._jobs == {}
+        release.set()
+        if first == 'worker':
+            monkeypatch.setattr(backend._worker, 'submit', submit)
+        # Ten sam worker nadal obsługuje kolejne zadanie po anulowaniu.
+        result = backend.run(reader, 'general', reader.limits, lambda: 0)
+        assert len(result.documents) == 2 and not result.partial
     finally:
+        release.set()
         assert backend.close()

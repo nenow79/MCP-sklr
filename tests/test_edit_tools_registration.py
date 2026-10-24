@@ -33,8 +33,8 @@ def wrappers():
     response = {"success": True, "data": {"sentinel": True}}
 
     def stub(name):
-        def invoke(*args):
-            calls.append((name, args))
+        def invoke(*args, **kwargs):
+            calls.append((name, args, kwargs))
             return response
         return invoke
 
@@ -46,6 +46,7 @@ def wrappers():
         "Any": Any, "Dict": Dict, "List": List, "Optional": Optional,
         "ROOTS": roots, "TASK_MANAGER": manager, "FILE_TRANSACTION": transaction,
         "CONFIG_STORE": SimpleNamespace(lock=lock), "register_tool": register,
+        "KNOWLEDGE": SimpleNamespace(after_file_write=lambda *args: None),
         "edit_tools": SimpleNamespace(edit_file_impl=stub("edit_file"), create_file_impl=stub("create_file")),
         "folder_tools": SimpleNamespace(manage_folder_impl=stub("manage_folder")),
     }
@@ -58,22 +59,26 @@ def test_defaults_forwarded(wrappers):
     functions, calls, roots, manager, transaction, lock, response = wrappers
     changes = [{"filepath": "a.txt", "old_text": "old", "new_text": "new"}]
     assert functions["edit_file"](changes) is response
-    assert calls.pop() == ("edit_file", (roots, manager, transaction, changes, None, ""))
+    assert calls.pop() == ("edit_file", (roots, manager, transaction, changes, None, ""),
+                           {"after_write": functions["KNOWLEDGE"].after_file_write})
     assert functions["create_file"]("a.txt", "new") is response
-    assert calls.pop() == ("create_file", (roots, manager, transaction, "a.txt", "new", False, None, ""))
+    assert calls.pop() == ("create_file", (roots, manager, transaction, "a.txt", "new", False, None, ""),
+                           {"after_write": functions["KNOWLEDGE"].after_file_write})
     assert functions["manage_folder"]("create", "sub") is response
-    assert calls.pop() == ("manage_folder", (roots, manager, lock, "create", "sub", None, None, ""))
+    assert calls.pop() == ("manage_folder", (roots, manager, lock, "create", "sub", None, None, ""), {})
 
 
 def test_explicit_arguments_forwarded(wrappers):
     functions, calls, roots, manager, transaction, lock, response = wrappers
     changes = [{"filepath": "a.txt", "old_text": "old", "new_text": "new", "root": "other"}]
     assert functions["edit_file"](changes, "app", "powód") is response
-    assert calls.pop() == ("edit_file", (roots, manager, transaction, changes, "app", "powód"))
+    assert calls.pop() == ("edit_file", (roots, manager, transaction, changes, "app", "powód"),
+                           {"after_write": functions["KNOWLEDGE"].after_file_write})
     assert functions["create_file"]("a.txt", "new", True, False, "opis") is response
-    assert calls.pop() == ("create_file", (roots, manager, transaction, "a.txt", "new", True, False, "opis"))
+    assert calls.pop() == ("create_file", (roots, manager, transaction, "a.txt", "new", True, False, "opis"),
+                           {"after_write": functions["KNOWLEDGE"].after_file_write})
     assert functions["manage_folder"]("rename", "sub", "dst", "other", "opis") is response
-    assert calls.pop() == ("manage_folder", (roots, manager, lock, "rename", "sub", "dst", "other", "opis"))
+    assert calls.pop() == ("manage_folder", (roots, manager, lock, "rename", "sub", "dst", "other", "opis"), {})
 
 
 def test_single_shared_transaction_binding():

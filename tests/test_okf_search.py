@@ -43,6 +43,7 @@ def publish(index, reader, limits=None):
     ticket = index.begin('general')
     scan = scan_bundle(reader, 'general', limits)
     assert index.publish(ticket, reader, 'general', scan, limits)
+    return scan
 
 
 def make_request(**kwargs):
@@ -67,13 +68,17 @@ def publish_unchecked(index, reader):
     ticket = index.begin('general')
     assert index.publish(ticket, reader, 'general',
                          ScanResult(documents, False, (), {}, {}), reader.limits)
+    return scan
 
 
 def test_unchecked_cache_returns_fresh_section_and_revision(env, monkeypatch):
     base, _, reader, index = env
     write(base / 'a.md', '# Old\nalpha old\n')
     write(base / 'b.md', '# Other\nbeta\n')
-    publish_unchecked(index, reader)
+    scan = publish_unchecked(index, reader)
+    assert not scan.partial and not scan.errors and len(scan.documents) == 2, {
+        'stage': 'scan', 'partial': scan.partial, 'reasons': scan.reasons,
+        'errors': scan.errors, 'documents': len(scan.documents)}
     write(base / 'a.md', '# Intro\nother\n# Current\nalpha fresh\n')
     expected = reader.read('general', 'a')
     original = reader.read
@@ -85,7 +90,9 @@ def test_unchecked_cache_returns_fresh_section_and_revision(env, monkeypatch):
 
     monkeypatch.setattr(reader, 'read', counted)
     result = find(index, reader, query='alpha')
-    assert reads == ['a'] and ids(result) == ['a']
+    assert reads == ['a'] and ids(result) == ['a'], {
+        'stage': 'search', 'partial': result.partial, 'truncated': result.truncated,
+        'reasons': result.reasons, 'hits': len(result.hits)}
     hit = result.hits[0]
     assert hit.revision == expected.revision and hit.section_id == 's2'
     assert hit.heading == 'Current' and 'fresh' in hit.excerpt
@@ -184,9 +191,14 @@ def test_ranking_by_field_weights(env):
     write(base / 'desc_doc.md', metadata='type: Reference\ndescription: alpha notes\n')
     write(base / 'head_doc.md', '# Alpha heading\ntext\n')
     write(base / 'body_doc.md', '# Plain\nalpha text\n')
-    publish(index, reader)
+    scan = publish(index, reader)
+    assert not scan.partial and not scan.errors and len(scan.documents) == 5, {
+        'stage': 'scan', 'partial': scan.partial, 'reasons': scan.reasons,
+        'errors': scan.errors, 'documents': len(scan.documents)}
     result = find(index, reader, query='alpha')
-    assert ids(result) == ['title_doc', 'tags_doc', 'desc_doc', 'head_doc', 'body_doc']
+    assert ids(result) == ['title_doc', 'tags_doc', 'desc_doc', 'head_doc', 'body_doc'], {
+        'stage': 'search', 'partial': result.partial, 'truncated': result.truncated,
+        'reasons': result.reasons, 'hits': len(result.hits)}
     by_id = {hit.concept_id: hit for hit in result.hits}
     assert by_id['tags_doc'].section_id is None and by_id['tags_doc'].excerpt == ''
     assert by_id['desc_doc'].excerpt == 'alpha notes'

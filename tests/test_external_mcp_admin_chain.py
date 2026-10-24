@@ -68,6 +68,9 @@ def env(tmp_path):
     admin = ExternalMCPAdmin(registry, manager, client=RealClientWithFakes, environ={})
     yield registry, manager, admin
     manager.shutdown()
+    for worker in manager._workers:
+        worker.join(5)
+    assert not any(worker.is_alive() for worker in manager._workers)
     task_store.close()
 
 

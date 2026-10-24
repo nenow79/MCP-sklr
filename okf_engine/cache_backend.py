@@ -87,7 +87,14 @@ class CacheRefreshBackend:
         try:
             self._worker.submit(name)
             while not job.done.wait(0.05):
-                clock()  # sprawdzenie anulowania w wątku zadania
+                try:
+                    clock()  # sprawdzenie anulowania w wątku zadania
+                except DocumentError:
+                    raise
+                except Exception:
+                    # Ta sama bezpieczna odpowiedź co w _step, niezależnie
+                    # od tego, który wątek pierwszy sprawdzi anulowanie.
+                    raise DocumentError('CACHE_REFRESH_FAILED') from None
                 state = self._worker.status()
                 if state['stopping'] or not state['alive']:
                     raise CacheError('CACHE_WORKER_UNAVAILABLE')

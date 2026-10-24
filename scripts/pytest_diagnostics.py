@@ -21,6 +21,20 @@ from datetime import datetime, timezone
 import pytest
 
 
+def thread_snapshot():
+    # Nazwy obcych wątków mogą zawierać dane użytkownika. Zapisujemy tylko
+    # identyfikatory znanych workerów i zbiorczą liczbę pozostałych wątków.
+    result = {'task_workers': [], 'knowledge_workers': [], 'other_count': 0}
+    for thread in threading.enumerate():
+        if thread.name == 'knowledge-worker':
+            result['knowledge_workers'].append(thread.ident)
+        elif thread.name.startswith('task-worker-') and thread.name[12:].isdigit():
+            result['task_workers'].append(thread.ident)
+        else:
+            result['other_count'] += 1
+    return result
+
+
 class Recorder:
     def __init__(self, stream):
         self.stream = stream
@@ -46,6 +60,7 @@ class Recorder:
         with self.lock:
             self.phase = phase
             self.started = time.perf_counter()
+            self.threads_before = thread_snapshot()
             self.metrics = {}
             self.events = []
             self.events_truncated = False
@@ -56,7 +71,8 @@ class Recorder:
             record = dict(kind='phase', phase=self.phase,
                           elapsed_s=time.perf_counter() - self.started,
                           operations=self.metrics, task_events=self.events,
-                          task_events_truncated=self.events_truncated)
+                          task_events_truncated=self.events_truncated,
+                          threads_before=self.threads_before, threads_after=thread_snapshot())
             self.phase = None
         self.write(record)
 
@@ -126,7 +142,9 @@ class Recorder:
 
 def install_measurements(patch, recorder):
     from autopilot.audit_store import AuditStore
+    from external_mcp import client, runtime_config
     from okf_engine import service
+    from okf_engine.cache_backend import CacheRefreshBackend
     from okf_engine.documents import DocumentReader
     from okf_engine.index import KnowledgeIndex
     from server.knowledge_sources import KnowledgeSources
@@ -136,7 +154,14 @@ def install_measurements(patch, recorder):
         (AuditStore, 'append', 'audit.append'),
         (TaskManager, 'submit', 'queue.submit'),
         (TaskManager, '_finish', 'queue.finish'),
+        (TaskManager, 'shutdown', 'queue.shutdown'),
+        (service.KnowledgeService, '_run_refresh', 'okf.refresh'),
+        (service.KnowledgeService, 'close', 'okf.close'),
         (service, 'scan_bundle', 'okf.scan'),
+        (CacheRefreshBackend, '_run_job', 'okf.cache_job'),
+        (client, '_execute', 'external.execute'),
+        (client, 'prepare_runtime', 'external.prepare_runtime'),
+        (runtime_config.ssl, 'create_default_context', 'tls.default_context'),
         (KnowledgeIndex, 'publish', 'okf.publish'),
         (KnowledgeIndex, 'patch', 'okf.patch'),
         (KnowledgeSources, 'source', 'okf.sources'),
@@ -144,6 +169,8 @@ def install_measurements(patch, recorder):
         (DocumentReader, '_authorize_path', 'okf.authorize'),
         (DocumentReader, '_resolve_concept', 'okf.resolve'),
         (Path, 'resolve', 'filesystem.resolve'),
+        (Path, 'write_bytes', 'filesystem.write_bytes'),
+        (Path, 'write_text', 'filesystem.write_text'),
     )
     for owner, attribute, label in targets:
         patch.setattr(owner, attribute, recorder.wrap(getattr(owner, attribute), label))

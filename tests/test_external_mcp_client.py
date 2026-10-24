@@ -223,14 +223,35 @@ def test_call_timeout_is_uncertain_and_transport_closed():
 
 
 def test_thread_cancel_during_call_is_uncertain():
-    session, transport, event = Session(), Transport(), threading.Event()
+    entered, event = threading.Event(), threading.Event()
+
+    class EnteredSession(Session):
+        async def call_tool(self, *args, **kwargs):
+            entered.set()
+            return await super().call_tool(*args, **kwargs)
+
+    session, transport = EnteredSession(), Transport()
     session.call_hang = True
-    threading.Timer(0.1, event.set).start()
-    with pytest.raises(ExternalError) as raised:
-        call_tool(profile(), 'lookup', {}, timeout=5, cancel_event=event,
-                  transport=transport, session_factory=factory(session))
+
+    def cancel_after_dispatch():
+        # Bariera nie wygasa podczas przygotowania runtime (np. TLS Windows).
+        # finally poniżej zwalnia ją również po błędzie przed dispatch.
+        entered.wait()
+        event.set()
+
+    canceller = threading.Thread(target=cancel_after_dispatch)
+    canceller.start()
+    try:
+        with pytest.raises(ExternalError) as raised:
+            call_tool(profile(), 'lookup', {}, timeout=5, cancel_event=event,
+                      transport=transport, session_factory=factory(session))
+    finally:
+        entered.set()  # sprzątanie także po błędzie przed dispatch
+        canceller.join(5)
+    assert not canceller.is_alive()
     assert raised.value.code == 'call_cancelled_uncertain'
-    assert transport.closed == 1
+    assert transport.opened == transport.closed == 1
+    assert len(session.calls) == 1
 
 
 @pytest.mark.parametrize('name, arguments', [('', {}), ('lookup', []), ('x' * 257, {})])

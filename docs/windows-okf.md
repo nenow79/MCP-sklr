@@ -169,6 +169,58 @@ Testy zewnętrznych skilli zależą od ich dostępności na danej maszynie.
 
 Starsze wyniki paczek są w CURRENT i archiwum; nie oznaczają pełnej regresji przekazywanego commita. Wszystkie powyższe komendy są instrukcją dla użytkownika, nie raportem ich wykonania. Komenda Node korzysta z PowerShell, aby przekazać całą aktualną listę testów panelu.
 
+## Pierwsza paczka napraw D15
+
+Lokalne naprawy i testy Linux są opisane na początku CURRENT: 43 testy modułów pierwszej paczki, 178 testów powiązanych modułów OKF oraz wszystkie 20 pierwotnych nodeid (23 warianty) z pluginem i bez niego przeszły. To nie odbiór Windows. Test starej publikacji ma barierę zwalnianą w finally zamiast niezależnego wygaśnięcia po 5 s; limity oczekiwania głównego wątku pozostają. W dwóch testach search asercje rozróżniają niekompletny skan od niekompletnego wyszukiwania.
+
+Na Windows, po przeniesieniu paczki i w istniejącym środowisku, zacznij od wszystkich 20 pierwotnych przypadków, zamiast całego repo. Lista PowerShell obejmuje dokładnie błędy ze zrzutu; cztery warianty testu clock dają łącznie 23 testy. Po wyraźnym poleceniu wykonania testów:
+
+```powershell
+git rev-parse HEAD
+git status --short
+$cases = @(
+    'tests/test_edit_tools_registration.py::test_defaults_forwarded',
+    'tests/test_edit_tools_registration.py::test_explicit_arguments_forwarded',
+    'tests/test_okf_cache_backend.py::test_cancel_clock_does_not_leave_waiter_blocked',
+    'tests/test_external_mcp_client.py::test_thread_cancel_during_call_is_uncertain',
+    'tests/test_external_mcp_admin_chain.py::test_inspection_goes_through_the_real_client_and_pins_real_digests',
+    'tests/test_autopilot_executors.py::test_central_trusted_skill_is_rechecked_and_charged_once',
+    'tests/test_autopilot_integration.py::test_create_tree_is_one_logical_operation',
+    'tests/test_knowledge_sessions.py::test_startup_refreshes_only_central_without_selecting_session',
+    'tests/test_knowledge_sessions.py::test_start_indexes_all_session_projects_and_excludes_other_registered_projects',
+    'tests/test_knowledge_sessions.py::test_central_is_preserved_and_can_refresh_while_paused_but_model_is_blocked',
+    'tests/test_knowledge_sessions.py::test_folder_replacement_refreshes_only_after_confirmed_resume',
+    'tests/test_knowledge_sessions.py::test_end_discards_projects_but_retains_central_for_new_session',
+    'tests/test_knowledge_sessions.py::test_early_panel_start_before_cache_initialization_is_caught_by_bootstrap',
+    'tests/test_knowledge_sessions.py::test_recovery_does_not_refresh_projects_before_resume_confirmation',
+    'tests/test_knowledge_sessions.py::test_repeated_bind_does_not_schedule_more_refreshes',
+    'tests/test_knowledge_sessions.py::test_pending_project_scan_cannot_publish_after_session_end',
+    'tests/test_project_knowledge.py::test_project_profiles_plain_markdown_search_get_and_exclusions[mixed--expected0]',
+    'tests/test_knowledge_write_tools.py::test_old_scan_cannot_publish_over_generation_after_write',
+    'tests/test_okf_search.py::test_unchecked_cache_returns_fresh_section_and_revision',
+    'tests/test_okf_search.py::test_ranking_by_field_weights'
+)
+python -m pytest @cases -q -rs --durations=0 -p scripts.pytest_diagnostics --windows-diagnostics
+```
+
+Zapisz wynik i ścieżkę raportu JSONL pokazaną przez pytest. Przy błędzie analizuj dany nodeid i jego setup/call/teardown. Dla search sprawdź etap `scan` (partial/reasons/errors/liczba dokumentów), potem `search` (partial/truncated/reasons/liczba trafień). Krótki skan przygotowawczy ma budżet 6 s, a wyszukiwanie 2 s; nie zakładaj, że brak tytułowego trafienia dowodzi błędnej wagi rankingu.
+
+Diagnostyka dodaje pomiary `external.execute`, `external.prepare_runtime`, `tls.default_context`, `okf.cache_job`, `okf.refresh`, zamykania zasobów i zapisów plików. Kontekst TLS jest tworzony także przy atrapach transportu, przed wewnętrznym timeoutem klienta; pending nie dowodzi problemu sieci. `threads_before`/`threads_after` zawierają identyfikatory znanych workerów i liczbę innych wątków, bez ich dowolnych nazw. Pozostawiony worker po teardown jest tropem, nie dowodem przyczyny kolejnego błędu. Pomiary są inkluzywne i nie należy ich sumować.
+
+Po analizie porównaj wybrane przypadki bez pluginu. Gdy ta paczka jest zielona na Windows, przejdź do powiązanych modułów, a pełne repo pozostaw na koniec. Komenda powiązanej paczki odebranej lokalnie jako 178 testów:
+
+```text
+python -m pytest tests/test_knowledge_write_tools.py tests/test_okf_search.py tests/test_okf_index.py tests/test_okf_service.py tests/test_okf_cache_backend.py tests/test_external_mcp_admin_chain.py -q -rs --durations=10
+```
+
+Dodatkowe moduły rejestracji/anulowania/diagnostyki (lokalnie 43 testy):
+
+```text
+python -m pytest tests/test_edit_tools_registration.py tests/test_okf_cache_backend.py tests/test_external_mcp_client.py tests/test_pytest_diagnostics.py -q -rs --durations=0
+```
+
+Brak nowego pomiaru wydajności Windows; nie zmieniać timeoutów, trwałości SQLite ani kontroli ścieżek dla uzyskania zielonego wyniku.
+
 ## Diagnostyka regresji Windows D14
 
 Po osobnym poleceniu uruchomienia pytest zacznij od małej paczki poniżej w istniejącym środowisku. Zapisz `git rev-parse HEAD`, `git status --short` i dokładną komendę. Nie powtarzaj od razu przebiegu trwającego 54 minuty. Lokalna paczka naprawia nieaktualny test zakładki, uzupełnia kontrolę wyniku refresh i sprzątanie fixtures; nie jest jeszcze potwierdzeniem usunięcia opóźnień Windows.

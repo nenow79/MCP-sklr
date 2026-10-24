@@ -3,10 +3,29 @@ import io
 import inspect
 import json
 import sqlite3
+from types import SimpleNamespace
 
 import pytest
 
 from scripts.pytest_diagnostics import Recorder, install_sqlite_measurements
+
+
+def test_phase_thread_snapshots_omit_arbitrary_thread_names(monkeypatch):
+    threads = [SimpleNamespace(name='task-worker-0', ident=101),
+               SimpleNamespace(name='knowledge-worker', ident=102),
+               SimpleNamespace(name='PRIVATE_THREAD_SENTINEL', ident=103)]
+    monkeypatch.setattr('threading.enumerate', lambda: list(threads))
+    stream = io.StringIO()
+    recorder = Recorder(stream)
+    recorder.begin({'stage': 'teardown'})
+    threads[:] = threads[2:]
+    recorder.end()
+    record = json.loads(stream.getvalue())
+    assert record['threads_before'] == {
+        'task_workers': [101], 'knowledge_workers': [102], 'other_count': 1}
+    assert record['threads_after'] == {
+        'task_workers': [], 'knowledge_workers': [], 'other_count': 1}
+    assert 'PRIVATE_THREAD_SENTINEL' not in stream.getvalue()
 
 
 def test_measurement_keeps_results_and_exceptions_without_serializing_them():

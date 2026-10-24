@@ -44,7 +44,11 @@ def env(tmp_path):
     for task in manager.list(limit=100):
         if not task.is_terminal:
             manager.wait(task.id, 8)
+    assert service.close()
     manager.shutdown()
+    for worker in manager._workers:
+        worker.join(5)
+    assert not any(worker.is_alive() for worker in manager._workers)
     task_store.close()
 
 
@@ -337,18 +341,22 @@ def test_old_scan_cannot_publish_over_generation_after_write(env, monkeypatch):
         if not calls:
             calls.append(True)
             entered.set()
-            assert release.wait(5)
+            # Stary skan pozostaje wstrzymany do publikacji nowej generacji.
+            # finally zwalnia barierę także po nieudanym zapisie/oczekiwaniu;
+            # jej własny termin nie może zamienić anulowania w błąd atrapy.
+            release.wait()
         return result
 
     monkeypatch.setattr(module, "scan_bundle", scan)
-    old_scan = env.service.search(query="alpha")["refresh_tasks"][0]["task_id"]
     try:
+        old_scan = env.service.search(query="alpha")["refresh_tasks"][0]["task_id"]
         assert entered.wait(5)
         done = decide(env, update(env))
         assert done.status.value == "done"
         new_scan = json.loads(done.stdout)["refresh_task_id"]
         assert new_scan != old_scan
         assert env.manager.wait(new_scan, 8).status.value == "done"
+        assert env.manager.get(old_scan).status.value == "running"
     finally:
         release.set()
     assert env.manager.wait(old_scan, 8).status.value == "cancelled"
