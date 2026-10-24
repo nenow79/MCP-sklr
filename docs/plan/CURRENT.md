@@ -4,7 +4,23 @@ title: Aktualny stan projektu sklr
 description: Zakres implementacji, potwierdzeń i ograniczeń przed dalszą pracą nad autonomią i odbiorem Windows.
 tags: [sklr, project-state, sessions, autonomy, windows, testing]
 ---
-# Aktualny stan — 2026-10-23
+# Aktualny stan — przekazanie pełnej regresji Windows
+
+## Pełne repo Windows po 58c7986 — aktualny punkt przekazania
+
+Ta sekcja jest nadrzędna wobec starszych stwierdzeń o niewykonanym odbiorze pytest Windows. Baza sprawdzona przed i po testach: `58c7986`, main; po przebiegu brak zmian śledzonych. Użytkownik wykonał w istniejącym venv `python -m pytest -q -rs --durations=30`: **20 failed, 3231 passed, 31 skipped in 4960.54s (1:22:40)**. Oczyszczony zrzut: [full_tests_20261224.txt](../full_tests_20261224.txt). Nazwę pliku nadano lokalnie; timestampy zadań wskazują 2026-10-24, więc nie wywodzić daty przebiegu z nazwy. Wersje środowiska Windows nie są podane. Usunięto wartość tokena inspekcji i cookie panelu; pozostawiono diagnostyczne ścieżki lokalne i testowe sentinele. Lokalny config, bazy, raporty logs i incremental-smoke-test pozostają poza publikacją.
+
+Przed pełnym repo użytkownik potwierdził paczki z tej rozmowy: A z diagnostyką **7 passed / 1.17s**; B/D14 z diagnostyką **111 passed, 1 skipped / 23.54s** (symlink unavailable, test_project_knowledge.py:330); C/S6 i text_validation **16 passed / 2.32s**; C/katalog i API panelu **109 passed / 8.30s**; Node OK według użytkownika, bez liczbowego raportu. Osobnej szerszej komendy 934 testów nie potwierdzono: użytkownik przeszedł do pełnego repo. Wyniki paczek nie są pełnym odbiorem panelu/harnessu.
+
+**D14 nie jest zamknięte:** w pełnym przebiegu wróciły błędy oczekiwania w testach zielonych w A/B. Różnią się zakres, wcześniejsze testy i obecność pluginu; nie przypisywać przyczyny wyłącznie kolejności, dyskowi, deadlockowi ani timeoutom bez reprodukcji/pomiaru. W pending_project_scan entered=True potwierdza wejście do skanu, ale scanned nie pojawiło się w 5 s; nie odebrano późniejszej asercji bezpieczeństwa publikacji.
+
+Podział 20 błędów: 12 oczekiwania/synchronizacji (2 autopilot, 9 knowledge_sessions, 1 mixed profile); 2 znane D7 (atrapa rejestracji bez KNOWLEDGE); 1 znane D8 (surowy wyjątek clock); 2 external MCP; 1 stary skan po zapisie failed zamiast cancelled; 2 search OKF (brak świeżego trafienia i niepełny ranking). Szczegółowe nodeid, priorytety i komendy: **D15 w backlog.md**. D6/POSIX nie występuje na liście błędów Windows i nie jest uznane za naprawione.
+
+31 skip: 10 brak pandas w cost-centers, 5 POSIX process groups, 1 POSIX mode policy, 1 case-sensitive filesystem, 14 brak symlinków/linków. Bez automatycznej instalacji pandas/zmian uprawnień; skip nie potwierdza ochrony symlinków/junctionów.
+
+Najwolniejsze call: directory_limit **80.55s**, concurrent_trust_and_update **27.11s**, cache cold/warm/restart **25.30s**, central skill **24.83s**, delegated sequence **24.25s**, incremental write **23.60s**. To czasy całych call, nie diagnoza; suma top 30 nie opisuje całych 82 minut.
+
+Użytkownik zlecił zapis wniosków i publikację oczyszczonego zrzutu na GitHub. Obowiązuje **fail-first: błędne przypadki → naprawa i dedykowane testy → powiązany moduł → mała regresja → jedno pełne repo na końcu**. Nie powtarzać 82-minutowego przebiegu jako pierwszego kroku ani zielonych paczek bez nowej przyczyny. Plan i akceptacja przed kodem; pytest/serwery tylko na wyraźne polecenie. Zachować zgody, budżety, timeouty, publikację generacji i brak retry niepewnych skutków. Rzeczywisty odbiór S6/I6/panelu/harnessu oraz pełne uproszczenie P1–P9 pozostają otwarte.
 
 ## D14 — lokalne poprawki testów i diagnostyka po akceptacji planu
 

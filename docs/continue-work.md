@@ -6,6 +6,10 @@ tags: [sklr, autonomy, handoff, windows]
 ---
 # Prompt startowy
 
+## Najnowsze przekazanie: pełna regresja Windows po 58c7986
+
+Przed historycznym promptem poniżej przeczytaj pierwszą sekcję `docs/plan/CURRENT.md`, **D15 w `docs/plan/backlog.md`** i oczyszczony `docs/full_tests_20261224.txt`. Pełne repo: **20 failed, 3231 passed, 31 skipped / 1:22:40**; A/B/C i Node wcześniej przeszły. Nie deklaruj D14 naprawionego: błędy wróciły w pełnym przebiegu. Nie zaczynaj od kolejnej 82-minutowej regresji. Kolejność: błędne przypadki i izolacja → zaakceptowana naprawa → dedykowane testy → moduł → mała regresja → pełne repo na końcu. D15 zawiera wszystkie 20 nazw, znane D7/D8, tropy i ograniczenia. Bez zmian kodu/środowiska lub uruchamiania pytest/serwerów bez wymaganej zgody. Najnowsze wyniki i priorytety są nadrzędne wobec historycznego promptu.
+
 Po aktualizacji checkoutu i sprawdzeniu gałęzi/commita wklej tekst poniżej do nowej rozmowy. Ten dokument jest instrukcją wejścia; bieżące wyniki i zadania pozostają w [CURRENT](plan/CURRENT.md) i [backlogu](plan/backlog.md).
 
 ```text

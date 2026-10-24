@@ -1,0 +1,667 @@
+
+(venv) C:\Users\rap1tw\1_MyScripts\Python\MCP-my-codex-sklr>python -m pytest -q -rs --durations=30
+.................................................................... [  2%]
+.................................................................... [  4%]
+...................................................................F [  6%]
+.........................F.......................................... [  8%]
+.................................................................... [ 10%]
+.................................................................... [ 12%]
+...................................................ssssssss......ss. [ 14%]
+.............................................................FF..... [ 16%]
+...................F.....................F.......sssss.............. [ 18%]
+.................................................................... [ 20%]
+.................................................................... [ 22%]
+.................................................................... [ 24%]
+.................................................................... [ 26%]
+.................................................................... [ 29%]
+...............................s...................................s [ 31%]
+..............................................s..................... [ 33%]
+...........................................FFFFFFFF....F............ [ 35%]
+......................................F...........s................. [ 37%]
+.................................................................... [ 39%]
+...F............ss..........................s....................... [ 41%]
+.................................................................... [ 43%]
+.................................................................... [ 45%]
+.................................................................... [ 47%]
+......s...........s................................................. [ 49%]
+.................................................................... [ 51%]
+..........................F...............................F......... [ 53%]
+.................................................................... [ 55%]
+...............................................s.................... [ 58%]
+.................................................................... [ 60%]
+.................................................................... [ 62%]
+.................................................................... [ 64%]
+.................................................................... [ 66%]
+.................................................................... [ 68%]
+...............s............F...................s................... [ 70%]
+.................................................................... [ 72%]
+.................................................................... [ 74%]
+............................s....................................... [ 76%]
+.................................................................... [ 78%]
+.................................................................... [ 80%]
+.................................................................... [ 82%]
+.................................................................... [ 84%]
+.................................................................... [ 87%]
+..........s......................................................... [ 89%]
+..........................................s......................... [ 91%]
+.................................................................... [ 93%]
+.................................................................... [ 95%]
+.................................................................... [ 97%]
+.....................................s.............................. [ 99%]
+..................                                                   [100%]
+================================ FAILURES =================================
+________ test_central_trusted_skill_is_rechecked_and_charged_once _________
+
+env = Environment(store=<config_store.ConfigStore object at 0x0000020D93EB24A0>, roots=<roots_registry.RootsRegistry object ...alMCPTools object at 0x0000020D96A1E4E0>, knowledge=<okf_engine.service.KnowledgeService object at 0x0000020D96949370>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000020D93EB29E0>
+
+    def test_central_trusted_skill_is_rechecked_and_charged_once(env, monkeypatch):
+        _, rule = make_skill(env)
+        calls = []
+        def run(command, cwd, timeout, environment, event):
+            recheck_current()
+            calls.append(command)
+            assert not env.sessions._lock._is_owned()
+            assert not env.autopilot._lock._is_owned()
+            return {'exit_code': 0, 'stdout': 'done'}
+        monkeypatch.setattr(task_tools, 'run_command', run)
+        env.approve([rule])
+>       task = env.settle(skill_call(env))
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_autopilot_executors.py:207:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = Environment(store=<config_store.ConfigStore object at 0x0000020D93EB24A0>, roots=<roots_registry.RootsRegistry object ...alMCPTools object at 0x0000020D96A1E4E0>, knowledge=<okf_engine.service.KnowledgeService object at 0x0000020D96949370>)
+response = {'success': True, 'data': {'task_id': 1, 'status': 'running', 'hint': 'Zadanie trwa. Użyj wait_task(task_id) lub get_t...048b1f8018', ...}, 'autopilot_control': {'state': 'active', 'execution_blocked': False, 'used': 0, 'reserved': 1, ...}}
+
+    def settle(self, response):
+        assert response['success'], response
+        task = self.manager.wait(response['data']['task_id'], 5)
+>       assert task.is_terminal, f"task {task.id}: {task.status.value}"
+               ^^^^^^^^^^^^^^^^
+E       AssertionError: task 1: running
+
+tests\autopilot_fixtures.py:55: AssertionError
+________________ test_create_tree_is_one_logical_operation ________________
+
+env = Environment(store=<config_store.ConfigStore object at 0x0000020D967FB310>, roots=<roots_registry.RootsRegistry object ...alMCPTools object at 0x0000020D9654ECC0>, knowledge=<okf_engine.service.KnowledgeService object at 0x0000020D9694A7A0>)
+
+    def test_create_tree_is_one_logical_operation(env):
+        env.approve([env.file_rule('create_tree')])
+        def create_tree(directories=None, files=None, root=None):
+            return tree_tools.create_tree_impl(env.roots, env.manager, env.store.lock, directories, files, root)
+        result = wrap_session_tool(create_tree, env.sessions)(
+            ['src/new'], [{'filepath': 'src/new/a.txt', 'content': 'a'}], root='app')
+>       task = env.settle(result)
+               ^^^^^^^^^^^^^^^^^^
+
+tests\test_autopilot_integration.py:289:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = Environment(store=<config_store.ConfigStore object at 0x0000020D967FB310>, roots=<roots_registry.RootsRegistry object ...alMCPTools object at 0x0000020D9654ECC0>, knowledge=<okf_engine.service.KnowledgeService object at 0x0000020D9694A7A0>)
+response = {'success': True, 'data': {'task_id': 1, 'status': 'queued', 'kind': 'tree_create', 'paths': ['app:src/', 'app:src/new...dddd24e810', ...}, 'autopilot_control': {'state': 'active', 'execution_blocked': False, 'used': 0, 'reserved': 1, ...}}
+
+    def settle(self, response):
+        assert response['success'], response
+        task = self.manager.wait(response['data']['task_id'], 5)
+>       assert task.is_terminal, f"task {task.id}: {task.status.value}"
+               ^^^^^^^^^^^^^^^^
+E       AssertionError: task 1: running
+
+tests\autopilot_fixtures.py:55: AssertionError
+_________________________ test_defaults_forwarded _________________________
+
+wrappers = ({'Any': typing.Any, 'Dict': typing.Dict, 'List': typing.List, 'Optional': typing.Optional, ...}, [], <object object a...bject object at 0x0000020D95B7C3F0>, <object object at 0x0000020D95B7DD00>, <object object at 0x0000020D95B7DCD0>, ...)
+
+    def test_defaults_forwarded(wrappers):
+        functions, calls, roots, manager, transaction, lock, response = wrappers
+        changes = [{"filepath": "a.txt", "old_text": "old", "new_text": "new"}]
+>       assert functions["edit_file"](changes) is response
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_edit_tools_registration.py:60:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+changes = [{'filepath': 'a.txt', 'old_text': 'old', 'new_text': 'new'}]
+root = None, description = ''
+
+    @register_tool
+    def edit_file(changes: List[Dict[str, Any]], root: Any = None,
+                  description: str = "") -> Dict[str, Any]:
+        """Proponuje dokładne zamiany tekstu w jednym lub wielu plikach jako jedno zadanie.
+        changes: lista wpisów filepath/old_text/new_text, opcjonalnie root per wpis (brak
+        dziedziczy root wywołania). Wymagane dokładnie jedno dopasowanie old_text; błędy
+        przygotowania nie tworzą zadania. Zachowuje kodowanie i końce linii. Limity:
+        50 zmian, 10 plików, 5 MiB na plik. Podgląd diffu maskuje sekrety i może być skrócony.
+        description: opcjonalny opis od modelu, do 500 znaków, bez control/bidi.
+        W trybie ręcznym wymaga decyzji użytkownika w panelu, bez Ufaj. Aktywna delegacja
+        może obejmować zapis; uprawnienia sprawdza serwer, nie sam opis ani hint.
+        Od razu zwraca task_id. Przy awaiting_approval zatrzymaj się i poczekaj na wiadomość
+        użytkownika, potem sprawdź get_task. Przy queued/running śledź ten sam task_id przez
+        wait_task(seconds=8)/get_task; można ponownie czekać, jeśli zadanie nadal trwa.
+        Limit 8 s dotyczy jednego oczekiwania, nie życia zadania. Nie ponawiaj zapisu.
+        Kolejny zależny krok dopiero po potwierdzonym sukcesie, w aktualnym zakresie zgody;
+        pauza/utrata zgody blokuje nowe kroki. Po błędzie ': ping' przed ponowieniem
+        sprawdź list_tasks: zadanie mogło powstać. Konflikt nie nadpisuje wykrytej zmiany
+        zewnętrznej; błąd rollback/cleanup wymaga sprawdzenia plików, nie ponawiaj w ciemno.
+        """
+        return edit_tools.edit_file_impl(ROOTS, TASK_MANAGER, FILE_TRANSACTION, changes, root, description,
+>                                        after_write=KNOWLEDGE.after_file_write)
+                                                     ^^^^^^^^^
+E       NameError: name 'KNOWLEDGE' is not defined
+
+main.py:470: NameError
+____________________ test_explicit_arguments_forwarded ____________________
+
+wrappers = ({'Any': typing.Any, 'Dict': typing.Dict, 'List': typing.List, 'Optional': typing.Optional, ...}, [], <object object a...bject object at 0x0000020D95B7DE20>, <object object at 0x0000020D95B7CC40>, <object object at 0x0000020D95B7DCA0>, ...)
+
+    def test_explicit_arguments_forwarded(wrappers):
+        functions, calls, roots, manager, transaction, lock, response = wrappers
+        changes = [{"filepath": "a.txt", "old_text": "old", "new_text": "new", "root": "other"}]
+>       assert functions["edit_file"](changes, "app", "powód") is response
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_edit_tools_registration.py:71:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+changes = [{'filepath': 'a.txt', 'old_text': 'old', 'new_text': 'new', 'root': 'other'}]
+root = 'app', description = 'powód'
+
+    @register_tool
+    def edit_file(changes: List[Dict[str, Any]], root: Any = None,
+                  description: str = "") -> Dict[str, Any]:
+        """Proponuje dokładne zamiany tekstu w jednym lub wielu plikach jako jedno zadanie.
+        changes: lista wpisów filepath/old_text/new_text, opcjonalnie root per wpis (brak
+        dziedziczy root wywołania). Wymagane dokładnie jedno dopasowanie old_text; błędy
+        przygotowania nie tworzą zadania. Zachowuje kodowanie i końce linii. Limity:
+        50 zmian, 10 plików, 5 MiB na plik. Podgląd diffu maskuje sekrety i może być skrócony.
+        description: opcjonalny opis od modelu, do 500 znaków, bez control/bidi.
+        W trybie ręcznym wymaga decyzji użytkownika w panelu, bez Ufaj. Aktywna delegacja
+        może obejmować zapis; uprawnienia sprawdza serwer, nie sam opis ani hint.
+        Od razu zwraca task_id. Przy awaiting_approval zatrzymaj się i poczekaj na wiadomość
+        użytkownika, potem sprawdź get_task. Przy queued/running śledź ten sam task_id przez
+        wait_task(seconds=8)/get_task; można ponownie czekać, jeśli zadanie nadal trwa.
+        Limit 8 s dotyczy jednego oczekiwania, nie życia zadania. Nie ponawiaj zapisu.
+        Kolejny zależny krok dopiero po potwierdzonym sukcesie, w aktualnym zakresie zgody;
+        pauza/utrata zgody blokuje nowe kroki. Po błędzie ': ping' przed ponowieniem
+        sprawdź list_tasks: zadanie mogło powstać. Konflikt nie nadpisuje wykrytej zmiany
+        zewnętrznej; błąd rollback/cleanup wymaga sprawdzenia plików, nie ponawiaj w ciemno.
+        """
+        return edit_tools.edit_file_impl(ROOTS, TASK_MANAGER, FILE_TRANSACTION, changes, root, description,
+>                                        after_write=KNOWLEDGE.after_file_write)
+                                                     ^^^^^^^^^
+E       NameError: name 'KNOWLEDGE' is not defined
+
+main.py:470: NameError
+___ test_inspection_goes_through_the_real_client_and_pins_real_digests ____
+
+env = (<external_mcp.registry.ExternalMCPRegistry object at 0x0000020D9670DF70>, <tasks.manager.TaskManager object at 0x0000020D967459C0>, <server.external_mcp_admin.ExternalMCPAdmin object at 0x0000020D967002F0>)
+
+    def test_inspection_goes_through_the_real_client_and_pins_real_digests(env):
+        registry, manager, admin = env
+        registry.add({'alias': 'browser', 'transport': 'http', 'url': 'https://example.test/mcp'},
+                     registry.list()['revision'])
+        profile = admin.list()['profiles'][0]
+        started = admin.start_inspection(profile['id'])
+>       result = settle(admin, started['token'])
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_external_mcp_admin_chain.py:90:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+admin = <server.external_mcp_admin.ExternalMCPAdmin object at 0x0000020D967002F0>
+token = '[REDACTED_INSPECTION_TOKEN]', seconds = 10
+
+    def settle(admin, token, seconds=10):
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            result = admin.get_inspection(token)
+            if result['state'] != 'pending':
+                return result
+            time.sleep(0.05)
+>       raise AssertionError('inspection did not finish')
+E       AssertionError: inspection did not finish
+
+tests\test_external_mcp_admin_chain.py:81: AssertionError
+_______________ test_thread_cancel_during_call_is_uncertain _______________
+
+    def test_thread_cancel_during_call_is_uncertain():
+        session, transport, event = Session(), Transport(), threading.Event()
+        session.call_hang = True
+        threading.Timer(0.1, event.set).start()
+        with pytest.raises(ExternalError) as raised:
+            call_tool(profile(), 'lookup', {}, timeout=5, cancel_event=event,
+                      transport=transport, session_factory=factory(session))
+>       assert raised.value.code == 'call_cancelled_uncertain'
+E       AssertionError: assert 'cancelled' == 'call_cancelled_uncertain'
+E
+E         - call_cancelled_uncertain
+E         + cancelled
+
+tests\test_external_mcp_client.py:232: AssertionError
+______ test_startup_refreshes_only_central_without_selecting_session ______
+
+env = namespace(store=<config_store.ConfigStore object at 0x0000020D98C59470>, roots=<roots_registry.RootsRegistry object at...'C:/Users/rap1tw/AppData/Local/Temp/pytest-of-RAP1TW/pytest-186/test_startup_refreshes_only_ce0/outside')}, release=[])
+
+    def test_startup_refreshes_only_central_without_selecting_session(env):
+        result = start_background_refresh(env.service, env.manager)
+        assert set(result) == {'general'}
+>       settle(env)
+
+tests\test_knowledge_sessions.py:85:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+e = namespace(store=<config_store.ConfigStore object at 0x0000020D98C59470>, roots=<roots_registry.RootsRegistry object at...'C:/Users/rap1tw/AppData/Local/Temp/pytest-of-RAP1TW/pytest-186/test_startup_refreshes_only_ce0/outside')}, release=[])
+
+    def settle(e):
+        for task in e.manager.list(limit=100):
+            completed = e.manager.wait(task.id, 5)
+>           assert completed.is_terminal, f"task {task.id}: {completed.status.value}"
+E           AssertionError: task 1: running
+E           assert False
+E            +  where False = Task(id=1, created_at='2026-10-24T09:39:26.890112+00:00', status=<TaskStatus.RUNNING: 'running'>, skill='', source='',... error='', kind='knowledge_refresh', title='Odświeżanie indeksu OKF', payload={'bundle_id': 'general'}, sensitive=True).is_terminal
+
+tests\test_knowledge_sessions.py:66: AssertionError
+_ test_start_indexes_all_session_projects_and_excludes_other_registered_projects _
+
+env = namespace(store=<config_store.ConfigStore object at 0x0000020D98C59DA0>, roots=<roots_registry.RootsRegistry object at...'C:/Users/rap1tw/AppData/Local/Temp/pytest-of-RAP1TW/pytest-186/test_start_indexes_all_session0/outside')}, release=[])
+
+    def test_start_indexes_all_session_projects_and_excludes_other_registered_projects(env):
+        start_background_refresh(env.service, env.manager)
+        state = env.admin.start(['a', 'b'])
+>       settle(env)
+
+tests\test_knowledge_sessions.py:97:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+e = namespace(store=<config_store.ConfigStore object at 0x0000020D98C59DA0>, roots=<roots_registry.RootsRegistry object at...'C:/Users/rap1tw/AppData/Local/Temp/pytest-of-RAP1TW/pytest-186/test_start_indexes_all_session0/outside')}, release=[])
+
+    def settle(e):
+        for task in e.manager.list(limit=100):
+            completed = e.manager.wait(task.id, 5)
+>           assert completed.is_terminal, f"task {task.id}: {completed.status.value}"
+E           AssertionError: task 3: queued
+E           assert False
+E            +  where False = Task(id=3, created_at='2026-10-24T09:39:38.925507+00:00', status=<TaskStatus.QUEUED: 'queued'>, skill='', source='', s...dge_refresh', title='Odświeżanie indeksu OKF', payload={'bundle_id': 'auto-docs-e5e30fd6d8eb5bf3eca5'}, sensitive=True).is_terminal
+
+tests\test_knowledge_sessions.py:66: AssertionError
+_ test_central_is_preserved_and_can_refresh_while_paused_but_model_is_blocked _
+
+env = namespace(store=<config_store.ConfigStore object at 0x0000020D99E31EF0>, roots=<roots_registry.RootsRegistry object at...'C:/Users/rap1tw/AppData/Local/Temp/pytest-of-RAP1TW/pytest-186/test_central_is_preserved_and_0/outside')}, release=[])
+
+    def test_central_is_preserved_and_can_refresh_while_paused_but_model_is_blocked(env):
+        start_background_refresh(env.service, env.manager)
+        state = env.admin.start(['a'])
+>       settle(env)
+
+tests\test_knowledge_sessions.py:113:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+e = namespace(store=<config_store.ConfigStore object at 0x0000020D99E31EF0>, roots=<roots_registry.RootsRegistry object at...'C:/Users/rap1tw/AppData/Local/Temp/pytest-of-RAP1TW/pytest-186/test_central_is_preserved_and_0/outside')}, release=[])
+
+    def settle(e):
+        for task in e.manager.list(limit=100):
+            completed = e.manager.wait(task.id, 5)
+>           assert completed.is_terminal, f"task {task.id}: {completed.status.value}"
+E           AssertionError: task 2: running
+E           assert False
+E            +  where False = Task(id=2, created_at='2026-10-24T09:39:51.821908+00:00', status=<TaskStatus.RUNNING: 'running'>, skill='', source='',...dge_refresh', title='Odświeżanie indeksu OKF', payload={'bundle_id': 'auto-docs-7f3c69814b0e4146ebc3'}, sensitive=True).is_terminal
+
+tests\test_knowledge_sessions.py:66: AssertionError
+______ test_folder_replacement_refreshes_only_after_confirmed_resume ______
+
+env = namespace(store=<config_store.ConfigStore object at 0x0000020D99E30280>, roots=<roots_registry.RootsRegistry object at...'C:/Users/rap1tw/AppData/Local/Temp/pytest-of-RAP1TW/pytest-186/test_folder_replacement_refres0/outside')}, release=[])
+
+    def test_folder_replacement_refreshes_only_after_confirmed_resume(env):
+        start_background_refresh(env.service, env.manager)
+        state = env.admin.start(['a'])
+>       settle(env)
+
+tests\test_knowledge_sessions.py:134:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+e = namespace(store=<config_store.ConfigStore object at 0x0000020D99E30280>, roots=<roots_registry.RootsRegistry object at...'C:/Users/rap1tw/AppData/Local/Temp/pytest-of-RAP1TW/pytest-186/test_folder_replacement_refres0/outside')}, release=[])
+
+    def settle(e):
+        for task in e.manager.list(limit=100):
+            completed = e.manager.wait(task.id, 5)
+>           assert completed.is_terminal, f"task {task.id}: {completed.status.value}"
+E           AssertionError: task 2: running
+E           assert False
+E            +  where False = Task(id=2, created_at='2026-10-24T09:40:04.466609+00:00', status=<TaskStatus.RUNNING: 'running'>, skill='', source='',...dge_refresh', title='Odświeżanie indeksu OKF', payload={'bundle_id': 'auto-docs-626ba108565347af0677'}, sensitive=True).is_terminal
+
+tests\test_knowledge_sessions.py:66: AssertionError
+_____ test_end_discards_projects_but_retains_central_for_new_session ______
+
+env = namespace(store=<config_store.ConfigStore object at 0x0000020D99E302F0>, roots=<roots_registry.RootsRegistry object at...'C:/Users/rap1tw/AppData/Local/Temp/pytest-of-RAP1TW/pytest-186/test_end_discards_projects_but0/outside')}, release=[])
+
+    def test_end_discards_projects_but_retains_central_for_new_session(env):
+        start_background_refresh(env.service, env.manager)
+        state = env.admin.start(['a'])
+>       settle(env)
+
+tests\test_knowledge_sessions.py:156:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+e = namespace(store=<config_store.ConfigStore object at 0x0000020D99E302F0>, roots=<roots_registry.RootsRegistry object at...'C:/Users/rap1tw/AppData/Local/Temp/pytest-of-RAP1TW/pytest-186/test_end_discards_projects_but0/outside')}, release=[])
+
+    def settle(e):
+        for task in e.manager.list(limit=100):
+            completed = e.manager.wait(task.id, 5)
+>           assert completed.is_terminal, f"task {task.id}: {completed.status.value}"
+E           AssertionError: task 2: running
+E           assert False
+E            +  where False = Task(id=2, created_at='2026-10-24T09:40:17.321857+00:00', status=<TaskStatus.RUNNING: 'running'>, skill='', source='',...dge_refresh', title='Odświeżanie indeksu OKF', payload={'bundle_id': 'auto-docs-92cd28b853d7ded5a975'}, sensitive=True).is_terminal
+
+tests\test_knowledge_sessions.py:66: AssertionError
+_ test_early_panel_start_before_cache_initialization_is_caught_by_bootstrap _
+
+env = namespace(store=<config_store.ConfigStore object at 0x0000020D99E31B70>, roots=<roots_registry.RootsRegistry object at...'C:/Users/rap1tw/AppData/Local/Temp/pytest-of-RAP1TW/pytest-186/test_early_panel_start_before_0/outside')}, release=[])
+
+    def test_early_panel_start_before_cache_initialization_is_caught_by_bootstrap(env):
+        env.admin.start(['a'])
+        assert env.manager.list() == []
+        assert set(start_background_refresh(env.service, env.manager)) == {'general', ids(env)['a']}
+>       settle(env)
+
+tests\test_knowledge_sessions.py:171:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+e = namespace(store=<config_store.ConfigStore object at 0x0000020D99E31B70>, roots=<roots_registry.RootsRegistry object at...'C:/Users/rap1tw/AppData/Local/Temp/pytest-of-RAP1TW/pytest-186/test_early_panel_start_before_0/outside')}, release=[])
+
+    def settle(e):
+        for task in e.manager.list(limit=100):
+            completed = e.manager.wait(task.id, 5)
+>           assert completed.is_terminal, f"task {task.id}: {completed.status.value}"
+E           AssertionError: task 2: running
+E           assert False
+E            +  where False = Task(id=2, created_at='2026-10-24T09:40:30.173159+00:00', status=<TaskStatus.RUNNING: 'running'>, skill='', source='',...dge_refresh', title='Odświeżanie indeksu OKF', payload={'bundle_id': 'auto-docs-c75cea537a4cb6e5c9eb'}, sensitive=True).is_terminal
+
+tests\test_knowledge_sessions.py:66: AssertionError
+___ test_recovery_does_not_refresh_projects_before_resume_confirmation ____
+
+env = namespace(store=<config_store.ConfigStore object at 0x0000020D98C5A510>, roots=<roots_registry.RootsRegistry object at...'C:/Users/rap1tw/AppData/Local/Temp/pytest-of-RAP1TW/pytest-186/test_recovery_does_not_refresh0/outside')}, release=[])
+
+    def test_recovery_does_not_refresh_projects_before_resume_confirmation(env):
+        item = env.sessions.create(['a'])
+        env.sessions.recover_after_restart()
+        saved = env.sessions.get(item.id)
+        env.admin.recover(saved.id, saved.revision, True)
+        assert set(start_background_refresh(env.service, env.manager)) == {'general'}
+>       settle(env)
+
+tests\test_knowledge_sessions.py:180:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+e = namespace(store=<config_store.ConfigStore object at 0x0000020D98C5A510>, roots=<roots_registry.RootsRegistry object at...'C:/Users/rap1tw/AppData/Local/Temp/pytest-of-RAP1TW/pytest-186/test_recovery_does_not_refresh0/outside')}, release=[])
+
+    def settle(e):
+        for task in e.manager.list(limit=100):
+            completed = e.manager.wait(task.id, 5)
+>           assert completed.is_terminal, f"task {task.id}: {completed.status.value}"
+E           AssertionError: task 1: running
+E           assert False
+E            +  where False = Task(id=1, created_at='2026-10-24T09:40:42.781637+00:00', status=<TaskStatus.RUNNING: 'running'>, skill='', source='',... error='', kind='knowledge_refresh', title='Odświeżanie indeksu OKF', payload={'bundle_id': 'general'}, sensitive=True).is_terminal
+
+tests\test_knowledge_sessions.py:66: AssertionError
+___________ test_repeated_bind_does_not_schedule_more_refreshes ___________
+
+env = namespace(store=<config_store.ConfigStore object at 0x0000020D98C5B1C0>, roots=<roots_registry.RootsRegistry object at...'C:/Users/rap1tw/AppData/Local/Temp/pytest-of-RAP1TW/pytest-186/test_repeated_bind_does_not_sc0/outside')}, release=[])
+
+    def test_repeated_bind_does_not_schedule_more_refreshes(env):
+        start_background_refresh(env.service, env.manager)
+        state = env.admin.start(['a'])
+>       settle(env)
+
+tests\test_knowledge_sessions.py:189:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+e = namespace(store=<config_store.ConfigStore object at 0x0000020D98C5B1C0>, roots=<roots_registry.RootsRegistry object at...'C:/Users/rap1tw/AppData/Local/Temp/pytest-of-RAP1TW/pytest-186/test_repeated_bind_does_not_sc0/outside')}, release=[])
+
+    def settle(e):
+        for task in e.manager.list(limit=100):
+            completed = e.manager.wait(task.id, 5)
+>           assert completed.is_terminal, f"task {task.id}: {completed.status.value}"
+E           AssertionError: task 2: running
+E           assert False
+E            +  where False = Task(id=2, created_at='2026-10-24T09:40:55.886445+00:00', status=<TaskStatus.RUNNING: 'running'>, skill='', source='',...dge_refresh', title='Odświeżanie indeksu OKF', payload={'bundle_id': 'auto-docs-62b5da07a6321098e002'}, sensitive=True).is_terminal
+
+tests\test_knowledge_sessions.py:66: AssertionError
+_______ test_pending_project_scan_cannot_publish_after_session_end ________
+
+env = namespace(store=<config_store.ConfigStore object at 0x0000020D99E32AC0>, roots=<roots_registry.RootsRegistry object at...t-of-RAP1TW/pytest-186/test_pending_project_scan_cann0/outside')}, release=[<threading.Event at 0x20d99eb84d0: unset>])
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000020D99E32CF0>
+
+    def test_pending_project_scan_cannot_publish_after_session_end(env, monkeypatch):
+        from okf_engine import service as module
+        entered, scanned, release = threading.Event(), threading.Event(), threading.Event()
+        env.release.append(release)
+        original = module.scan_bundle
+
+        def blocked(reader, bundle_id, *args, **kwargs):
+            if bundle_id != 'general':
+                entered.set()
+            result = original(reader, bundle_id, *args, **kwargs)
+            if bundle_id != 'general':
+                scanned.set()
+                assert release.wait(5)
+            return result
+
+        monkeypatch.setattr(module, 'scan_bundle', blocked)
+        start_background_refresh(env.service, env.manager)
+        state = env.admin.start(['a'])
+>       assert scanned.wait(5), f"scan did not finish; entered={entered.is_set()}"
+E       AssertionError: scan did not finish; entered=True
+E       assert False
+E        +  where False = wait(5)
+E        +    where wait = <threading.Event at 0x20d99eb8410: unset>.wait
+
+tests\test_knowledge_sessions.py:269: AssertionError
+________ test_old_scan_cannot_publish_over_generation_after_write _________
+
+env = namespace(base=WindowsPath('C:/Users/rap1tw/AppData/Local/Temp/pytest-of-RAP1TW/pytest-186/test_old_scan_cannot_publis...wledgeService object at 0x0000020D98A0D7B0>, tx=<server.file_transaction.FileTransaction object at 0x0000020D99EB85F0>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000020D99E32D60>
+
+    def test_old_scan_cannot_publish_over_generation_after_write(env, monkeypatch):
+        from okf_engine import service as module
+        put(env)
+        entered, release = threading.Event(), threading.Event()
+        original = module.scan_bundle
+        calls = []
+
+        def scan(*args, **kwargs):
+            result = original(*args, **kwargs)
+            if not calls:
+                calls.append(True)
+                entered.set()
+                assert release.wait(5)
+            return result
+
+        monkeypatch.setattr(module, "scan_bundle", scan)
+        old_scan = env.service.search(query="alpha")["refresh_tasks"][0]["task_id"]
+        try:
+            assert entered.wait(5)
+            done = decide(env, update(env))
+            assert done.status.value == "done"
+            new_scan = json.loads(done.stdout)["refresh_task_id"]
+            assert new_scan != old_scan
+            assert env.manager.wait(new_scan, 8).status.value == "done"
+        finally:
+            release.set()
+>       assert env.manager.wait(old_scan, 8).status.value == "cancelled"
+E       AssertionError: assert 'failed' == 'cancelled'
+E
+E         - cancelled
+E         + failed
+
+tests\test_knowledge_write_tools.py:354: AssertionError
+_____________ test_cancel_clock_does_not_leave_waiter_blocked _____________
+
+tmp_path = WindowsPath('C:/Users/rap1tw/AppData/Local/Temp/pytest-of-RAP1TW/pytest-186/test_cancel_clock_does_not_lea0')
+
+    def test_cancel_clock_does_not_leave_waiter_blocked(tmp_path):
+        _, _, reader = env(tmp_path)
+        backend = CacheRefreshBackend(tmp_path / 'cache.sqlite3', b'k' * 32)
+
+        def cancelled():
+            raise RuntimeError('PRIVATE_SENTINEL')
+
+        try:
+            with pytest.raises(DocumentError, match='CACHE_REFRESH_FAILED'):
+>               backend.run(reader, 'general', reader.limits, cancelled)
+
+tests\test_okf_cache_backend.py:157:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+okf_engine\cache_backend.py:70: in run
+    return self._run_job(reader, bundle_id, limits, clock)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+okf_engine\cache_backend.py:90: in _run_job
+    clock()  # sprawdzenie anulowania w wątku zadania
+    ^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    def cancelled():
+>       raise RuntimeError('PRIVATE_SENTINEL')
+E       RuntimeError: PRIVATE_SENTINEL
+
+tests\test_okf_cache_backend.py:153: RuntimeError
+_________ test_unchecked_cache_returns_fresh_section_and_revision _________
+
+env = (WindowsPath('C:/Users/rap1tw/AppData/Local/Temp/pytest-of-RAP1TW/pytest-186/test_unchecked_cache_returns_f0'), {'bund...documents.DocumentReader object at 0x0000020D9A03CBD0>, <okf_engine.index.KnowledgeIndex object at 0x0000020D957C7E70>)
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000020D957C74D0>
+
+    def test_unchecked_cache_returns_fresh_section_and_revision(env, monkeypatch):
+        base, _, reader, index = env
+        write(base / 'a.md', '# Old\nalpha old\n')
+        write(base / 'b.md', '# Other\nbeta\n')
+        publish_unchecked(index, reader)
+        write(base / 'a.md', '# Intro\nother\n# Current\nalpha fresh\n')
+        expected = reader.read('general', 'a')
+        original = reader.read
+        reads = []
+
+        def counted(bundle, concept):
+            reads.append(concept)
+            return original(bundle, concept)
+
+        monkeypatch.setattr(reader, 'read', counted)
+        result = find(index, reader, query='alpha')
+>       assert reads == ['a'] and ids(result) == ['a']
+E       AssertionError: assert (['a'] == ['a']
+E
+E         Use -v to get more diff and [] == ['a']
+E
+E         Right contains one more item: 'a'
+E         Use -v to get more diff)
+
+tests\test_okf_search.py:88: AssertionError
+______________________ test_ranking_by_field_weights ______________________
+
+env = (WindowsPath('C:/Users/rap1tw/AppData/Local/Temp/pytest-of-RAP1TW/pytest-186/test_ranking_by_field_weights0'), {'bundl...documents.DocumentReader object at 0x0000020D9A0EF450>, <okf_engine.index.KnowledgeIndex object at 0x0000020D95BE95C0>)
+
+    def test_ranking_by_field_weights(env):
+        base, _, reader, index = env
+        write(base / 'title_doc.md', metadata='type: Reference\ntitle: Alpha guide\n')
+        write(base / 'tags_doc.md', metadata='type: Reference\ntags: [alpha]\n')
+        write(base / 'desc_doc.md', metadata='type: Reference\ndescription: alpha notes\n')
+        write(base / 'head_doc.md', '# Alpha heading\ntext\n')
+        write(base / 'body_doc.md', '# Plain\nalpha text\n')
+        publish(index, reader)
+        result = find(index, reader, query='alpha')
+>       assert ids(result) == ['title_doc', 'tags_doc', 'desc_doc', 'head_doc', 'body_doc']
+E       AssertionError: assert ['tags_doc', ...', 'head_doc'] == ['title_doc',...', 'body_doc']
+E
+E         At index 0 diff: 'tags_doc' != 'title_doc'
+E         Right contains 2 more items, first extra item: 'head_doc'
+E         Use -v to get more diff
+
+tests\test_okf_search.py:189: AssertionError
+_ test_project_profiles_plain_markdown_search_get_and_exclusions[mixed--expected0] _
+
+env = namespace(work=WindowsPath('C:/Users/rap1tw/AppData/Local/Temp/pytest-of-RAP1TW/pytest-186/test_project_profiles_plain...ookie': 'vibecoder_panel=[REDACTED_PANEL_COOKIE]', 'Origin': 'http://127.0.0.1:8102'}, requests=[])
+profile = 'mixed', subpath = ''
+expected = {'.vibecoder_checkpoints', '.vibecoder_context', 'docs/plain'}
+
+    @pytest.mark.parametrize("profile,subpath,expected", [
+        ("mixed", "", {"docs/plain", ".vibecoder_context", ".vibecoder_checkpoints"}),
+        ("legacy", "", {".vibecoder_context", ".vibecoder_checkpoints"}),
+        ("docs", "docs", {"plain"}),
+    ])
+    def test_project_profiles_plain_markdown_search_get_and_exclusions(env, profile, subpath, expected):
+        (env.work / "docs/plain.md").write_text("# Alpha\nplain\npassword: SENTINEL\n", encoding="utf-8")
+        (env.work / "docs/archive").mkdir()
+        (env.work / "docs/archive/old.md").write_text("alpha old", encoding="utf-8")
+        (env.work / "docs/nested/archive").mkdir(parents=True)
+        (env.work / "docs/nested/archive/old.md").write_text("alpha old", encoding="utf-8")
+        for name in (".vibecoder_context.md", ".vibecoder_checkpoints.md", "README.md", "AGENTS.md",
+                     "docs/AGENTS.md", "docs/SKILL.md", "docs/nested/skill.MD"):
+            (env.work / name).write_text("# Alpha\nlegacy or instructions\n", encoding="utf-8")
+        add(env, profile=profile, subpath=subpath)
+        cold = env.service.search(query="alpha", scope="project")
+        task = env.manager.wait(cold["refresh_tasks"][0]["task_id"], 8)
+>       assert task.status.value == "done", f"refresh task {task.id}: {task.status.value}"
+E       AssertionError: refresh task 1: running
+E       assert 'running' == 'done'
+E
+E         - done
+E         + running
+
+tests\test_project_knowledge.py:141: AssertionError
+========================== slowest 30 durations ===========================
+80.55s call     tests/test_file_tools.py::test_directory_limit
+27.11s call     tests/test_config_store.py::test_concurrent_trust_and_update_keep_valid_json
+25.30s call     tests/test_okf_cache_backend.py::test_cold_warm_restart_and_one_changed_document
+24.83s call     tests/test_autopilot_executors.py::test_central_trusted_skill_is_rechecked_and_charged_once
+24.25s call     tests/test_autopilot_integration.py::test_delegated_write_sequence_without_per_step_approval
+23.60s call     tests/test_knowledge_write_tools.py::test_committed_write_uses_incremental_backend
+22.04s call     tests/test_project_knowledge.py::test_automatic_docs_detect_new_root_and_remove_cached_results
+18.73s call     tests/test_autopilot_integration.py::test_eight_second_wait_does_not_end_or_resubmit_write
+18.36s call     tests/test_knowledge_write_tools.py::test_create_approval_get_and_search
+17.72s call     tests/test_knowledge_write_tools.py::test_old_scan_cannot_publish_over_generation_after_write
+17.32s call     tests/test_project_knowledge.py::test_project_profiles_plain_markdown_search_get_and_exclusions[docs-docs-expected2]
+16.82s call     tests/test_project_knowledge.py::test_project_switch_does_not_include_old_project_in_aggregate_search
+16.59s call     tests/test_project_knowledge.py::test_project_profiles_plain_markdown_search_get_and_exclusions[legacy--expected1]
+16.51s call     tests/test_external_mcp_client.py::test_catalog_pagination_and_digest
+15.67s call     tests/test_panel_session_resume.py::test_complete_api_flow_counts_all_links_and_plan_has_no_token
+15.49s call     tests/test_external_mcp_tools.py::test_trusted_call_no_approval_and_rate_limit_falls_back_same_task
+15.09s call     tests/test_project_knowledge.py::test_automatic_docs_startup_plain_markdown_and_no_config_write
+15.03s call     tests/test_autopilot_executors.py::test_changed_skill_in_queue_does_not_spawn_or_consume
+13.72s call     tests/test_autopilot_integration.py::test_create_tree_is_one_logical_operation
+13.55s call     tests/test_autopilot_admin.py::test_selected_skill_is_revalidated_without_hashing_others_or_publishing_scan
+12.84s call     tests/test_okf_service.py::test_refresh_publication_has_total_budget
+12.77s call     tests/test_okf_search.py::test_filters_and_browse
+12.73s call     tests/test_okf_service.py::test_incremental_writes_merge_targets_and_keep_other_entries
+12.30s call     tests/test_external_mcp_sdk_cleanup.py::test_grandchild_is_gone_after_timeout
+12.19s call     tests/test_external_mcp_sdk_cleanup.py::test_server_process_is_gone_after_timeout_or_cancel[timeout]
+12.06s call     tests/test_external_mcp_sdk_stdio.py::test_real_call_timeout_is_uncertain_and_sanitized
+11.87s call     tests/test_okf_index.py::test_republish_replaces_generation_atomically
+11.70s call     tests/test_project_knowledge.py::test_automatic_docs_optout_survives_restart_alias_change_and_reappearance
+11.68s call     tests/test_knowledge_write_tools.py::test_update_uses_get_revision_and_exact_frontmatter_bytes
+11.61s call     tests/test_project_knowledge.py::test_admin_add_toggle_remove_preserves_files_and_invalidates_index
+========================= short test summary info =========================
+SKIPPED [7] tests\test_cost_centers_skill.py:63: could not import 'pandas': No module named 'pandas'
+SKIPPED [1] tests\test_cost_centers_skill.py:73: could not import 'pandas': No module named 'pandas'
+SKIPPED [1] tests\test_cost_centers_skill.py:95: could not import 'pandas': No module named 'pandas'
+SKIPPED [1] tests\test_cost_centers_skill.py:111: could not import 'pandas': No module named 'pandas'
+SKIPPED [1] tests\test_external_mcp_containment.py:104: POSIX process groups
+SKIPPED [4] tests\test_external_mcp_containment.py:116: POSIX process groups
+SKIPPED [1] tests\test_file_changes.py:401: brak uprawnień do symlinków
+SKIPPED [1] tests\test_file_tools.py:217: brak uprawnień do symlinków
+SKIPPED [1] tests\test_file_transaction.py:512: brak uprawnień do symlinków
+SKIPPED [1] tests\test_knowledge_write_tools.py:412: symlink unavailable
+SKIPPED [1] tests\test_okf_cache_key.py:56: symlink unavailable
+SKIPPED [1] tests\test_okf_cache_key.py:63: POSIX mode policy
+SKIPPED [1] tests\test_okf_cache_store.py:276: symlink unavailable
+SKIPPED [1] tests\test_okf_paths.py:171: system plików nie rozróżnia wielkości liter
+SKIPPED [1] tests\test_okf_paths.py:24: nie można utworzyć linku w tym środowisku
+SKIPPED [1] tests\test_okf_write_policy.py:167: symlink unavailable
+SKIPPED [1] tests\test_path_guard.py:265: brak uprawnień do tworzenia symlinków (Developer Mode)
+SKIPPED [1] tests\test_project_knowledge.py:330: symlink unavailable
+SKIPPED [1] tests\test_search_tools.py:215: brak uprawnień do symlinków
+SKIPPED [1] tests\test_skills_content.py:126: Brak uprawnień do tworzenia symlinków
+SKIPPED [1] tests\test_skills_runner.py:82: Brak uprawnień do tworzenia symlinków
+SKIPPED [1] tests\test_tree_tools.py:178: symlink creation unavailable
+20 failed, 3231 passed, 31 skipped in 4960.54s (1:22:40)
+
+(venv) C:\Users\rap1tw\1_MyScripts\Python\MCP-my-codex-sklr>

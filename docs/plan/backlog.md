@@ -88,6 +88,68 @@ M1–M5 są wdrożone, smoke katalogu i zaufanego list_open_tabs zaliczony. Zach
 
 ## 6. Diagnostyka i potwierdzony dług
 
+### D15 — pełne repo Windows po 58c7986: fail-first i przekazanie napraw
+
+- [ ] Zdiagnozować i naprawić poniższe 20 przypadków po osobnym planie i akceptacji kodu. Wynik i zielone A/B/C: najnowsza sekcja CURRENT. Źródło: docs/full_tests_20261224.txt (oczyszczone cookie/token). Pełne repo 20 failed / 3231 passed / 31 skipped / 4960.54s. Ten punkt aktualizuje priorytet D14/D7/D8, nie zatwierdza zbiorczej implementacji.
+
+#### 1. Tania izolacja D7/D8 oraz search
+
+D7 — tests/test_edit_tools_registration.py:
+- `test_defaults_forwarded`
+- `test_explicit_arguments_forwarded`
+
+Oba: NameError KNOWLEDGE w main.py:470. Odczyt fixture potwierdza brak KNOWLEDGE w namespace i stub invoke(*args) bez kwargs. Po dodaniu atrapy sprawdzić także keyword after_write i tożsamość callbacku dla wszystkich objętych wrapperów; nie usuwać produkcyjnego hooka OKF. Start: `python -m pytest tests/test_edit_tools_registration.py -q -rs --durations=0`.
+
+D8 — `tests/test_okf_cache_backend.py::test_cancel_clock_does_not_leave_waiter_blocked`: RuntimeError PRIVATE_SENTINEL z cache_backend.py:90 zamiast DocumentError CACHE_REFRESH_FAILED. Zachować bezpieczny błąd, zwolnienie oczekującego i cleanup; deterministycznie kontrolować kolejność, nie akceptować surowego wyjątku. Start: nodeid, potem cały test_okf_cache_backend.py.
+
+Search — tests/test_okf_search.py:
+- `test_unchecked_cache_returns_fresh_section_and_revision`: odczytano a, brak trafienia a.
+- `test_ranking_by_field_weights`: niepełne trafienia i tags_doc zamiast title_doc na początku.
+
+Helper find przekazuje search(..., 2); ustalić znaczenie budżetu, partial/reasons i koszt ścieżek/odczytu. To trop, nie diagnoza. Oddzielić semantykę od przerwania po budżecie. Nie zmieniać rankingu ani budżetu dla zielonego wyniku bez dowodu/kontraktu. Start: oba nodeid z --durations=0, potem cały test_okf_search.py.
+
+#### 2. Bezpieczeństwo external MCP: anulowanie i inspekcja
+
+- `tests/test_external_mcp_client.py::test_thread_cancel_during_call_is_uncertain`: cancelled zamiast call_cancelled_uncertain. Fixture używa Timer(0.1); sprawdzić, czy call wystartował przed anulowaniem. Deterministyczny sygnał wejścia wykonawcy, rozróżnienie before dispatch / uncertain after dispatch, zamknięcie transportu i zakaz retry muszą pozostać.
+- `tests/test_external_mcp_admin_chain.py::test_inspection_goes_through_the_real_client_and_pins_real_digests`: pending po 10 s. Mierzyć start/finish zadania, klienta, walidację schematu i cleanup; przykładowy URL atrapy nie dowodzi problemu sieci.
+
+Start: dwa nodeid, potem test_external_mcp_client.py + test_external_mcp_admin_chain.py; dalsze cleanup/result/trust według zmienionej logiki. Nie ponawiać realnych operacji po niepewnym błędzie.
+
+#### 3. D14: 12 błędów oczekiwania; A/B zielone, pełne repo czerwone
+
+Autopilot (RUNNING po settle/wait(5)):
+- `tests/test_autopilot_executors.py::test_central_trusted_skill_is_rechecked_and_charged_once`
+- `tests/test_autopilot_integration.py::test_create_tree_is_one_logical_operation`
+
+tests/test_knowledge_sessions.py (pierwsze osiem: RUNNING/QUEUED po wait(5)):
+- `test_startup_refreshes_only_central_without_selecting_session`
+- `test_start_indexes_all_session_projects_and_excludes_other_registered_projects`
+- `test_central_is_preserved_and_can_refresh_while_paused_but_model_is_blocked`
+- `test_folder_replacement_refreshes_only_after_confirmed_resume`
+- `test_end_discards_projects_but_retains_central_for_new_session`
+- `test_early_panel_start_before_cache_initialization_is_caught_by_bootstrap`
+- `test_recovery_does_not_refresh_projects_before_resume_confirmation`
+- `test_repeated_bind_does_not_schedule_more_refreshes`
+- `test_pending_project_scan_cannot_publish_after_session_end`: scanned.wait(5) nie przechodzi, entered=True; nie potwierdzono końca original scan ani odrzucenia publikacji.
+
+Profil projektu:
+- `tests/test_project_knowledge.py::test_project_profiles_plain_markdown_search_get_and_exclusions[mixed--expected0]`: refresh RUNNING po wait(8); asercja wyjaśnia etap, nie dowodzi błędu wykluczeń. Legacy/docs nie zawiodły w tym przebiegu.
+
+Start: central startup i central skill osobno, z pluginem oraz bez niego. Następnie mała grupa lub pięć plików D14, nie całe repo. Porównać kolejność/teardown: żywe workery/watchery, cache, monkeypatch/global state, SQLite commit, ścieżki i skan. Wersje Python/SQLite/pytest/SDK zebrać z istniejącego środowiska; raporty A/B pozostają lokalne. Plugin może zmieniać harmonogram i narzut, więc zielone z pluginem nie wyklucza wyścigu. Kontrolowane powtórzenia i małe grupy poprzedników dobierać według reprodukcji, nie losowo odpalać całe repo. Bez zwiększania wait/timeoutów jako naprawy.
+
+#### 4. Stara publikacja po zapisie
+
+- `tests/test_knowledge_write_tools.py::test_old_scan_cannot_publish_over_generation_after_write`: old_scan FAILED zamiast CANCELLED. Atrapa release.wait(5) działa podczas zapisu i nowego skanu; sprawdzić stderr/status i moment zwolnienia. Przekroczenie bramki testowej nie jest dowodem błędu anulowania generacji. Zachować odrzucenie starej publikacji. Start: nodeid, potem test_knowledge_write_tools.py i regresja cache/generacji.
+
+#### Strategia i odbiór końcowy
+
+- [ ] Przed naprawą: AGENTS, najnowszy CURRENT, D15, zrzut, HEAD/status. Nazwa 20261224 nie jest potwierdzeniem daty (timestampy 2026-10-24). Brak wersji Windows i diagnostyki pełnego przebiegu odnotować, nie zastępować wersjami Linux.
+- [ ] Zgodnie z użytkownikiem: konkretne czerwone nodeid → zaakceptowana naprawa → test dedykowany → cały moduł → mała regresja między modułami. Krótkie fazy mogą używać -x, ale przed końcem sprawdzić wszystkie 20 przypadków.
+- [ ] Małe paczki: -q -rs --durations=0; opcjonalnie -p scripts.pytest_diagnostics --windows-diagnostics, osobno bez pluginu. Nie sumować inkluzywnych metryk. Log od startu w CMD: `python -m pytest ... > pytest_targeted.log 2>&1`. Bez drugiego równoległego pytest.
+- [ ] Dopiero gdy małe zakresy zielone, jedno pełne repo na końcu: `python -m pytest -q -rs --durations=30 > pytest_full.log 2>&1`. Pytest wyłącznie na wyraźne polecenie. Nie zaczynać od kolejnych 82 minut.
+- [ ] Osobna diagnoza wydajności: directory_limit 80.55s (zaliczony), config concurrent 27.11s, cache 25.30s, rozkład wszystkich faz; top 30 nie wyjaśnia 82 minut. Bez osłabiania trwałości SQLite/bezpieczeństwa ścieżek.
+- [ ] Skip: 10 pandas, 5 POSIX process groups, 1 POSIX mode, 1 case-sensitive filesystem, 14 symlink/link unavailable. Bez automatycznych instalacji/uprawnień; junctiony i panel/harness osobno. D6/POSIX nie jest naprawione, choć nie występuje na liście błędów tego Windows.
+
 D6–D8 są zachowane jako odłożony dług; plan ich wspólnej naprawy nie został zaakceptowany. Nie są bezpośrednimi elementami kontraktu A2 ani domyślnym warunkiem implementacji A2b4. D8 wymaga ponownej oceny przed odbiorem bety oraz wcześniej, jeśli zablokuje używany przepływ.
 
 - [ ] D1: wyjaśnić zmienność czasu testów sesji/panelu oraz pełnych uzgodnień wiedzy. Zebrać --durations z setup/call/teardown, w razie potrzeby osobno kolekcję/start. Wyniki porównywać tylko dla tego samego zakresu/środowiska. Nie zwiększać timeoutów ani zmieniać testów zamiast diagnozy. Dotychczasowe czasy zachowane w archiwum.
