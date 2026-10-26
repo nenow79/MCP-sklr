@@ -24,10 +24,9 @@ DESCRIPTION_MAX = 500
 TITLE_MAX = 200
 TASK_TIMEOUT = 10  # jak request_root: pole zadania, nie limit czasu zatwierdzania
 
-WAIT_HINT = ("Zadanie czeka na decyzję użytkownika w panelu zatwierdzeń (zatwierdza użytkownik, nie ty). "
-             "Zatrzymaj się i poczekaj na jego wiadomość; nie odpytuj wait_task w pętli. "
-             "Po decyzji sprawdź wynik przez get_task. Po błędzie \": ping\" przed ponowieniem "
-             "sprawdź list_tasks (zadanie mogło powstać).")
+from server.task_tools import MANUAL_APPROVAL_HINT
+
+WAIT_HINT = MANUAL_APPROVAL_HINT
 APPROVAL_REASON = ("Model prosi o zapis w plikach. Sprawdź diff; zmiany zostaną zapisane dopiero "
                    "po zatwierdzeniu, a przed zapisem stan plików jest sprawdzany ponownie.")
 INTERNAL_ERROR = "Nie udało się przygotować zmiany (błąd wewnętrzny)."

@@ -210,6 +210,132 @@ def test_cancel_errors(tmp_path, make_env):
     assert cancel_task_impl(env.manager, -1)["success"] is False
 
 
+# P8: adapter/policy tests, without real sleeps, approval grants or processes.
+def test_p8_initial_hint_has_one_manual_wait_per_task_id():
+    from types import SimpleNamespace
+    from server.task_tools import _pending_response
+    from tasks.models import TaskStatus
+    for task_id in (7, 8):
+        hint = _pending_response(SimpleNamespace(id=task_id, status=TaskStatus.AWAITING_APPROVAL))['data']['hint']
+        assert 'jedno wait_task(seconds=6)' in hint
+        assert 'dla tego task_id' in hint and 'Każde osobne zadanie' in hint
+        assert 'własne oczekiwanie do 6 s' in hint and 'Nie powtarzaj oczekiwania' in hint
+        assert 'wspólny budżet' not in hint
+        assert 'wiele plików ma jedno oczekiwanie' in hint
+        assert 'STOP' in hint and 'bez kolejnych wait' in hint
+        assert 'Allow nie dowodzi sukcesu' in hint
+    # Each distinct task gets its own wait; model policy, no server-side counter.
+
+
+def test_p8_three_distinct_tasks_can_each_wait_once():
+    from types import SimpleNamespace
+    from tasks.models import TaskStatus
+    from server.task_tools import _pending_response
+    calls = []
+    for task_id in (7, 8, 9):
+        task = SimpleNamespace(id=task_id, status=TaskStatus.AWAITING_APPROVAL,
+                               is_terminal=False,
+                               to_dict=lambda task_id=task_id: {'id': task_id, 'status': 'awaiting_approval'})
+        assert 'własne oczekiwanie do 6 s' in _pending_response(task)['data']['hint']
+        manager = SimpleNamespace(wait=lambda task_id, seconds: calls.append((task_id, seconds)) or task)
+        result = wait_task_impl(manager, task_id, 6)
+        assert 'STOP' in result['data']['hint']
+        assert 'nie wykonuj kolejnego wait' in result['data']['hint']
+    assert calls == [(7, 6), (8, 6), (9, 6)]
+
+
+def test_p8_wait_without_decision_stops_without_second_wait():
+    from types import SimpleNamespace
+    from tasks.models import TaskStatus
+    calls = []
+    task = SimpleNamespace(status=TaskStatus.AWAITING_APPROVAL, is_terminal=False,
+                           to_dict=lambda: {'id': 7, 'status': 'awaiting_approval'})
+    manager = SimpleNamespace(wait=lambda task_id, seconds: calls.append((task_id, seconds)) or task)
+    response = wait_task_impl(manager, 7, 6)
+    assert calls == [(7, 6)]
+    assert response['data']['status'] == 'awaiting_approval'
+    hint = response['data']['hint']
+    assert 'STOP' in hint and 'nie wykonuj kolejnego wait' in hint
+    assert 'nie anuluj' in hint and 'nie zgłaszaj zadania ponownie' in hint
+    assert 'wait_task(seconds=6)' not in hint
+
+
+def test_p8_quick_decision_and_long_execution_keep_same_task():
+    from types import SimpleNamespace
+    from tasks.models import TaskStatus
+    calls = []
+    for status in (TaskStatus.QUEUED, TaskStatus.RUNNING, TaskStatus.DONE):
+        task = SimpleNamespace(status=status, is_terminal=status == TaskStatus.DONE,
+                               to_dict=lambda status=status: {'id': 7, 'status': status.value})
+        manager = SimpleNamespace(wait=lambda task_id, seconds: calls.append((task_id, seconds)) or task)
+        response = wait_task_impl(manager, 7, 6)
+        assert response['data']['id'] == 7
+        if status == TaskStatus.DONE:
+            assert 'hint' not in response['data']
+        else:
+            assert 'wait_task' in response['data']['hint']
+            assert 'STOP' not in response['data']['hint']
+    assert calls == [(7, 6)] * 3
+
+
+def test_p8_wait_boundaries_preserve_requested_execution_wait():
+    from types import SimpleNamespace
+    from tasks.models import TaskStatus
+    calls = []
+    task = SimpleNamespace(status=TaskStatus.RUNNING, is_terminal=False,
+                           to_dict=lambda: {'id': 7, 'status': 'running'})
+    manager = SimpleNamespace(wait=lambda task_id, seconds: calls.append((task_id, seconds)) or task)
+    for seconds in (0, 6, 8):
+        assert wait_task_impl(manager, 7, seconds)['success']
+    assert calls == [(7, 0), (7, 6), (7, 8)]
+    for seconds in (-1, True, '6'):
+        assert not wait_task_impl(manager, 7, seconds)['success']
+    assert len(calls) == 3
+
+
+def test_p8_submission_hints_share_policy_and_confidential_channels():
+    from server import edit_tools, roots_tools, secret_tools, tree_tools, folder_tools
+    from server import knowledge_write_tools, project_tools
+    from server.task_tools import MANUAL_APPROVAL_HINT
+    for module in (edit_tools, roots_tools, secret_tools, tree_tools, folder_tools,
+                   knowledge_write_tools, project_tools):
+        assert module.WAIT_HINT.startswith(MANUAL_APPROVAL_HINT)
+    assert 'get_task.secret_result' in secret_tools.WAIT_HINT
+    assert 'nie przedłuża TTL' in secret_tools.WAIT_HINT
+
+
+def test_p8_external_hint_only_adds_manual_wait_when_approval_is_needed():
+    from types import SimpleNamespace
+    from tasks.models import TaskStatus
+    from server.external_mcp_tools import ExternalMCPTools
+    for status in (TaskStatus.AWAITING_APPROVAL, TaskStatus.QUEUED, TaskStatus.RUNNING, TaskStatus.DONE):
+        response = ExternalMCPTools._response(SimpleNamespace(id=7, status=status))
+        hint = response['data']['hint']
+        assert 'external_result' in hint
+        assert ('wait_task(seconds=6)' in hint) == (status == TaskStatus.AWAITING_APPROVAL)
+
+
+def test_p8_tool_docs_and_project_contract_use_six_second_manual_policy():
+    import ast
+    from pathlib import Path
+    base = Path(__file__).resolve().parents[1]
+    tree = ast.parse((base / 'main.py').read_text(encoding='utf-8'))
+    names = {'wait_task', 'run_skill_script', 'edit_file', 'create_file', 'create_tree',
+             'manage_folder', 'request_root', 'secret_reveal', 'knowledge_save',
+             'knowledge_convert', 'prepare_project', 'call_external_mcp_tool'}
+    docs = {node.name: ast.get_docstring(node) for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name in names}
+    assert set(docs) == names
+    for name, doc in docs.items():
+        assert '6 s' in doc, name
+        assert 'STOP' in doc and 'na osobny task_id' in doc, name
+        assert 'wspólny budżet' not in doc and 'wspólne dla paczki' not in doc, name
+    for relative in ('AGENTS.md', 'docs/specs/files-and-approvals.md'):
+        text = (base / relative).read_text(encoding='utf-8')
+        assert 'wait_task(seconds=6)' in text and 'STOP' in text
+        assert 'wait_task(seconds=8); jeśli nadal awaiting_approval' not in text
+
+
 # C3a: atrapy sekretów, bez procesów i produkcyjnej telemetrii.
 import pytest
 from tasks.approval import ApprovalService

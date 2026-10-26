@@ -53,12 +53,11 @@ APPROVAL_REASON = (
     "Serwer przechowuje go tylko w RAM przez maksymalnie 5 minut. "
     "Retencja po stronie klienta/modelu pozostaje poza kontrolą serwera."
 )
-WAIT_HINT = (
-    "Zadanie czeka na decyzję użytkownika w panelu (zatwierdza użytkownik, nie ty). "
-    "Zatrzymaj się i poczekaj na jego wiadomość; nie odpytuj wait_task w pętli. "
-    "Po decyzji sprawdź get_task. Po błędzie : ping przed ponowieniem sprawdź "
-    "list_tasks: zadanie mogło powstać."
-)
+from server.task_tools import MANUAL_APPROVAL_HINT
+
+WAIT_HINT = (MANUAL_APPROVAL_HINT +
+             " Wynik ujawnienia wyłącznie przez get_task.secret_result; "
+             "wait_task nie pobiera sekretu i nie przedłuża TTL.")
 _LINE_END = re.compile(r"\r\n|\r|\n")
 _QUOTES = (chr(34), chr(39))
 

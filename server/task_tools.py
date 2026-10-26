@@ -10,6 +10,28 @@ from tasks.manager import QueueFullError, TaskManager, TaskNotFoundError, TaskSt
 from tasks.models import Task, TaskStatus
 
 DEFAULT_WAIT = 8
+# Model guidance: one approval wait per task_id, not an execution timeout.
+MANUAL_APPROVAL_HINT = (
+    "Zadanie czeka na zatwierdzenie przez użytkownika w panelu (nie zatwierdzasz go sam). "
+    "Przy awaiting_approval możesz wykonać jedno wait_task(seconds=6) dla tego task_id. "
+    "Każde osobne zadanie ma własne oczekiwanie do 6 s, także w tej samej sekwencji. "
+    "Zadanie obejmujące wiele plików ma jedno oczekiwanie, nie osobne na każdy plik. "
+    "Nie powtarzaj oczekiwania na tę samą zgodę ani nie twórz nowego zadania dla resetu limitu. "
+    "Jeśli nadal brak decyzji, "
+    "podsumuj i STOP: poczekaj na wiadomość użytkownika, bez kolejnych wait, "
+    "anulowania lub ponownego zgłoszenia. queued/running po decyzji oznacza "
+    "oczekiwanie na wykonanie, nie na człowieka; śledź ten sam task_id. "
+    "Po decyzji sprawdź wynik przez get_task; Allow nie dowodzi sukcesu. "
+    "Pauza lub utrata zgody blokuje nowe kroki. "
+    "Po błędzie : ping najpierw list_tasks, nie ponawiaj w ciemno."
+)
+MANUAL_APPROVAL_STOP_HINT = (
+    "Oczekiwanie zakończone, zadanie nadal awaiting_approval. Podsumuj i STOP: "
+    "poczekaj na wiadomość użytkownika; nie wykonuj kolejnego wait, "
+    "nie anuluj ani nie zgłaszaj zadania ponownie. Koniec oczekiwania nie "
+    "anuluje zadania ani nie oznacza wygaśnięcia zgody. "
+    "Po decyzji sprawdź ten sam task_id przez get_task."
+)
 LIST_MIN = 1
 LIST_MAX = 100
 
@@ -36,10 +58,9 @@ def _check_seconds(value: Any, label: str) -> Optional[str]:
     return None
 
 
-def _status_hint(task: Task) -> str:
+def _status_hint(task: Task, *, approval_wait_finished: bool = False) -> str:
     if task.status == TaskStatus.AWAITING_APPROVAL:
-        return ("Zadanie czeka na zatwierdzenie przez użytkownika (nie zatwierdzasz go sam). "
-                "Po jego decyzji użyj wait_task(task_id) lub get_task(task_id).")
+        return MANUAL_APPROVAL_STOP_HINT if approval_wait_finished else MANUAL_APPROVAL_HINT
     return "Zadanie trwa. Użyj wait_task(task_id) lub get_task(task_id), aby poznać wynik."
 
 
@@ -231,7 +252,7 @@ def wait_task_impl(manager: TaskManager, task_id: int,
         task = manager.wait(task_id, seconds)
         data = task.to_dict()
         if not task.is_terminal:
-            data["hint"] = _status_hint(task)
+            data["hint"] = _status_hint(task, approval_wait_finished=True)
         return {"success": True, "data": data}
     except TaskNotFoundError:
         return _error(f"Nie znaleziono zadania {task_id}.")

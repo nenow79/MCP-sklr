@@ -289,7 +289,11 @@ def run_skill_script(
     po 6000 znaków) wraz z task_id i status. Wolny: success=true z task_id i status (queued/running) -
     użyj wait_task(task_id) / get_task(task_id). Użytkownik zwykle musi zatwierdzić uruchomienie
     w panelu zatwierdzeń (lub oknie GUI): wtedy od razu wraca task_id ze statusem awaiting_approval (zatwierdza użytkownik,
-    nie ty); po jego decyzji sprawdź wynik przez wait_task / get_task.
+    nie ty). Przy awaiting_approval najwyżej jedno wait_task(seconds=6) na osobny task_id.
+    Każde nowe zadanie w sekwencji ma własne oczekiwanie do 6 s; nie ponawiaj oczekiwania
+    na tę samą zgodę. Jeśli nadal brak decyzji:
+    podsumuj i STOP do wiadomości użytkownika, bez kolejnych wait/anulowania/resubmit.
+    Po decyzji queued/running to wykonanie: śledź ten sam task_id, wynik przez get_task.
     """
     return task_tools.run_skill_script_impl(
         REGISTRY, CONFIG, TRUST_STORE, TASK_MANAGER,
@@ -324,6 +328,11 @@ def call_external_mcp_tool(alias: str, tool_name: str, arguments: Dict[str, Any]
     Domyślnie zgoda użytkownika w panelu, bez Ufaj. Zaufanie nadaje/cofa tylko użytkownik
     w panelu: przypięte do narzędzia i inputSchema, maks. 30 wywołań/min/profil.
     Po przekroczeniu limitu to samo zadanie wraca do zgody przed dispatch.
+    Przy awaiting_approval najwyżej jedno wait_task(seconds=6) na osobny task_id.
+    Każde nowe zadanie w sekwencji ma własne oczekiwanie do 6 s. Gdy nadal brak decyzji:
+    podsumuj i STOP do wiadomości użytkownika bez kolejnych wait/anulowania/resubmit.
+    Po decyzji śledź
+    ten sam task_id; wait_task nie pobiera external_result ani nie przedłuża TTL.
     Rewizja, włączenie, aktualny schemat i trust sprawdzane przed dispatch; argumenty
     walidowane JSON Schema (worker 7 s). Wynik RAM/TTL 5 min, ponad 80 000 znaków
     odrzucany bez obcinania. Nie ponawiaj po timeout/błędzie niepewnego wyniku — skutek
@@ -361,6 +370,14 @@ def wait_task(task_id: int, seconds: float = task_tools.DEFAULT_WAIT) -> Dict[st
     """
     Czeka maks. `seconds` s (limit 8) na zakończenie zadania i zwraca jego dane. Jeśli zadanie nadal trwa
     (lub czeka na zatwierdzenie przez użytkownika), zwraca aktualny status z podpowiedzią.
+    Ręczne awaiting_approval: najwyżej jedno oczekiwanie do 6 s na osobny task_id.
+    Kolejne zadanie w sekwencji ma własne oczekiwanie; wieloplikowe zadanie tylko jedno.
+    Nie ponawiaj oczekiwania na tę samą zgodę ani nie twórz zadania dla resetu limitu.
+    Jeśli nadal brak decyzji: podsumuj i STOP do wiadomości
+    użytkownika, bez kolejnych wait/anulowania/resubmit. queued/running po decyzji to
+    wykonanie, nie człowiek. Koniec oczekiwania nie anuluje zadania ani nie przedłuża TTL.
+    Poufny wynik tylko get_task. Jedno oczekiwanie na zgodę to polityka modelu, nie licznik serwera;
+    skończony budżet autopilota pozostaje osobno do uzgodnienia.
     """
     return task_tools.wait_task_impl(TASK_MANAGER, task_id, seconds)
 
@@ -391,8 +408,11 @@ def request_root(path: str, mode: str = "ro", alias: Optional[str] = None, descr
     Prosi użytkownika o dodanie folderu do roots. path: bezwzględna ścieżka istniejącego folderu,
     mode: "ro" (tylko odczyt, domyślnie) albo "rw" (odczyt i zapis), alias opcjonalny (małe litery, cyfry,
     "_" i "-"), description krótki opis. Zawsze tworzy zadanie do zatwierdzenia w panelu (zatwierdza
-    użytkownik, nie ty): od razu zwraca task_id ze statusem awaiting_approval. Zatrzymaj się i poczekaj
-    na wiadomość użytkownika zamiast odpytywać wait_task. Folder pojawi się w list_roots dopiero po
+    użytkownik, nie ty): od razu zwraca task_id ze statusem awaiting_approval. Najwyżej jedno
+    wait_task(seconds=6) na osobny task_id; każde kolejne zadanie ma własne oczekiwanie do 6 s.
+    Gdy nadal brak decyzji: podsumuj i STOP do wiadomości użytkownika
+    bez kolejnych wait/anulowania/resubmit.
+    Po decyzji śledź ten sam task_id i sprawdź sukces. Folder pojawi się w list_roots dopiero po
     zatwierdzeniu. Pierwsze wywołanie po restarcie serwera może dać błąd ": ping" mimo utworzenia zadania:
     przed ponowieniem sprawdź list_tasks.
     """
@@ -457,8 +477,11 @@ def edit_file(changes: List[Dict[str, Any]], root: Any = None,
     description: opcjonalny opis od modelu, do 500 znaków, bez control/bidi.
     W trybie ręcznym wymaga decyzji użytkownika w panelu, bez Ufaj. Aktywna delegacja
     może obejmować zapis; uprawnienia sprawdza serwer, nie sam opis ani hint.
-    Od razu zwraca task_id. Przy awaiting_approval zatrzymaj się i poczekaj na wiadomość
-    użytkownika, potem sprawdź get_task. Przy queued/running śledź ten sam task_id przez
+    Od razu zwraca task_id. Przy awaiting_approval najwyżej jedno wait_task(seconds=6)
+    na osobny task_id; kolejne zadanie ma własne oczekiwanie do 6 s. Wieloplikowe zadanie
+    ma tylko jedno oczekiwanie. Gdy nadal brak decyzji: podsumuj i STOP do wiadomości
+    użytkownika bez kolejnych wait/anulowania/resubmit.
+    Po decyzji sprawdź get_task. Przy queued/running śledź ten sam task_id przez
     wait_task(seconds=8)/get_task; można ponownie czekać, jeśli zadanie nadal trwa.
     Limit 8 s dotyczy jednego oczekiwania, nie życia zadania. Nie ponawiaj zapisu.
     Kolejny zależny krok dopiero po potwierdzonym sukcesie, w aktualnym zakresie zgody;
@@ -480,8 +503,11 @@ def create_file(filepath: str, content: str, overwrite: bool = False, root: Any 
     root: alias; brak/puste/False/'false' = domyślny. description: opis od modelu
     do 500 znaków, bez control/bidi. W trybie ręcznym decyzja użytkownika w panelu,
     bez Ufaj; aktywna delegacja może obejmować zapis. Uprawnienia sprawdza serwer.
-    Od razu zwraca task_id. Przy awaiting_approval zatrzymaj się i poczekaj na wiadomość
-    użytkownika, potem sprawdź get_task. Przy queued/running śledź ten sam task_id przez
+    Od razu zwraca task_id. Przy awaiting_approval najwyżej jedno wait_task(seconds=6)
+    na osobny task_id; każde kolejne zadanie ma własne oczekiwanie do 6 s.
+    Gdy nadal brak decyzji: podsumuj i STOP do wiadomości użytkownika
+    bez kolejnych wait/anulowania/resubmit.
+    Po decyzji sprawdź get_task. Przy queued/running śledź ten sam task_id przez
     wait_task(seconds=8)/get_task; można ponownie czekać, jeśli zadanie nadal trwa.
     Limit 8 s dotyczy jednego oczekiwania, nie życia zadania. Nie ponawiaj zapisu.
     Kolejny zależny krok dopiero po potwierdzonym sukcesie, w aktualnym zakresie zgody;
@@ -506,8 +532,12 @@ def create_tree(directories: Optional[List[str]] = None,
     Linki/junctiony, binarne, .pfx/.p12 odrzucane. Maskowany podgląd całej
     struktury w panelu, jedna zgoda, bez Ufaj. Nie jest to pełna atomowość
     przy awarii procesu. Błąd rollbacku wymaga sprawdzenia struktury.
-    Zwraca task_id bez oczekiwania. Zatrzymaj się i poczekaj na wiadomość
-    użytkownika; po decyzji sprawdź get_task. Po błędzie ': ping' najpierw
+    Zwraca task_id bez oczekiwania. Przy awaiting_approval najwyżej jedno wait_task(seconds=6)
+    na osobny task_id; całe drzewo to jedno zadanie i jedno oczekiwanie do 6 s.
+    Kolejne osobne zadanie ma własne oczekiwanie. Gdy nadal brak decyzji:
+    podsumuj i STOP do wiadomości użytkownika bez kolejnych wait/anulowania/resubmit.
+    Po decyzji śledź ten sam task_id, wynik przez get_task; zależny krok tylko po sukcesie
+    i przy aktualnej zgodzie. Po błędzie ': ping' najpierw
     list_tasks, nie ponawiaj w ciemno.
     """
     return tree_tools.create_tree_impl(
@@ -523,8 +553,12 @@ def manage_folder(action: str, path: str, new_name: Optional[str] = None, root: 
     Brak przenoszenia/usuwania; rootów i ich przodków nie można zmieniać.
     root: alias; brak/puste/False/'false' = domyślny. description: opis od modelu
     do 500 znaków, bez control/bidi. Zawsze decyzja użytkownika w panelu, bez Ufaj.
-    Od razu zwraca task_id, bez oczekiwania. Zatrzymaj się i poczekaj na wiadomość
-    użytkownika (zatwierdza użytkownik, nie ty); po decyzji sprawdź get_task.
+    Od razu zwraca task_id, bez oczekiwania. Przy awaiting_approval najwyżej jedno
+    wait_task(seconds=6) na osobny task_id; każde kolejne zadanie ma własne oczekiwanie do 6 s.
+    Gdy nadal brak decyzji: podsumuj i STOP do wiadomości użytkownika
+    bez kolejnych wait/anulowania/resubmit.
+    Zatwierdza użytkownik, nie ty; po decyzji śledź ten sam task_id i sprawdź get_task
+    przed zależnym krokiem.
     Po błędzie ': ping' przed ponowieniem sprawdź list_tasks: zadanie mogło powstać.
     """
     return folder_tools.manage_folder_impl(
@@ -539,8 +573,11 @@ def secret_reveal(filepath: str, key: Optional[str] = None, start_line: Optional
     Podaj konkretny key ALBO oba końce start_line i end_line (fizyczne linie, bez przycinania);
     brak selektora lub mieszanie selektorów to błąd, nigdy cały plik. max_chars 1-80000.
     Zawsze tworzy zadanie sensitive do decyzji użytkownika w panelu (bez Ufaj) i od razu zwraca
-    task_id bez oczekiwania. Zatrzymaj się i poczekaj na wiadomość użytkownika; nie odpytuj
-    wait_task. Po decyzji wynik sprawdzisz wyłącznie przez get_task(task_id) w polu secret_result,
+    task_id bez oczekiwania. Przy awaiting_approval najwyżej jedno wait_task(seconds=6)
+    na osobny task_id; każde kolejne zadanie ma własne oczekiwanie do 6 s.
+    Gdy nadal brak decyzji: podsumuj i STOP do wiadomości użytkownika
+    bez kolejnych wait/anulowania/resubmit.
+    wait_task nie pobiera sekretu. Po decyzji wynik wyłącznie przez get_task(task_id) w polu secret_result,
     wielokrotnie do wygaśnięcia TTL (5 min), bez przedłużania. Wynik jest tylko w pamięci serwera,
     nie w panelu, SQLite ani telemetrii; po restarcie nie istnieje. Po zwrocie klient/model może
     zachować sekret poza kontrolą sklr. Po błędzie ': ping' przed ponowieniem sprawdź list_tasks.
@@ -606,7 +643,11 @@ def knowledge_save(bundle_id: str, concept_id: str, mode: str, body: str,
     expected_revision z knowledge_get; metadata_yaml=null zachowuje frontmatter.
     Katalog rodzica musi istnieć. Zmiana maskowanego zakresu jest blokowana.
     No-op zwraca changed=false bez zadania. Zwraca task_id natychmiast, bez wait.
-    Zatrzymaj się i poczekaj na wiadomość użytkownika, potem sprawdź get_task.
+    Przy awaiting_approval najwyżej jedno wait_task(seconds=6) na osobny task_id.
+    Każde kolejne zadanie ma własne oczekiwanie do 6 s. Gdy nadal brak decyzji:
+    podsumuj i STOP do wiadomości użytkownika bez kolejnych wait/anulowania/resubmit.
+    Po decyzji śledź
+    ten sam task_id; sprawdź sukces przez get_task przed zależnym krokiem.
     Po błędzie ': ping' najpierw list_tasks, nie ponawiaj zapisu w ciemno.
     Wynik zadania rozróżnia committed, rollback_complete, cleanup_complete i index_state.
     Błąd indeksu nie cofa zapisu. Przy błędzie cleanup sprawdź committed i plik.
@@ -624,7 +665,11 @@ def prepare_project(root: Optional[str] = None, subpath: str = "", max_chars: in
     subpath to istniejący katalog roboczy względem roota; uwzględnia zagnieżdżone AGENTS.
     Sprawdź instructions_complete i truncated; skrócone instrukcje doczytaj read_file.
     Domyślnie odczyt. create_agents=true proponuje brakujący AGENTS z szablonu jako
-    task_id do zgody w panelu, bez nadpisywania; poczekaj na wiadomość użytkownika.
+    task_id do zgody w panelu, bez nadpisywania. Przy awaiting_approval najwyżej jedno
+    wait_task(seconds=6) na osobny task_id; każde kolejne zadanie ma własne oczekiwanie do 6 s.
+    Gdy nadal brak decyzji: podsumuj i STOP do wiadomości użytkownika
+    bez kolejnych wait/anulowania/resubmit.
+    Po decyzji sprawdź ten sam task_id przez get_task.
     Migracja OKF jest opcjonalna, nie blokuje zwykłej pracy. Nie wybieramy automatycznie
     obowiązującego stanu spośród historycznych checkpointów.
     """
@@ -651,8 +696,12 @@ def knowledge_convert(changes: List[Dict[str, Any]], root: Optional[str] = None,
     dodawanych metadanych; przy poprawnym OKF może być null). Nie zastępuje istniejących
     pól; dodaje brakujące, zachowując komentarze i body byte-for-byte. Błędny YAML,
     mixed EOL lub CP1250 wymagają osobnej decyzji/edycji. Nie dzieli i nie przenosi historii.
-    Jedna zgoda w panelu, bez Ufaj; natychmiastowy task_id. Poczekaj na użytkownika,
-    potem get_task. Po błędzie najpierw list_tasks; sprawdź committed przed ponowieniem.
+    Jedna zgoda w panelu, bez Ufaj; natychmiastowy task_id. Przy awaiting_approval najwyżej
+    jedno wait_task(seconds=6) na osobny task_id; wieloplikowa konwersja ma jedno oczekiwanie do 6 s.
+    Kolejne osobne zadanie ma własne oczekiwanie. Gdy nadal brak decyzji:
+    podsumuj i STOP do wiadomości użytkownika bez kolejnych wait/anulowania/resubmit.
+    Po decyzji get_task dla tego samego zadania, sukces przed zależnym krokiem.
+    Po błędzie najpierw list_tasks; sprawdź committed przed ponowieniem.
     """
     return call_project(PROJECTS.convert, changes, root, description)
 

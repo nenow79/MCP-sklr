@@ -11,9 +11,9 @@ KIND_ROOT_CHANGE = "root_change"
 
 ROOT_HINT = ("Narzędzia plikowe przyjmują parametr root (alias z tej listy); brak parametru, pusty "
              "napis lub \"false\" oznacza folder domyślny.")
-WAIT_HINT = ("Zadanie czeka na decyzję użytkownika w panelu zatwierdzeń (zatwierdza użytkownik, nie ty). "
-             "Zatrzymaj się i poczekaj na jego wiadomość; nie odpytuj wait_task w pętli. "
-             "Po decyzji sprawdź wynik przez get_task lub list_roots.")
+from server.task_tools import MANUAL_APPROVAL_HINT
+
+WAIT_HINT = MANUAL_APPROVAL_HINT + " Po sukcesie sprawdź list_roots."
 
 
 def _error(message: str, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
