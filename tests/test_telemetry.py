@@ -1,6 +1,9 @@
 """C3b: telemetria poufna nie serializuje wejścia/wyniku ani treści błędu."""
+import ast
 import json
+from pathlib import Path
 import queue
+from types import SimpleNamespace
 
 import pytest
 
@@ -102,6 +105,90 @@ def test_ordinary_tool_keeps_existing_size_measurements(monkeypatch):
 def test_confidential_flag_must_be_explicit_bool():
     with pytest.raises(ValueError, match="bool"):
         track_mcp_tool(lambda: None, lambda: "", confidential=1)
+
+
+def run_worker_steps(steps, *, fail_write=False):
+    """Run only the worker definition with a fake clock and scripted queue.
+
+    No module startup, global patches, threads or wall-clock waits.
+    None means Empty after the requested timeout; each step may request shutdown.
+    """
+    source = Path(__file__).resolve().parents[1] / "telemetry.py"
+    tree = ast.parse(source.read_text(encoding="utf-8-sig"))
+    worker = next(node for node in tree.body
+                  if isinstance(node, ast.FunctionDef) and node.name == "_telemetry_worker")
+    clock = SimpleNamespace(now=0.0)
+    stop = SimpleNamespace(value=False)
+    remaining = list(steps)
+    timeouts, batches = [], []
+
+    class ScriptedQueue:
+        def get(self, *, timeout):
+            timeouts.append(timeout)
+            assert remaining, "unexpected extra queue operation"
+            record, elapsed, stopping = remaining.pop(0)
+            clock.now += timeout if elapsed is None else elapsed
+            stop.value = stopping
+            if record is None:
+                raise queue.Empty
+            return record
+
+        def empty(self):
+            return not remaining
+
+    def write(records):
+        batches.append(list(records))
+        if fail_write:
+            raise OSError("test write failure")
+
+    namespace = {
+        "queue": queue,
+        "time": SimpleNamespace(monotonic=lambda: clock.now),
+        "_STOP_EVENT": SimpleNamespace(is_set=lambda: stop.value),
+        "_RECORD_QUEUE": ScriptedQueue(),
+        "_FLUSH_INTERVAL_SECONDS": 1.0,
+        "_BATCH_SIZE": 20,
+        "_write_records": write,
+    }
+    exec(compile(ast.Module(body=[worker], type_ignores=[]), str(source), "exec"), namespace)
+    namespace["_telemetry_worker"]()
+    assert not remaining
+    return timeouts, batches
+
+
+def test_worker_idle_queue_keeps_positive_wait_after_each_interval():
+    timeouts, batches = run_worker_steps([
+        (None, None, False), (None, None, False), (None, None, True),
+    ])
+    assert timeouts == [1.0, 1.0, 1.0]
+    assert batches == []
+
+
+def test_worker_flushes_pending_records_at_interval_and_resumes_idle_wait():
+    record = {"test": "interval"}
+    timeouts, batches = run_worker_steps([
+        (record, 0.25, False), (None, None, False), (None, None, True),
+    ])
+    assert timeouts == [1.0, 0.75, 1.0]
+    assert batches == [[record]]
+
+
+def test_worker_flushes_full_batch_before_interval():
+    records = [{"test": index} for index in range(20)]
+    timeouts, batches = run_worker_steps(
+        [(record, 0.0, False) for record in records] + [(None, None, True)])
+    assert timeouts == [1.0] * 21
+    assert batches == [records]
+
+
+@pytest.mark.parametrize("fail_write", [False, True])
+def test_worker_shutdown_drains_queue_and_tolerates_write_failure(fail_write):
+    records = [{"test": "first"}, {"test": "second"}]
+    timeouts, batches = run_worker_steps([
+        (records[0], 0.25, True), (records[1], 0.0, True),
+    ], fail_write=fail_write)
+    assert timeouts == [1.0, 1.0]
+    assert batches == [[records[0]], [records[1]]]
 
 
 def test_full_queue_does_not_change_confidential_result(monkeypatch):

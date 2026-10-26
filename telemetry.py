@@ -128,7 +128,11 @@ def _telemetry_worker() -> None:
         try:
             pending.append(_RECORD_QUEUE.get(timeout=timeout))
         except queue.Empty:
-            pass
+            if not pending:
+                # Przesuń termin także przy bezczynności. W przeciwnym razie
+                # po pierwszym interwale get(timeout=0) tworzy aktywną pętlę.
+                last_flush = time.monotonic()
+                continue
 
         if pending and (
             len(pending) >= _BATCH_SIZE

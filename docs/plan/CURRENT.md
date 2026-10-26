@@ -4,7 +4,21 @@ title: Aktualny stan projektu sklr
 description: Zakres implementacji, potwierdzeń i ograniczeń przed dalszą pracą nad autonomią i odbiorem Windows.
 tags: [sklr, project-state, sessions, autonomy, windows, testing]
 ---
-# Aktualny stan — przekazanie pełnej regresji Windows
+# Aktualny stan — pełna regresja Windows zaliczona
+
+## 2026-10-26 — telemetria: naprawa bezczynności i pełna regresja Windows
+
+Baza paczki: `5417e4c`, main; lokalna poprawka obejmuje `telemetry.py` i `tests/test_telemetry.py`. Użytkownik wykonał w istniejącym venv Windows `python -m pytest -q -rs --durations=30`: **3260 passed, 31 skipped / 239.67 s (3:59), bez failed i teardown errors**. Wynik odczytano z lokalnego `pytest_full_after_telemetry.log`; logi nie należą do commita. Testowany zakres obejmuje poprawkę kodu i pięć nowych przypadków testowych, przed aktualizacją dokumentacji. Ten wynik jest nadrzędny wobec poniższych historycznych stwierdzeń o nieodebranej regresji Windows; nie zamyka rzeczywistego odbioru panelu/harnessu ani pominiętych scenariuszy.
+
+Przed poprawką pełne repo na tej bazie: **20 failed, 3235 passed, 31 skipped, 1 teardown error / 5301.12 s (1:28:21)**. Krótkie paczki przechodziły. Pełna kolekcja z wykonaniem tylko czterech reprezentatywnych testów odtworzyła błąd scan_budget i spowolnienie: **1 failed, 3 passed / 114.50 s**. Raport pokazał wątek telemetrii, importy SDK podczas inspekcji i wysokie koszty resolve/lstat; po teardown nie zostawały znane workery zadań. TLS w tej reprodukcji zajmował około 0.08 s. Raportowane wersje Windows: Python 3.14.7, SQLite 3.53.4, pytest 9.1.1, fastmcp 4.0.11, mcp 2.3.0, Starlette 1.7.0, AnyIO 4.15.1; raport nie zawiera ścieżki interpretera.
+
+Odczyt kodu wykazał aktywną pętlę produkcyjnej telemetrii: po interwale bez rekordów timeout kolejki spadał do zera, a pusty pending nie przesuwał last_flush. Import modułu uruchamia worker; kolekcja test_telemetry uruchamiała go także bez wykonania tych testów. Zaakceptowana poprawka przesuwa termin po pustym oczekiwaniu. Zachowano batching, zapis i obsługę OSError; timeouty zadań, budżety OKF, SQLite, kontrole ścieżek, zgody i retry bez zmian. Nowe deterministyczne testy uruchamiają definicję workera z atrapami zegara/kolejki, bez patchowania globalnego stanu żywego wątku: bezczynność, zapis po interwale, pełna partia, shutdown z udanym i nieudanym zapisem. Nie usuwano aktualnych testów jako legacy.
+
+Walidacja użytkownika: telemetria **11 passed / 0.90 s**; ta sama czterotestowa reprodukcja z pełną kolekcją i diagnostyką **4 passed / 5.21 s**; osiem modułów wcześniej błędnych plus telemetria, pełna kolekcja bez pluginu **184 passed, 1 skipped / 24.85 s**; potem pełne repo jak wyżej. To mocno potwierdza aktywną pętlę telemetrii jako główną przyczynę odtworzonego spowolnienia, nie każdej możliwej awarii środowiska. Directory limit spadł z 99.96 s do 1.09 s; najwolniejsze fazy końcowego repo dotyczą głównie timeoutów/cleanup procesów. Node panelu wcześniej w tej sesji: **99 passed, 0 skipped / 3.57 s**; nie powtarzano po zmianie wyłącznie Python.
+
+31 skip: 10 brak pandas, 5 POSIX process groups, 1 POSIX mode, 1 case-sensitive filesystem, 14 symlink/link unavailable. Bez instalacji lub zmian uprawnień; skip nie potwierdza ochrony linków/junctionów. D15 i Windows D7/D8 odebrane w pełnym repo. D6/POSIX, ręczny odbiór sesji/autopilota/OKF i dalsze uproszczenie pozostają osobne. Przegląd ujawnił luki cleanup w make_env/test_knowledge_tools oraz nieudanym teardown inspekcji; nie naprawiano ich zbiorczo ani nie przypisano im głównej przyczyny. Pozostałe działania w backlogu. Działający sklr nie był restartowany; nowe procesy pytest wczytywały poprawkę.
+
+Poniższe sekcje zachowują wcześniejsze wyniki i punkt przekazania, nie są poleceniem ponowienia zaliczonej regresji.
 
 ## D15 — lokalne naprawy i regresja Linux, Windows do weryfikacji
 
