@@ -27,10 +27,29 @@ def test_static_files_exist():
         assert (STATIC / name).is_file(), name
 
 
+def test_topbar_stays_visible_above_scrolling_content():
+    css = read("style.css")
+    topbar = re.search(r"\.topbar\s*\{([^}]+)\}", css)
+    assert topbar is not None
+    declarations = dict(re.findall(r"([\w-]+)\s*:\s*([^;]+);", topbar.group(1)))
+    assert declarations["position"] == "sticky"
+    assert declarations["top"] == "0"
+    assert int(declarations["z-index"]) > 0
+    assert declarations["background"] == "var(--panel)"
+
+
 def test_index_references_local_assets():
     html = read("index.html")
     assert 'href="/static/style.css"' in html
     assert 'src="/static/app.js"' in html
+
+
+def test_session_view_orders_session_before_projects_and_folders():
+    html = read("index.html")
+    session_view = html.split('<main id="session-view"', 1)[1].split("</main>", 1)[0]
+    assert (session_view.index('class="session-card session-overview"')
+            < session_view.index('id="project-profiles-section"')
+            < session_view.index('class="session-card session-folders"'))
 
 
 def test_index_has_roots_tab_and_form():

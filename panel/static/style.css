@@ -41,6 +41,9 @@ h1 { font-size: 18px; margin: 0; }
 h2 { font-size: 15px; margin: 16px 0 8px; }
 
 .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
   display: flex;
   justify-content: space-between;
   align-items: center;

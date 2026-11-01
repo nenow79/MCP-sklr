@@ -159,18 +159,6 @@ docs/archives/</textarea></label>
       <div><h2>Projekty i foldery</h2><p class="muted">Wybierz projekt, sprawdź foldery i rozpocznij świeżą sesję.</p></div>
       <button id="session-refresh" type="button" class="btn">Odśwież</button>
     </div>
-    <section id="project-profiles-section" class="session-card" aria-labelledby="project-profiles-title">
-      <h2 id="project-profiles-title">Zapisane projekty</h2>
-      <p id="project-profiles-hint" class="muted" role="status" aria-live="polite"></p>
-      <div id="project-profiles-list" class="task-list"></div>
-      <form id="project-profile-form" class="root-form" autocomplete="off">
-        <label>Nazwa nowego projektu
-          <input id="project-profile-name" type="text" maxlength="100" required placeholder="np. QAP lub sklr">
-        </label>
-        <button id="project-profile-save" type="submit" class="btn btn-allow" disabled>Zapisz bieżące foldery jako projekt</button>
-      </form>
-      <p class="muted">Profil zapamiętuje foldery, nie rozmowę, zadania ani zgodę autopilota. Zmiany projektu wymagają zakończenia bieżącej sesji. Usunięcie profilu nie usuwa plików.</p>
-    </section>
     <section class="session-card session-overview" aria-label="Bieżący stan sesji">
       <div id="session-summary" role="status" aria-live="polite"></div>
       <div id="session-select" class="task-actions"><button id="session-start" type="button" class="btn btn-allow" disabled>Start</button></div>
@@ -187,6 +175,18 @@ docs/archives/</textarea></label>
         <summary>Szczegóły sesji</summary>
         <div id="session-state" class="task-list"></div>
       </details>
+    </section>
+    <section id="project-profiles-section" class="session-card" aria-labelledby="project-profiles-title">
+      <h2 id="project-profiles-title">Zapisane projekty</h2>
+      <p id="project-profiles-hint" class="muted" role="status" aria-live="polite"></p>
+      <div id="project-profiles-list" class="task-list"></div>
+      <form id="project-profile-form" class="root-form" autocomplete="off">
+        <label>Nazwa nowego projektu
+          <input id="project-profile-name" type="text" maxlength="100" required placeholder="np. QAP lub sklr">
+        </label>
+        <button id="project-profile-save" type="submit" class="btn btn-allow" disabled>Zapisz bieżące foldery jako projekt</button>
+      </form>
+      <p class="muted">Profil zapamiętuje foldery, nie rozmowę, zadania ani zgodę autopilota. Zmiany projektu wymagają zakończenia bieżącej sesji. Usunięcie profilu nie usuwa plików.</p>
     </section>
     <section class="session-card session-folders" aria-labelledby="session-folders-title">
       <h2 id="session-folders-title">Foldery</h2>
