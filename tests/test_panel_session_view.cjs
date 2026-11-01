@@ -72,6 +72,13 @@ function harness(server) {
         out = server.endResponse;
       } else if (url === '/api/work-session/pause') {
         out = server.pauseResponse;
+      } else if (url === '/api/roots/pick-directory' && method === 'POST') {
+        out = server.pickerResponse || { status: 200, json: { success: true, data: { path: null } } };
+      } else if (url === '/api/knowledge' && method === 'GET') {
+        out = { status: 200, json: { success: true, data: { revision: 'k1', bundles: [],
+          roots: [{ alias: 'project', mode: 'rw', write_policy: null }] } } };
+      } else if (url === '/api/external-mcp' && method === 'GET') {
+        out = { status: 200, json: { success: true, data: { revision: 'e1', configuration_valid: true, profiles: [] } } };
       } else if (url.startsWith('/api/roots') && method === 'POST') {
         out = server.rootResponse || { status: 200, json: { success: true, data: {} } };
       } else if (url === '/api/roots') {
@@ -548,4 +555,105 @@ test('session controls render while folder list is still pending', async () => {
   assert.equal(h.get('root-editor').disabled, true);
   release({ status: 200, json: rootsPayload() }); await h.flush();
   assert(text(h.get('roots-list')).includes('sklr'));
+});
+
+const pickerPosts = h => h.requests.filter(r => r.url === '/api/roots/pick-directory');
+
+test('folder picker fills only path without submitting form or granting permissions', async () => {
+  const chosen = 'C:\\projekty\\zażółć folder';
+  const h = harness({ status: status(), pickerResponse: ok({ path: chosen }) });
+  await h.open();
+  h.get('root-path').value = 'previous';
+  h.get('root-alias').value = 'keep-alias';
+  h.get('root-mode').value = 'ro';
+  await h.click('root-pick');
+  assert.equal(h.get('root-path').value, chosen);
+  assert.equal(h.get('root-alias').value, 'keep-alias');
+  assert.equal(h.get('root-mode').value, 'ro');
+  assert.deepEqual(pickerPosts(h).map(r => [r.method, r.payload]), [['POST', {}]]);
+  assert.equal(h.posts().length, 0);
+  assert.equal(h.requests.filter(r => r.method === 'POST').length, 1);
+  assert.equal(h.get('root-editor').disabled, false);
+});
+
+test('folder picker cancel preserves the form', async () => {
+  const h = harness({ status: status() }); await h.open();
+  h.get('root-path').value = 'keep';
+  await h.click('root-pick');
+  assert.equal(h.get('root-path').value, 'keep');
+  assert.equal(pickerPosts(h).length, 1);
+});
+
+test('folder picker double click and submit while pending do not launch more operations', async () => {
+  let release;
+  const h = harness({ status: status(), pickerResponse: new Promise(resolve => { release = resolve; }) });
+  await h.open();
+  h.get('root-pick').listeners.click(); h.get('root-pick').listeners.click();
+  h.get('root-form').listeners.submit({ preventDefault() {} }); await h.flush();
+  assert.equal(pickerPosts(h).length, 1);
+  assert.equal(h.requests.filter(r => r.method === 'POST').length, 1);
+  assert.equal(h.get('root-editor').disabled, true);
+  release(ok({ path: 'C:\\chosen' })); await h.flush();
+  assert.equal(h.get('root-editor').disabled, false);
+  assert.equal(h.get('root-pick').textContent, 'Wybierz folder…');
+});
+
+test('folder picker is blocked by active or pending session and unknown roots', async () => {
+  for (const config of [{ status: active() }, { status: resumable({ resume_pending: true }) },
+    { status: status(), rootsResponse: { status: 500, json: {} } }]) {
+    const h = harness(config); await h.open(); await h.click('root-pick');
+    assert.equal(pickerPosts(h).length, 0);
+  }
+});
+
+test('folder picker errors preserve manual input and never retry', async () => {
+  for (const code of [409, 503, 404, 401]) {
+    const h = harness({ status: status(), pickerResponse: { status: code, json: { success: false, error: 'dialog error' } } });
+    await h.open(); h.get('root-path').value = 'manual'; await h.click('root-pick');
+    assert.equal(h.get('root-path').value, 'manual');
+    assert.equal(pickerPosts(h).length, 1);
+    assert.equal(h.get('banner').hidden, false);
+    assert.equal(h.get('root-editor').disabled, code === 401);
+  }
+});
+
+test('late folder selection after leaving tab or editing path or changing session is discarded', async () => {
+  for (const action of ['tab', 'edit', 'session']) {
+    let release;
+    const h = harness({ status: status(), pickerResponse: new Promise(resolve => { release = resolve; }) });
+    await h.open(); h.get('root-path').value = 'manual';
+    h.get('root-pick').listeners.click(); await h.flush();
+    if (action === 'tab') await h.click('tab-tasks');
+    if (action === 'edit') h.get('root-path').value = 'changed';
+    if (action === 'session') { h.server.status = active(); await h.click('session-refresh'); }
+    release(ok({ path: 'C:\\late' })); await h.flush();
+    assert.equal(h.get('root-path').value, action === 'edit' ? 'changed' : 'manual');
+    assert.equal(pickerPosts(h).length, 1);
+  }
+});
+
+test('directory picker remains exclusive to folders and sessions', async () => {
+  const h = harness({ status: status() });
+  for (const id of ['knowledge-subpath-pick', 'knowledge-policy-subpaths-pick',
+    'knowledge-policy-exclusions-pick', 'external-cwd-pick']) {
+    assert.equal(h.get(id).listeners.click, undefined);
+  }
+  await h.click('tab-knowledge');
+  await h.click('tab-external');
+  assert.equal(pickerPosts(h).length, 0);
+  await h.open(); await h.click('root-pick');
+  assert.equal(pickerPosts(h).length, 1);
+});
+
+test('folder picker malformed or rejected response preserves manual path', async () => {
+  for (const output of [ok({}), ok({ path: 42 }), ok({ path: '' }), Promise.reject(new Error('offline'))]) {
+    // Attach rejection handling before the first asynchronous harness operation.
+    const guarded = Promise.resolve(output); guarded.catch(() => {});
+    const h = harness({ status: status(), pickerResponse: guarded });
+    await h.open(); h.get('root-path').value = 'keep'; await h.click('root-pick');
+    assert.equal(h.get('root-path').value, 'keep');
+    assert.equal(h.get('root-editor').disabled, false);
+    assert.equal(pickerPosts(h).length, 1);
+    assert.equal(h.get('banner').hidden, false);
+  }
 });

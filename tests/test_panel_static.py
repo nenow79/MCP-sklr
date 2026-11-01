@@ -37,9 +37,20 @@ def test_index_has_roots_tab_and_form():
     html = read("index.html")
     for element_id in ("tab-tasks", "tab-session", "tasks-view", "session-view", "roots-list",
                        "root-form", "root-path", "root-mode", "root-alias", "root-description",
-                       "root-default"):
+                       "root-default", "root-pick", "root-picker-hint"):
         assert f'id="{element_id}"' in html, element_id
     assert "Foldery" in html
+
+
+def test_directory_picker_only_in_session_form():
+    html = read("index.html")
+    assert 'id="root-pick"' in html
+    for element_id in ("knowledge-subpath-pick", "knowledge-policy-subpaths-pick",
+                       "knowledge-policy-exclusions-pick", "external-cwd-pick"):
+        assert f'id="{element_id}"' not in html
+    assert 'id="knowledge-root" required' in html
+    assert 'id="knowledge-subpath"' in html
+    assert 'id="external-cwd"' in html
 
 
 def test_index_has_skills_tab_and_view():

@@ -184,9 +184,14 @@ docs/archives/</textarea></label>
       <details id="root-add"><summary>Dodaj folder</summary>
       <fieldset id="root-editor">
       <form id="root-form" class="root-form" autocomplete="off">
-        <label>Ścieżka (bezwzględna)
-          <input id="root-path" type="text" required placeholder="C:\projekty\app">
-        </label>
+        <div class="root-path-picker">
+          <label for="root-path">Ścieżka (bezwzględna)</label>
+          <div class="root-path-controls">
+            <input id="root-path" type="text" required placeholder="C:\projekty\app" aria-describedby="root-picker-hint">
+            <button id="root-pick" type="button" class="btn">Wybierz folder…</button>
+          </div>
+          <p id="root-picker-hint" class="muted">Okno otworzy się na komputerze sklr. Wybór tylko uzupełnia ścieżkę — folder dodasz poniższym przyciskiem.</p>
+        </div>
         <label>Tryb
           <select id="root-mode">
             <option value="rw">rw (odczyt i zapis)</option>

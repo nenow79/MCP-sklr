@@ -6,6 +6,16 @@ tags: [sklr, project-state, sessions, autonomy, windows, testing]
 ---
 # Aktualny stan — pełna regresja Windows zaliczona
 
+## Wybór folderu — tylko Foldery i Sesje; OKF/stdio przywrócone
+
+Po akceptacji użytkownika dodano przycisk „Wybierz folder…” w formularzu Dodaj folder zakładki Foldery i Sesje. Uwierzytelniony POST `/api/roots/pick-directory` otwiera dialog na komputerze sklr w izolowanym procesie bieżącego Pythona (opcjonalny Tk, sesja graficzna, jedno okno naraz, limit 300 s). Wybór tylko uzupełnia ścieżkę; anulowanie zachowuje formularz. Roots, zgody i sesje zmienia nadal wyłącznie dotychczasowe dodanie folderu. Błędy pozostawiają ręczny wpis; brak automatycznych ponowień. UI blokuje powtórne kliknięcie i wysłanie formularza podczas wyboru oraz odrzuca spóźniony wynik po zmianie zakładki, formularza lub sesji. Nie przywrócono okien zatwierdzeń tkinter.
+
+Pierwszy przycisk: test-runner w istniejącym venv Windows, Python 3.14.7: **74 passed, 3248 deselected / 8.67 s** (directory_picker, panel_roots, panel_static, panel_session_folders). Node.js v24.14.0 przez rozszerzony test-runner: **44 passed, bez failed/cancelled/skipped/todo / 153 ms**, plik test_panel_session_view.cjs. Użytkownik po własnym restarcie sklr potwierdził działanie rzeczywistego okna. To odbiór pierwszego przycisku, nie pełnej regresji repo ani poniższego rozszerzenia.
+
+Na polecenie użytkownika wycofano późniejsze rozszerzenie OKF/stdio. Przycisk systemowego wyboru katalogu pozostaje wyłącznie w Foldery i Sesje. OKF ponownie wybiera root z istniejącej listy, a podkatalog, zakresy polityki i wyjątki wpisuje się ręcznie jako ścieżki względne; cwd stdio również wpisuje się ręcznie. API pick-directory ponownie przyjmuje wyłącznie pusty obiekt JSON. Usunięto aktywną obsługę i testy przycisków rozszerzenia, dodano testy wyłączności pierwszego przycisku. Bez zmian lokalnego configu/baz, roots, zbiorów wiedzy i Git. Moduł panel/directory_selection.py oraz jego osobny plik testowy pozostają nieużywane przez panel: dostępne narzędzia plikowe nie obsługują usuwania plików; nie uruchamiano skryptu do ich usunięcia.
+
+Przed wycofaniem rozszerzenie sprawdzono: Python 146 passed, 2 skipped, 3181 deselected / 8.53 s; Node początkowo 72 passed i 1 failed (atrapa DOM przechowuje jeden handler). Po połączeniu handlerów transportu, bez zmiany asercji: 73 passed, bez failed/cancelled/skipped/todo / 199 ms. Wyniki te dotyczą wersji sprzed wycofania. **Regresja po wycofaniu pozostaje niewykonana.** Restart wykonuje użytkownik.
+
 ## 2026-10-26 — P8: ręczne oczekiwanie na zgodę odebrane w zakresie smoke
 
 Po akceptacji i doprecyzowaniu użytkownika wdrożono jedno ręczne wait_task(seconds=6) na każdy osobny task_id, również dla kolejnych zadań w tej samej sekwencji. Wieloplikowe zadanie ma jedno oczekiwanie, nie osobne na każdy plik. Jeśli nadal brak decyzji: podsumowanie i STOP bez kolejnych wait, anulowania lub resubmit; nie tworzyć zadania dla resetu limitu. queued/running po decyzji oznacza wykonanie, nie oczekiwanie na człowieka. Zależny krok wymaga potwierdzonego sukcesu i aktualnych zgód. To polityka modelu, nie serwerowy licznik wywołań. Limit 8 s pojedynczego wait_task, wykonawcy, timeouty, zgody i TTL bez zmian; poufne wyniki tylko przez get_task.

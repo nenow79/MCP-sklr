@@ -186,6 +186,12 @@ pre {
 }
 .tab.active { border-color: var(--accent); font-weight: 600; }
 
+.root-path-picker { min-width: 0; }
+.root-path-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.root-path-controls input { flex: 1 1 220px; min-width: 0; }
+.root-path-controls .btn { flex: 0 0 auto; }
+.root-path-picker .muted { margin: 6px 0 0; font-size: 12px; }
+
 .root-card {
   background: var(--panel);
   border: 1px solid var(--border);

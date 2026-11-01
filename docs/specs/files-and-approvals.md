@@ -14,6 +14,8 @@ Roots wyznaczają dostęp narzędzi plikowych. Brak root oznacza domyślny alias
 
 Guard musi kontrolować wyjście przez `..`, inne dyski, UNC i prefiksy urządzeń, symlinki/junctiony i przodków, case, nazwy 8.3, końcowe kropki/spacje, strumienie NTFS i nazwy zarezerwowane Windows. Sprawdzenie przy przygotowaniu nie zastępuje ponownej walidacji po zgodzie. Wewnętrzne ścieżki względem przypiętego roota pozwalają rozwijać projekt na Linuksie bez osłabiania reguł Windows.
 
+Przycisk „Wybierz folder…” w formularzu panelu wywołuje uwierzytelniony POST `/api/roots/pick-directory` z pustym obiektem JSON (kontrole Host/Origin i sesji panelu). Okno wyboru otwiera się na komputerze sklr w osobnym procesie bieżącego Pythona; wymaga sesji graficznej i opcjonalnego Tk. Jedno okno naraz, limit 300 s; brak GUI/Tk lub błąd pozostawia możliwość ręcznego wpisania ścieżki. Anulowanie zwraca `path: null`. Wybór tylko uzupełnia formularz: nie zmienia roots, sesji, zgód ani konfiguracji. Dodanie nadal przechodzi przez dotychczasową walidację i kontrolę sesji. Nie jest to powrót okien zatwierdzeń tkinter — zgody pozostają wyłącznie w panelu webowym.
+
 Roots nie sandboxują skryptów ani procesów użytkownika. Heurystyki i zgoda w panelu nie usuwają wszystkich zewnętrznych TOCTOU.
 
 ## Odczyt i zapis

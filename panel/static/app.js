@@ -643,6 +643,40 @@
     });
   }
 
+  var rootPickerBusy = false;
+  function pickRootDirectory() {
+    if (!foldersEditable() || state.tab !== "session") { return Promise.resolve(); }
+    var generation = sessionGeneration;
+    var previousPath = $("root-path").value;
+    rootPickerBusy = true;
+    $("root-pick").textContent = "Wybieranie…";
+    sessionButtons(); renderSessionRoots();
+    showBanner("Wybierz folder w oknie na komputerze sklr.", true);
+    return api("POST", "/api/roots/pick-directory", {}).then(function (res) {
+      if (res.status === 401) { authFailed(); return; }
+      if (!sessionCurrent(generation)) { return; }
+      if (res.status !== 200 || !res.json.success || !res.json.data ||
+          !(res.json.data.path === null || typeof res.json.data.path === "string" && res.json.data.path)) {
+        showBanner(res.json.error || "Nie udało się wybrać folderu. Wpisz ścieżkę ręcznie.", false);
+        return;
+      }
+      // A late result must not replace an edited form or apply to another session.
+      rootPickerBusy = false;
+      if (foldersEditable() && $("root-path").value === previousPath && res.json.data.path !== null) {
+        $("root-path").value = res.json.data.path;
+      }
+      hideBanner();
+    }).catch(function () {
+      if (sessionCurrent(generation)) {
+        showBanner("Brak odpowiedzi okna wyboru. Wpisz ścieżkę ręcznie; nie otwieramy go ponownie automatycznie.", false);
+      }
+    }).then(function () {
+      rootPickerBusy = false;
+      $("root-pick").textContent = "Wybierz folder…";
+      sessionButtons(); renderSessionRoots();
+    });
+  }
+
   function submitRoot(event) {
     event.preventDefault();
     if (!foldersEditable()) { return; }
@@ -1742,7 +1776,7 @@
   }
 
   function foldersEditable() {
-    return !state.stopped && !sessionBusy && sessionStateLoaded && sessionRootsLoaded && (sessionUnavailable || !!sessionData &&
+    return !state.stopped && !sessionBusy && !rootPickerBusy && sessionStateLoaded && sessionRootsLoaded && (sessionUnavailable || !!sessionData &&
       (!sessionData.session_id || sessionData.state === "paused" && sessionData.running_actions === 0 && !sessionData.resume_pending));
   }
 
@@ -1893,6 +1927,7 @@
     $("status-filter").addEventListener("change", function () { refresh(); });
     $("tab-tasks").addEventListener("click", function () { showTab("tasks"); });
     $("root-form").addEventListener("submit", submitRoot);
+    $("root-pick").addEventListener("click", pickRootDirectory);
     $("tab-skills").addEventListener("click", function () { showTab("skills"); });
     $("skills-refresh").addEventListener("click", refreshSkills);
     if ($("tab-knowledge")) {

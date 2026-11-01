@@ -18,6 +18,7 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
 from panel.auth import COOKIE_NAME, PanelAuth
+from panel.directory_picker import DIRECTORY_PICKER, DirectoryPickerBusy, DirectoryPickerUnavailable
 from server.panel_timing import measure, timing_header
 from roots import RootConflict, RootError, RootNotFound
 from server.skills_admin import SkillConflict, SkillNotFound
@@ -119,9 +120,10 @@ def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: Pane
                      static_dir: Optional[Path] = None, roots: Any = None,
                      skills: Any = None, knowledge: Any = None,
                      external_mcp: Any = None, work_sessions: Any = None,
-                     autopilot: Any = None) -> Starlette:
+                     autopilot: Any = None, directory_picker: Any = None) -> Starlette:
     """`roots` (RootsRegistry) jest opcjonalne: bez niego endpointy /api/roots nie istnieją (404)."""
     static_path = Path(static_dir) if static_dir is not None else DEFAULT_STATIC_DIR
+    picker = directory_picker if directory_picker is not None else DIRECTORY_PICKER
     if work_sessions is not None:
         work_sessions.attach_manager(manager)
 
@@ -338,6 +340,22 @@ def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: Pane
             return _err("Nie ma takiego zadania.", 404)
         return _ok(task.to_dict())
 
+    async def pick_directory(request: Request) -> JSONResponse:
+        body = await _json_body(request)
+        if body is None or body:
+            return _err("Oczekiwano pustego obiektu JSON.", 400)
+        try:
+            # Selection only: no registry mutation, session change or permission grant.
+            selected = await run_in_threadpool(picker.pick)
+        except DirectoryPickerBusy:
+            return _err("Okno wyboru folderu jest już otwarte na komputerze sklr.", 409)
+        except DirectoryPickerUnavailable:
+            return _err("Nie można otworzyć okna wyboru folderu. Wpisz ścieżkę ręcznie. "
+                        "Wymagana jest sesja graficzna i Tk w Pythonie uruchamiającym sklr.", 503)
+        except Exception:
+            return _err("Wybór folderu nie powiódł się. Wpisz ścieżkę ręcznie.", 503)
+        return _ok({"path": selected})
+
     async def list_roots(request: Request) -> JSONResponse:
         with measure(request.state.panel_timings, "roots"):
             entries = await run_in_threadpool(roots.list_status)
@@ -550,6 +568,7 @@ def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: Pane
     ]
     if roots is not None:
         routes[-1:-1] = [
+            Route("/api/roots/pick-directory", pick_directory, methods=["POST"]),
             Route("/api/roots", list_roots, methods=["GET"]),
             Route("/api/roots", add_root, methods=["POST"]),
             Route("/api/roots/{alias}/update", update_root, methods=["POST"]),
