@@ -155,11 +155,19 @@ def test_session_tab_static():
         assert f'id="{element_id}"' not in html
     assert "/api/work-session/start" in js and "/api/work-session/pause" in js
     assert "work-session/switch" not in js
-    for suffix in ("resume-preview", "prepare-resume", "resume-plan", "saved", "recover"):
+    for suffix in ("resume-preview", "prepare-resume", "resume-plan"):
         assert "/api/work-session/" + suffix in js
     for element_id in ("session-resume-section", "session-supplement", "session-prepare",
-                       "session-plan-section", "session-plan", "session-saved-section", "session-saved"):
+                       "session-plan-section", "session-plan"):
         assert f'id="{element_id}"' in html
+    for suffix in ('saved', 'recover'):
+        assert '/api/work-session/' + suffix not in js
+    for element_id in ('session-saved-section', 'session-saved'):
+        assert f'id="{element_id}"' not in html
+    for element_id in ('project-profiles-list', 'project-profile-form', 'project-profile-name', 'project-profile-save'):
+        assert f'id="{element_id}"' in html
+    assert '/api/project-profiles' in js
+    assert 'Projekty i foldery' in html and 'Zakończ pracę' in html
     assert 'maxlength="3000" autocomplete="off"' in html
     session_code = js.split("  // --- sesja pracy:", 1)[1].split("  function init()", 1)[0]
     assert not re.search(r"setTimeout|setInterval|localStorage|innerHTML", session_code)

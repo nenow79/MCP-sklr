@@ -267,6 +267,21 @@ class SessionStore:
             return [SessionTaskLink(row['session_id'], row['task_id'], row['session_revision'])
                     for row in rows]
 
+    def retire_after_restart(self):
+        """Bootstrap after backup: close old work, preserving metadata/task links.
+
+        No task/result/autopilot store is accessed. Ended records are immutable
+        across subsequent restarts; no selection or executor is restored.
+        """
+        with self._lock, self._conn:
+            self._conn.execute('BEGIN IMMEDIATE')
+            count = self._conn.execute(
+                "UPDATE work_sessions SET lifecycle='ended', state='paused', "
+                "checkpoint_state='unavailable', revision=revision+1, "
+                "reason='server_restarted', updated_at=? WHERE lifecycle IN ('open','ending')",
+                (now_iso(),)).rowcount
+            return count
+
     def recover_after_restart(self):
         """Bootstrap only: invalidate stale generations, never resume execution.
 

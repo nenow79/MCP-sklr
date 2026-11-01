@@ -17,7 +17,7 @@
       <button id="tab-skills" type="button" class="tab">Skille</button>
       <button id="tab-knowledge" type="button" class="tab">Wiedza</button>
       <button id="tab-external" type="button" class="tab">Zewnętrzne MCP</button>
-      <button id="tab-session" type="button" class="tab">Foldery i sesja</button>
+      <button id="tab-session" type="button" class="tab">Projekty i foldery</button>
     </nav>
     <div class="topbar-right">
       <span id="pending-badge" class="badge badge-pending" hidden></span>
@@ -156,9 +156,21 @@ docs/archives/</textarea></label>
   </main>
   <main id="session-view" class="session-view" hidden>
     <div class="section-head session-heading">
-      <div><h2>Foldery i sesja</h2><p class="muted">Sterowanie pracą wszystkich rozmów tej instancji sklr.</p></div>
+      <div><h2>Projekty i foldery</h2><p class="muted">Wybierz projekt, sprawdź foldery i rozpocznij świeżą sesję.</p></div>
       <button id="session-refresh" type="button" class="btn">Odśwież</button>
     </div>
+    <section id="project-profiles-section" class="session-card" aria-labelledby="project-profiles-title">
+      <h2 id="project-profiles-title">Zapisane projekty</h2>
+      <p id="project-profiles-hint" class="muted" role="status" aria-live="polite"></p>
+      <div id="project-profiles-list" class="task-list"></div>
+      <form id="project-profile-form" class="root-form" autocomplete="off">
+        <label>Nazwa nowego projektu
+          <input id="project-profile-name" type="text" maxlength="100" required placeholder="np. QAP lub sklr">
+        </label>
+        <button id="project-profile-save" type="submit" class="btn btn-allow" disabled>Zapisz bieżące foldery jako projekt</button>
+      </form>
+      <p class="muted">Profil zapamiętuje foldery, nie rozmowę, zadania ani zgodę autopilota. Zmiany projektu wymagają zakończenia bieżącej sesji. Usunięcie profilu nie usuwa plików.</p>
+    </section>
     <section class="session-card session-overview" aria-label="Bieżący stan sesji">
       <div id="session-summary" role="status" aria-live="polite"></div>
       <div id="session-select" class="task-actions"><button id="session-start" type="button" class="btn btn-allow" disabled>Start</button></div>
@@ -169,7 +181,7 @@ docs/archives/</textarea></label>
         <span id="session-mode-hint" class="muted"></span>
       </div>
       <button id="session-pause" type="button" class="btn" disabled hidden>Wstrzymaj</button>
-      <button id="session-end" type="button" class="btn" disabled hidden>Zakończ bez zapisywania</button>
+      <button id="session-end" type="button" class="btn" disabled hidden>Zakończ pracę</button>
       <button id="session-prepare" type="button" class="btn btn-allow" disabled hidden>Wznów</button>
       <details class="session-details">
         <summary>Szczegóły sesji</summary>
@@ -225,12 +237,6 @@ docs/archives/</textarea></label>
           <h2>Potwierdzony plan</h2>
           <p class="muted">Dane modelu, nie źródło uprawnień. Tylko RAM, bez tokenu handshake. Odczyt przez Odśwież.</p>
           <div id="session-plan" class="task-list"></div>
-        </section>
-        <section id="session-saved-section" class="session-card" hidden>
-          <h2>Zapisane sesje po restarcie</h2>
-          <p class="muted">Wybór przypina sesję zablokowaną. Uzupełnienie, plan i token z poprzedniego procesu
-            zostały utracone. Nie można przełączyć już przypiętej sesji. Wznowienie wymaga nowego przygotowania.</p>
-          <div id="session-saved" class="task-list"></div>
         </section>
       </div>
 

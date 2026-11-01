@@ -1553,13 +1553,122 @@
   var sessionStateLoaded = false;
   var sessionBusy = false;
   var sessionGeneration = 0;
+  var profileData = null;
+  var profilesLoaded = false;
+
+  function profileRootsMatch() {
+    if (!profilesLoaded || !profileData || !Array.isArray(profileData.current_roots)) { return false; }
+    function fields(root) { return {alias: root.alias, path: root.path, mode: root.mode,
+      description: root.description || "", default: !!root.default}; }
+    return JSON.stringify(sessionRoots.map(fields)) === JSON.stringify(profileData.current_roots.map(fields));
+  }
+
+  function profilesEditable() {
+    return profilesLoaded && !sessionBusy && !rootPickerBusy && !state.stopped &&
+      state.tab === "session" && sessionStateLoaded && sessionRootsLoaded &&
+      (sessionUnavailable || sessionData && !sessionData.session_id);
+  }
+
+  function renderProfiles() {
+    var list = $("project-profiles-list");
+    if (!list) { return; }
+    list.textContent = "";
+    var editable = profilesEditable();
+    var viewRevision = profileData && profileData.revision;
+    var viewGeneration = sessionGeneration;
+    $("project-profile-save").disabled = !editable || !sessionChosen().length;
+    $("project-profile-name").disabled = !editable;
+    $("project-profiles-hint").textContent = !profilesLoaded ? "Lista projektów niedostępna. Odśwież stan." :
+      sessionData && sessionData.session_id ? "Zakończ bieżącą pracę, aby wybrać lub zmienić projekt." :
+      "Wybór przywraca foldery. Sprawdź je poniżej i naciśnij Start; nie wznawia to dawnych zadań.";
+    if (!profileData) { return; }
+    (profileData.profiles || []).forEach(function (item) {
+      var card = el("section", { className: "root-card" });
+      card.appendChild(el("h3", { text: item.name }));
+      card.appendChild(el("p", { className: "muted", text: "Wersja zakresu: " + item.version +
+        (profileData.selected === item.id ? " · Ostatnio wybrany" : "") +
+        (item.matches_current ? " · Zgodny z bieżącymi folderami" : " · Bieżące foldery różnią się od profilu") }));
+      (item.roots || []).forEach(function (root) {
+        card.appendChild(el("p", { text: root.alias + " · " + root.mode +
+          (root.default ? " · domyślny" : "") + " · " + root.path }));
+      });
+      if ((item.unavailable || []).length) {
+        card.appendChild(el("p", { text: "Niedostępne foldery: " + item.unavailable.join(", ") }));
+      }
+      var actions = el("div", { className: "task-actions" });
+      function button(text, action, question, extra, blocked) {
+        var node = el("button", { type: "button", className: "btn", text: text });
+        node.disabled = !editable || !!blocked;
+        node.addEventListener("click", function () {
+          if (node.disabled || !sessionCurrent(viewGeneration) || !profileData || profileData.revision !== viewRevision) { return; }
+          profilePost(action, Object.assign({ id: item.id }, extra || {}), question);
+        });
+        actions.appendChild(node);
+      }
+      button("Wybierz projekt", "select", "Przywrócić foldery projektu " + item.name +
+        "? Bieżąca konfiguracja folderów zostanie zastąpiona. Zadania i zgody nie są przywracane.", {},
+        (item.unavailable || []).length > 0);
+      button("Zapisz bieżące foldery w tym projekcie", "update", "Zastąpić zapisane foldery projektu " +
+        item.name + " bieżącą konfiguracją?", {}, !sessionChosen().length);
+      var rename = el("button", { type: "button", className: "btn", text: "Zmień nazwę" });
+      rename.disabled = !editable;
+      rename.addEventListener("click", function () {
+        if (rename.disabled || !profilesEditable() || !sessionCurrent(viewGeneration) ||
+            !profileData || profileData.revision !== viewRevision) { return; }
+        var name = window.prompt("Nowa nazwa projektu", item.name);
+        if (name === null) { return; }
+        profilePost("rename", {id: item.id, name: name}, "Zmienić nazwę projektu?");
+      });
+      actions.appendChild(rename);
+      button("Usuń profil", "delete", "Usunąć profil " + item.name +
+        "? Foldery, pliki i historia zadań pozostaną bez zmian.");
+      card.appendChild(actions);
+      list.appendChild(card);
+    });
+    if (!(profileData.profiles || []).length) {
+      list.appendChild(el("p", { className: "muted", text: "Brak zapisanych projektów. Zapisz bieżące foldery jako pierwszy projekt." }));
+    }
+  }
+
+  function refreshProfiles(generation) {
+    if (!$("project-profiles-list")) { return Promise.resolve(); }
+    return api("GET", "/api/project-profiles").then(function (res) {
+      if (!sessionCurrent(generation)) { return; }
+      if (res.status === 401) { authFailed(); return; }
+      profilesLoaded = res.status === 200 && res.json.success && !!res.json.data;
+      profileData = profilesLoaded ? res.json.data : null;
+      sessionButtons();
+    }).catch(function () {
+      if (sessionCurrent(generation)) { profilesLoaded = false; profileData = null; sessionButtons(); }
+    });
+  }
+
+  function profilePost(action, fields, question) {
+    if (!profilesEditable() || !profileData || !window.confirm(question)) { return Promise.resolve(); }
+    var body = Object.assign({revision: profileData.revision, confirmed: true}, fields);
+    var generation = sessionGeneration;
+    sessionBusy = true; sessionButtons(); renderSessionRoots();
+    return api("POST", "/api/project-profiles/" + action, body).then(function (res) {
+      if (!sessionCurrent(generation)) { return; }
+      if (res.status === 401) { authFailed(); return; }
+      if (res.status === 200 && res.json.success) {
+        hideBanner();
+        if (action === "create") { $("project-profile-name").value = ""; }
+        if (typeof window.dispatchEvent === "function") { window.dispatchEvent(new Event("panel-session-changed")); }
+      } else {
+        showBanner(visibleText(res.json.error || "Operacja projektu nie powiodła się. Odśwież stan."), false);
+      }
+      return refreshSession();
+    }).catch(function () {
+      if (sessionCurrent(generation)) { showBanner("Niepewny wynik zmiany projektu. Odśwież stan; nie ponawiaj automatycznie.", false); }
+      profilesLoaded = false;
+    }).then(function () { sessionBusy = false; sessionButtons(); renderSessionRoots(); });
+  }
 
   function clearSessionResume() {
     sessionGeneration += 1;
     $("session-plan").textContent = "";
     $("session-plan-section").hidden = true;
-    $("session-saved").textContent = "";
-    $("session-saved-section").hidden = true;
     $("session-resume-section").hidden = true;
   }
 
@@ -1576,37 +1685,7 @@
   function refreshSessionResume(generation) {
     var data = sessionData;
     if (!data || !sessionCurrent(generation)) { return Promise.resolve(); }
-    if (!data.session_id) {
-      return api("GET", "/api/work-session/saved").then(function (res) {
-        if (!sessionCurrent(generation) || !sessionData || sessionData.session_id) { return; }
-        if (res.status === 401) { clearSessionResume(); authFailed(); return; }
-        var box = $("session-saved");
-        box.textContent = "";
-        $("session-saved-section").hidden = false;
-        if (res.status !== 200 || !res.json.success || !res.json.data) {
-          box.textContent = "Nie można odczytać zapisanych sesji. Odśwież stan."; return;
-        }
-        var saved = res.json.data;
-        (saved.sessions || []).forEach(function (item) {
-          var button = el("button", { type: "button", className: "btn", text: "Wybierz zapisaną sesję" });
-          button.disabled = sessionBusy || !item.recoverable;
-          button.addEventListener("click", function () {
-            if (!sessionCurrent(generation) || sessionBusy || !item.recoverable || sessionData.session_id) { return; }
-            sessionPost("/api/work-session/recover", {
-              session_id: item.session_id, revision: item.revision, confirmed: true
-            }, "Przypiąć zapisaną sesję " + visibleText(item.session_id) + " jako zablokowaną? " +
-              "RAM został utracony. Nie będzie można przełączyć sesji; potrzebne jest nowe przygotowanie wznowienia.");
-          });
-          box.appendChild(sessionLine("Sesja", item.session_id));
-          box.appendChild(sessionLine("Foldery", (item.roots || []).join(", ")));
-          box.appendChild(sessionLine("Rewizja", item.revision));
-          box.appendChild(sessionLine("Stan / powód", (item.state || "") + " / " + (item.reason || "")));
-          box.appendChild(button);
-        });
-        if (!(saved.sessions || []).length) { box.textContent = "Brak zapisanych sesji."; }
-        if (saved.truncated) { box.appendChild(sessionLine("Lista", "Skrócona do 200 sesji.")); }
-      });
-    }
+    if (!data.session_id) { return Promise.resolve(); }
     if (data.state !== "active" || data.execution_blocked || !data.resume_available) { return Promise.resolve(); }
     var sid = data.session_id;
     var revision = data.revision;
@@ -1679,7 +1758,7 @@
 
   function sessionButtons() {
     $("session-start").disabled = !sessionStateLoaded || sessionBusy || !sessionData || !!sessionData.session_id ||
-      !sessionRootsLoaded || sessionChosen().length === 0;
+      !sessionRootsLoaded || sessionChosen().length === 0 || !profileRootsMatch();
     $("session-end").hidden = !sessionData || !sessionData.session_id;
     $("session-end").disabled = !sessionStateLoaded || sessionBusy || !sessionData || !sessionData.session_id ||
       sessionData.state === "ending" && sessionData.running_actions > 0;
@@ -1690,6 +1769,7 @@
     $("session-refresh").disabled = sessionBusy;
     $("session-pause").hidden = !sessionData || sessionData.state !== "active";
     $("root-editor").disabled = !foldersEditable();
+    renderProfiles();
   }
 
   function sessionLine(label, value) {
@@ -1703,11 +1783,11 @@
     var data = sessionData, title = "Stan sesji niedostępny", hint = "Odśwież, aby sprawdzić dostępność sesji.", tone = "is-blocked";
     if (data && !data.session_id) {
       title = "Rozpocznij sesję";
-      hint = "Brak przypiętej sesji. Dodaj foldery poniżej i naciśnij Start lub wybierz zapisaną sesję po restarcie.";
+      hint = "Wybierz zapisany projekt lub skonfiguruj foldery poniżej, a następnie naciśnij Start. Po restarcie zawsze rozpoczynasz świeżą sesję.";
       tone = "";
     } else if (data) {
       if (data.state === "ending") {
-        title = "Trwa kończenie sesji bez zapisywania";
+        title = "Trwa kończenie pracy";
         hint = "Nowe działania są zablokowane. Po zakończeniu rozpoczętych działań odśwież stan, zmień foldery i naciśnij Start.";
       } else if (data.resume_pending) {
         title = "Oczekiwanie na potwierdzenie planu przez model";
@@ -1764,7 +1844,7 @@
         box.appendChild(sessionLine("Wznowienie", "Niepewne potwierdzenie; bramka zamknięta. Wymagane nowe jawne przygotowanie."));
       }
       box.appendChild(el("p", { className: "muted", text: (data.resume_available ?
-        "Wznowienie wymaga jawnego przygotowania i planu modelu. Nową sesję rozpoczniesz po zakończeniu obecnej bez zapisywania. " :
+        "Wznowienie wymaga jawnego przygotowania i planu modelu. Nową sesję rozpoczniesz po zakończeniu obecnej pracy. " :
         "Wznowienie jest niedostępne w tej wersji. ") +
         "Pauza obejmuje wszystkie rozmowy tej instancji sklr." }));
     }
@@ -1805,6 +1885,8 @@
     sessionRootsLoaded = false;
     sessionUnavailable = false;
     sessionStateLoaded = false;
+    profilesLoaded = false;
+    renderProfiles();
     renderSessionRoots();
     sessionButtons();
     var generation = sessionGeneration;
@@ -1851,7 +1933,7 @@
         showBanner("Brak połączenia z serwerem panelu.", false);
       }
     });
-    return Promise.all([statusRequest, rootsRequest]);
+    return Promise.all([statusRequest, rootsRequest, refreshProfiles(generation)]);
   }
 
   function sessionPost(path, body, question) {
@@ -1889,18 +1971,25 @@
     $("tab-session").addEventListener("click", function () { showTab("session"); });
     $("session-refresh").addEventListener("click", function () { if (!sessionBusy) { refreshSession(); } });
     $("session-prepare").addEventListener("click", prepareSessionResume);
+    if ($("project-profile-form")) {
+      $("project-profile-form").addEventListener("submit", function (event) {
+        event.preventDefault();
+        profilePost("create", {name: $("project-profile-name").value},
+          "Zapisać bieżące foldery jako nowy projekt?");
+      });
+    }
     $("session-start").addEventListener("click", function () {
       var chosen = sessionChosen();
-      if (!chosen.length || !sessionData || sessionData.session_id) { return; }
-      sessionPost("/api/work-session/start", { roots: chosen },
+      if (!chosen.length || !sessionData || sessionData.session_id || !profileRootsMatch()) { return; }
+      sessionPost("/api/work-session/start", { roots: chosen, project_revision: profileData.revision },
         "Rozpocząć sesję pracy dla folderów: " + chosen.join(", ") + "? Pauza obejmie wszystkie rozmowy " +
-        "całej instancji sklr. Wznowienie wymaga przygotowania i planu modelu; możesz zakończyć sesję bez zapisywania i rozpocząć nową.");
+        "całej instancji sklr. To świeża sesja bez poprzedniego planu i zgód autopilota.");
     });
     $("session-end").addEventListener("click", function () {
       if (!sessionStateLoaded || !sessionData || !sessionData.session_id || sessionData.state === "ending" && sessionData.running_actions > 0) { return; }
       sessionPost("/api/work-session/end", {
         session_id: sessionData.session_id, revision: sessionData.revision, confirmed: true
-      }, "Zakończyć sesję bez zapisywania? Uzupełnienie i plan wznowienia zostaną usunięte, " +
+      }, "Zakończyć pracę? Uzupełnienie i plan wznowienia zostaną usunięte, " +
         "a zgoda autopilota unieważniona. Oczekujące zadania zostaną anulowane; rozpoczęte dokończą się w swoich limitach. " +
         "Zmiany już wykonane w plikach i historia zadań pozostaną. Potem możesz zmienić foldery i rozpocząć świeżą sesję.")
         .then(function () {

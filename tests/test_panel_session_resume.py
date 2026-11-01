@@ -166,8 +166,7 @@ def test_resume_without_checkpoint_and_old_client_rejected_before_effects(env):
     assert env.admin.status()['execution_blocked']
 
 
-@pytest.mark.parametrize('suffix', ['/resume-preview', '/resume-plan', '/saved',
-                                    '/prepare-resume', '/recover'])
+@pytest.mark.parametrize('suffix', ['/resume-preview', '/resume-plan', '/prepare-resume'])
 def test_new_endpoints_require_auth_host_origin_and_no_store(env, suffix):
     is_post = suffix in ('/prepare-resume', '/recover')
     method = env.client.post if is_post else env.client.get
@@ -181,7 +180,7 @@ def test_new_endpoints_require_auth_host_origin_and_no_store(env, suffix):
         assert method(PATH + suffix, headers=headers, **kwargs).status_code == 403
 
 
-@pytest.mark.parametrize('suffix', ['/prepare-resume', '/recover'])
+@pytest.mark.parametrize('suffix', ['/prepare-resume'])
 @pytest.mark.parametrize('body', [{}, [], {'unexpected': True}])
 def test_invalid_action_fields(env, suffix, body):
     assert post(env, suffix, body).status_code == 400
@@ -240,48 +239,27 @@ def test_partial_cancellation_reports_safe_error_and_fresh_preview(env, monkeypa
     assert post(env, '/prepare-resume', body_from(view)).status_code == 200
 
 
-def test_explicit_restart_recovery_pins_blocked_and_forbids_switching(env):
+def test_restart_requires_fresh_start_and_old_recovery_routes_are_absent(env):
     first = env.sessions.create(['sklr'])
-    second = env.sessions.create(['sklr'])
     env.sessions.recover_after_restart()
-    response = get(env, '/saved')
-    assert response.status_code == 200 and not response.json()['data']['truncated']
-    items = response.json()['data']['sessions']
-    assert all(item['recoverable'] and item['ram_lost'] for item in items)
     assert env.admin.status()['session_id'] is None
-    item = next(item for item in items if item['session_id'] == first.id)
-    body = {'session_id': first.id, 'revision': item['revision'], 'confirmed': True}
-    assert post(env, '/recover', {**body, 'confirmed': False}).status_code == 400
-    assert post(env, '/recover', {**body, 'revision': first.revision}).status_code == 409
-    response = post(env, '/recover', body)
-    assert response.status_code == 200
-    state = response.json()['data']
-    assert state['session_id'] == first.id and state['ram_lost'] and state['execution_blocked']
-    assert not any(key.startswith('checkpoint') for key in state)
+    assert env.admin.status()['execution_blocked']
     with pytest.raises(SessionBlocked):
         env.controller.begin_action()
-    other = env.sessions.get(second.id)
-    assert post(env, '/recover', {'session_id': other.id, 'revision': other.revision,
-                                 'confirmed': True}).status_code == 409
-    assert post(env, '/recover', body).status_code == 409
-    assert post(env, '/start', {'roots': ['sklr']}).status_code == 409
-    assert all(not row['recoverable'] for row in get(env, '/saved').json()['data']['sessions'])
-    prepare_body = body_from(preview(env).json()['data'])
-    assert post(env, '/prepare-resume', prepare_body).status_code == 200
-    assert env.admin.status()['execution_blocked']
+    assert get(env, '/saved').status_code == 404
+    assert post(env, '/recover', {'session_id': first.id, 'revision': first.revision,
+                                'confirmed': True}).status_code == 404
+    response = post(env, '/start', {'roots': ['sklr']})
+    assert response.status_code == 201
+    fresh = response.json()['data']
+    assert fresh['session_id'] != first.id and not fresh['execution_blocked']
+    assert env.controller.get_resume_context() == {'available': False}
+    assert env.sessions.get(first.id) is not None  # History is retained.
 
 
-def test_unavailable_roots_and_active_session_are_not_recovery_candidates(env):
-    item = env.sessions.create(['sklr'])
-    assert not get(env, '/saved').json()['data']['sessions'][0]['recoverable']
-    assert post(env, '/recover', {'session_id': item.id, 'revision': item.revision,
-                                 'confirmed': True}).status_code == 409
-    env.sessions.recover_after_restart()
+def test_unavailable_roots_cannot_start_fresh_session(env):
     env.entries[0]['valid'] = False
-    item = env.sessions.get(item.id)
-    assert not get(env, '/saved').json()['data']['sessions'][0]['recoverable']
-    assert post(env, '/recover', {'session_id': item.id, 'revision': item.revision,
-                                 'confirmed': True}).status_code == 400
+    assert post(env, '/start', {'roots': ['sklr']}).status_code == 400
     assert env.admin.status()['session_id'] is None
 
 
@@ -303,8 +281,7 @@ def test_store_listing_is_bounded_with_explicit_truncation(env):
             env.sessions.list_saved_sessions(value)
 
 
-@pytest.mark.parametrize('operation,suffix', [('resume_plan', '/resume-plan'),
-                                            ('saved_sessions', '/saved')])
+@pytest.mark.parametrize('operation,suffix', [('resume_plan', '/resume-plan')])
 def test_read_errors_do_not_leak_storage_details(env, monkeypatch, operation, suffix):
     def fail():
         raise OSError('PRIVATE-STORAGE')

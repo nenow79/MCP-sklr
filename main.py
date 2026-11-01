@@ -24,6 +24,7 @@ from server import (
 )
 from server.file_transaction import FileTransaction
 from server.skills_admin import SkillsAdmin
+from server.project_profiles import ProjectProfiles
 from server.knowledge_admin import KnowledgeAdmin
 from server.external_mcp_admin import ExternalMCPAdmin
 from server.external_mcp_tools import ExternalMCPTools
@@ -176,7 +177,10 @@ def start_approval_ui() -> str:
                            knowledge=KnowledgeAdmin(CONFIG_STORE, ROOTS, KNOWLEDGE),
                            external_mcp=ExternalMCPAdmin(EXTERNAL_MCP_REGISTRY, TASK_MANAGER),
                            work_sessions=WORK_SESSION.admin if WORK_SESSION is not None else None,
-                           autopilot=AUTOPILOT)
+                           autopilot=AUTOPILOT,
+                           project_profiles=ProjectProfiles(CONFIG_STORE, ROOTS,
+                               WORK_SESSION.admin if WORK_SESSION is not None else None,
+                               TASK_MANAGER, AUTOPILOT))
     server = PanelServer(app, PANEL_PORT)
     if not server.start():
         raise PanelRequiredError(

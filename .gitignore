@@ -10,4 +10,6 @@ knowledge_cache.key*
 /config.json
 /config.json.tmp
 /config.json.bak*
+/config.json.pre-project-profiles.bak*
+/work_sessions.db.pre-project-profiles.bak*
 /kills) panel i trustcls

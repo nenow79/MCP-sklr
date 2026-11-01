@@ -120,9 +120,11 @@ def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: Pane
                      static_dir: Optional[Path] = None, roots: Any = None,
                      skills: Any = None, knowledge: Any = None,
                      external_mcp: Any = None, work_sessions: Any = None,
-                     autopilot: Any = None, directory_picker: Any = None) -> Starlette:
+                     autopilot: Any = None, directory_picker: Any = None,
+                     project_profiles: Any = None) -> Starlette:
     """`roots` (RootsRegistry) jest opcjonalne: bez niego endpointy /api/roots nie istnieją (404)."""
     static_path = Path(static_dir) if static_dir is not None else DEFAULT_STATIC_DIR
+    from server.project_profiles import ProfileConflict
     picker = directory_picker if directory_picker is not None else DIRECTORY_PICKER
     if work_sessions is not None:
         work_sessions.attach_manager(manager)
@@ -135,11 +137,16 @@ def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: Pane
 
     async def work_session_start(request):
         body = await _json_body(request)
-        if body is None or set(body) != {"roots"}:
-            return _err("Oczekiwano obiektu z polem roots.", 400)
+        fields = {"roots", "project_revision"} if project_profiles is not None else {"roots"}
+        if body is None or set(body) != fields:
+            return _err("Oczekiwano roots i aktualnej rewizji projektu, jeśli profile są włączone.", 400)
         try:
-            return _ok(await run_in_threadpool(work_sessions.start, body["roots"]), 201)
-        except SessionConflict:
+            if project_profiles is not None:
+                data = await run_in_threadpool(project_profiles.start, body["roots"], body["project_revision"])
+            else:
+                data = await run_in_threadpool(work_sessions.start, body["roots"])
+            return _ok(data, 201)
+        except (SessionConflict, ProfileConflict):
             return _err("Sesja jest już przypięta lub jej stan się zmienił.", 409)
         except ValueError:
             return _err("Nieprawidłowe lub niedostępne foldery sesji.", 400)
@@ -199,7 +206,7 @@ def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: Pane
             elif action == 'resume-plan':
                 data = await run_in_threadpool(work_sessions.resume_plan)
             else:
-                data = await run_in_threadpool(work_sessions.saved_sessions)
+                raise ValueError('Unknown session read action.')
             return _ok(data)
         except SessionConflict:
             return _err('Sesja lub rewizja się zmieniła. Odśwież stan.', 409)
@@ -210,33 +217,26 @@ def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: Pane
 
     async def work_session_resume_action(request):
         body = await _json_body(request)
-        recover = request.url.path.endswith('/recover')
-        fields = {'session_id', 'revision', 'confirmed'}
-        if not recover:
-            fields |= {'supplement', 'cancel_count'}
+        fields = {'session_id', 'revision', 'confirmed', 'supplement', 'cancel_count'}
         if body is None or set(body) != fields:
             return _err('Nieprawidłowe pola decyzji panelowej.', 400)
         try:
             work_session_identity(body)
             if body['confirmed'] is not True:
                 raise ValueError('Explicit confirmation required.')
-            if recover:
-                data = await run_in_threadpool(work_sessions.recover,
-                    body['session_id'], body['revision'], body['confirmed'])
-            else:
-                if (type(body['supplement']) is not str
-                        or type(body['cancel_count']) is not int or body['cancel_count'] < 0):
-                    raise ValueError('Invalid preparation fields.')
-                data = await run_in_threadpool(work_sessions.prepare_resume,
-                    body['session_id'], body['revision'], body['supplement'],
-                    body['cancel_count'], body['confirmed'])
+            if (type(body['supplement']) is not str
+                    or type(body['cancel_count']) is not int or body['cancel_count'] < 0):
+                raise ValueError('Invalid preparation fields.')
+            data = await run_in_threadpool(work_sessions.prepare_resume,
+                body['session_id'], body['revision'], body['supplement'],
+                body['cancel_count'], body['confirmed'])
             return _ok(data)
         except SessionConflict:
             return _err('Sesja, rewizja lub liczba zadań się zmieniły. Odśwież stan.', 409)
         except ValueError:
             return _err('Nieprawidłowa decyzja lub odrzucona treść. Niczego nie ponawiaj automatycznie.', 400)
         except Exception:
-            return _err('Przygotowanie lub odzyskanie nie powiodło się. Sprawdź stan przed nową decyzją.', 500)
+            return _err('Przygotowanie nie powiodło się. Sprawdź stan przed nową decyzją.', 500)
 
     async def knowledge_list(request):
         try:
@@ -602,10 +602,11 @@ def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: Pane
             Route("/api/work-session/end", work_session_end, methods=["POST"]),
             Route("/api/work-session/resume-preview", work_session_read, methods=["GET"]),
             Route("/api/work-session/resume-plan", work_session_read, methods=["GET"]),
-            Route("/api/work-session/saved", work_session_read, methods=["GET"]),
             Route("/api/work-session/prepare-resume", work_session_resume_action, methods=["POST"]),
-            Route("/api/work-session/recover", work_session_resume_action, methods=["POST"]),
         ])
+    if project_profiles is not None:
+        from panel.project_profiles import project_profile_routes
+        routes.extend(project_profile_routes(project_profiles))
     if autopilot is not None:
         from panel.autopilot import autopilot_routes
         routes.extend(autopilot_routes(autopilot))

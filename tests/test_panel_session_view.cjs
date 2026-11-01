@@ -62,10 +62,12 @@ function harness(server) {
         if (server.afterPrepare) server.status = server.afterPrepare;
       } else if (url === '/api/work-session/resume-plan') {
         out = server.planResponse || { status: 200, json: { success: true, data: { available: false } } };
-      } else if (url === '/api/work-session/saved') {
-        out = server.savedResponse || { status: 200, json: { success: true, data: { sessions: [], truncated: false } } };
-      } else if (url === '/api/work-session/recover') {
-        out = server.recoverResponse;
+      } else if (url === '/api/project-profiles') {
+        out = server.profilesResponse || { status: 200, json: { success: true, data: {
+          profiles: [], selected: null, revision: 'p1', current_roots: rootsPayload().data.roots } } };
+      } else if (url.startsWith('/api/project-profiles/') && method === 'POST') {
+        out = server.profileResponse || server.profilesResponse || { status: 200, json: {
+          success: true, data: { profiles: [], selected: null, revision: 'p2' } } };
       } else if (url === '/api/work-session/start') {
         out = server.startResponse;
       } else if (url === '/api/work-session/end') {
@@ -117,12 +119,31 @@ test('start wysyla wybrane foldery po potwierdzeniu i renderuje stan', async () 
   await h.open();
   await h.click('session-start');
   assert.ok(h.confirmations[0].includes('instancj'));
-  assert.deepEqual(h.posts().map(r => [r.url, r.payload]), [['/api/work-session/start', { roots: ['sklr', 'docs'] }]]);
+  assert.deepEqual(h.posts().map(r => [r.url, r.payload]), [['/api/work-session/start', { roots: ['sklr', 'docs'], project_revision: 'p1' }]]);
   const shown = text(h.get('session-state'));
   assert.ok(shown.includes('active') && shown.includes('3') && shown.includes('sklr'));
   assert.equal(h.get('session-start').disabled, true);
   assert.equal(h.get('session-pause').disabled, false);
   assert.equal(h.get('session-select').hidden, true);
+});
+
+test('Start jest zablokowany przy niespojnych snapshotach profili i roots', async () => {
+  const h = harness({status: status(), profilesResponse: {status: 200, json: {success: true,
+    data: {profiles: [], selected: null, revision: 'p2', current_roots: [{alias: 'other', path: 'C:/other', mode: 'rw'}]}}}});
+  await h.open();
+  assert.equal(h.get('session-start').disabled, true);
+  await h.click('session-start');
+  assert.equal(h.posts().length, 0);
+  assert.equal(h.confirmations.length, 0);
+});
+
+test('Start czeka na liste profili, a jej blad nie blokuje odczytu sesji', async () => {
+  const h = harness({status: status(), profilesResponse: {status: 500, json: {success: false}}});
+  await h.open();
+  assert.equal(h.get('session-start').disabled, true);
+  assert.ok(text(h.get('session-state')).includes('Brak przypiętej sesji'));
+  await h.click('session-start');
+  assert.equal(h.posts().length, 0);
 });
 
 test('odmowa w potwierdzeniu nie wysyla zadania', async () => {
@@ -223,7 +244,11 @@ const resumable = (extra = {}) => active({ state: 'paused', execution_blocked: t
   resume_available: true, resume_pending: false, ...extra });
 const ok = data => ({ status: 200, json: { success: true, data } });
 const resumePosts = h => h.posts().filter(r => r.url.endsWith('/prepare-resume'));
-const savedButtons = h => all(h.get('session-saved'), n => n.type === 'button');
+const profileButtons = h => all(h.get('project-profiles-list'), n => n.type === 'button');
+const profilePosts = h => h.requests.filter(r => r.method === 'POST' && r.url.startsWith('/api/project-profiles/'));
+const projectView = (extra = {}) => ok({revision: 'p1', selected: 'project1', current_roots: rootsPayload().data.roots, profiles: [{
+  id: 'project1', name: '<b>QAP</b>', version: 1, matches_current: true, unavailable: [],
+  roots: [{alias: 'src', path: 'C:/QAP/src', mode: 'rw', default: true}], ...extra}]});
 
 test('przygotowanie: preview, confirm z liczba, jeden POST i oczekiwanie na model', async () => {
   const waiting = resumable({ revision: 4, resume_pending: true });
@@ -377,35 +402,47 @@ test('bledna rewizja planu i blad odczytu nie pokazuja starej tresci', async () 
   assert.ok(text(h.get('session-plan')).includes('Nie można'));
 });
 
-test('jawny wybor zapisanej sesji przypina zablokowana i zabrania starego klikniecia', async () => {
-  const restored = resumable({ ram_lost: true, reason: 'server_restarted' });
-  const h = harness({ status: status(), savedResponse: ok({ sessions: [{ session_id: 's1', revision: 3,
-    roots: ['<b>sklr</b>'], state: 'paused', reason: 'server_restarted', recoverable: true }], truncated: false }),
-    recoverResponse: ok(restored) });
+test('wybor projektu przywraca konfiguracje bez Start i odrzuca stare klikniecie', async () => {
+  const h = harness({status: status(), profilesResponse: projectView()});
   await h.open();
+  assert.ok(text(h.get('project-profiles-list')).includes('<b>QAP</b>'));
   assert.equal(h.posts().length, 0);
-  assert.ok(text(h.get('session-saved')).includes('<b>sklr</b>'));
-  const button = savedButtons(h)[0];
+  assert.ok(!h.requests.some(r => /work-session\/(saved|recover)/.test(r.url)));
+  const button = profileButtons(h)[0];
+  assert.equal(button.disabled, false);
   button.listeners.click(); await h.flush();
-  assert.deepEqual(h.posts()[0].payload, { session_id: 's1', revision: 3, confirmed: true });
-  assert.ok(h.confirmations[0].includes('RAM został utracony'));
-  assert.ok(text(h.get('session-state')).includes('utracony'));
-  assert.equal(h.get('session-start').disabled, true);
-  assert.equal(h.get('session-pause').disabled, true);
+  assert.deepEqual(profilePosts(h)[0].payload, {revision: 'p1', confirmed: true, id: 'project1'});
+  assert.equal(profilePosts(h)[0].url, '/api/project-profiles/select');
+  assert.equal(h.posts().length, 0);
+  assert.ok(h.confirmations[0].includes('Zadania i zgody nie są przywracane'));
   button.listeners.click(); await h.flush();
-  assert.equal(h.posts().length, 1);
+  assert.equal(profilePosts(h).length, 1);
 });
 
-test('niedostepna zapisana sesja i odmowa wyboru nie wysylaja POST', async () => {
-  for (const recoverable of [true, false]) {
-    const h = harness({ status: status(), confirm: false, savedResponse: ok({ sessions: [{
-      session_id: 's1', revision: 3, roots: ['sklr'], recoverable }], truncated: false }) });
+test('niedostepny projekt, aktywna sesja i odmowa potwierdzenia blokuja wybor', async () => {
+  for (const server of [
+    {status: status(), profilesResponse: projectView({unavailable: ['src']})},
+    {status: active(), profilesResponse: projectView()},
+    {status: status(), profilesResponse: projectView(), confirm: false}
+  ]) {
+    const h = harness(server);
     await h.open();
-    const button = savedButtons(h)[0];
-    assert.equal(button.disabled, !recoverable);
+    const button = profileButtons(h)[0];
+    if (server.confirm !== false) assert.equal(button.disabled, true);
     button.listeners.click(); await h.flush();
-    assert.equal(h.posts().length, 0);
+    assert.equal(profilePosts(h).length, 0);
   }
+});
+
+test('zapis nowego projektu wysyla nazwe i rewizje bez Start', async () => {
+  const h = harness({status: status()});
+  await h.open();
+  h.get('project-profile-name').value = 'sklr';
+  h.get('project-profile-form').listeners.submit({preventDefault() {}});
+  await h.flush();
+  assert.deepEqual(profilePosts(h)[0].payload, {revision: 'p1', confirmed: true, name: 'sklr'});
+  assert.equal(h.get('project-profile-name').value, '');
+  assert.equal(h.posts().length, 0);
 });
 
 test('odswiezenie zmienionej rewizji usuwa uzupelnienie', async () => {
@@ -502,7 +539,9 @@ test('end confirms discard and enables a fresh start and folder changes', async 
   assert.equal(h.posts()[0].url, '/api/work-session/end');
   assert.equal(h.posts()[0].payload.confirmed, true);
   assert.equal(h.posts()[0].payload.session_id, 's1');
-  assert(h.confirmations[0].includes('bez zapisywania'));
+  assert(h.confirmations[0].includes('Zakończyć pracę?'));
+  assert(h.confirmations[0].includes('Oczekujące zadania zostaną anulowane'));
+  assert(h.confirmations[0].includes('historia zadań pozostaną'));
   assert.equal(h.get('session-start').disabled, false);
   assert.equal(h.get('root-editor').disabled, false);
   assert.equal(h.get('session-end').hidden, true);
