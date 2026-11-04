@@ -1,24 +1,23 @@
 @echo off
-title Uruchamianie MCP do vibecoding...
-setlocal
+setlocal EnableExtensions DisableDelayedExpansion
+title Uruchamianie sklr MCP
+pushd "%~dp0"
+if errorlevel 1 exit /b 1
 
-:: Przejdź do katalogu, w którym znajduje się plik .bat
-cd /d "%~dp0"
-
-:: Sprawdź czy folder venv istnieje
-if not exist "venv\Scripts\activate.bat" (
-    echo [BLAD] Nie znaleziono srodowiska venv w tym katalogu!
+if not exist "venv\Scripts\python.exe" (
+    echo [BLAD] Nie znaleziono lokalnego venv. Najpierw uruchom install.bat.
+    popd
     pause
-    exit /b
+    exit /b 1
 )
 
-echo Aktywowanie srodowiska venv...
-call venv\Scripts\activate.bat
+echo Uruchamianie sklr MCP - domyslny port 8101, panel 8102.
+echo Faktyczne porty okresla config.json; otworz aktualny link panelu z konsoli.
+"venv\Scripts\python.exe" "main.py"
+set "SERVER_RESULT=%ERRORLEVEL%"
 
-echo Uruchamianie Vibecoder MCP (port 8100)...
-python main.py
-
-:: Zapobiega zamknieciu okna po zakonczeniu skryptu (przydatne przy bledach)
 echo.
-echo Program zakonczyl dzialanie.
+echo Program zakonczyl dzialanie. Kod: %SERVER_RESULT%
+popd
 pause
+exit /b %SERVER_RESULT%

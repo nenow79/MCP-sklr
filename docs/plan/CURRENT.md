@@ -6,6 +6,10 @@ tags: [sklr, project-state, sessions, autonomy, windows, testing]
 ---
 # Aktualny stan — profile projektów: testy wybranego zakresu i zapis sklr potwierdzone
 
+## Instalator Windows — implementacja, bez odbioru wykonania
+
+Dodano install.bat i scripts/init_install_config.py: conda root (opcjonalnie base) służy do utworzenia venv; pip install -r requirements.txt i pip check używają lokalnego interpretera. Nowy config powstaje z przykładu, w UTF-8 bez BOM, z sesjami i panelem włączonymi, autopilotem wyłączonym, MCP na localhost i pustymi roots. Istniejący config nie jest nadpisywany; pomocnik sprawdza JSON i sekcję sesji, nie pełny runtime. Instalator nie uruchamia aplikacji/testów ani nie instaluje conda/skilli; częściowa instalacja nie ma rollbacku. sklr.bat używa bezpośrednio lokalnego Pythona, opisuje domyślne porty 8101/8102 i zachowuje kod wyjścia serwera. README zawiera instrukcję i pierwszy Start po dodaniu własnego folderu. Nie uruchamiano instalatora, pip, tworzenia venv, serwera ani testów tej paczki. Odbiór czystej instalacji Windows pozostaje w backlogu W7; brak deklaracji bezproblemowej instalacji na komputerze kolegi.
+
 ## Profile projektów — podstawowy przepływ użytkowy odebrany
 
 Punkt powrotu: lokalny commit `74dd4b2` (`feat: add panel directory picker`), anotowany tag `pre-project-profiles`, bez push. Po akceptacji użytkownika dodano server/project_profiles.py, panel/project_profiles.py, wiring main/panel oraz UI „Projekty i foldery”. Profile w ConfigStore/config.json mają stabilne id, nazwę, wersję zakresu, pełną konfigurację roots i ostatni wybór. Zapis/wybór/zmiana nazwy/aktualizacja/usunięcie wymagają jawnego potwierdzenia i rewizji obejmującej profile oraz bieżące roots. Nazwa nie zmienia wersji zakresu. Wybranie profilu zastępuje roots, ponownie waliduje foldery i zawiadamia listener folderu domyślnego; nie rozpoczyna sesji ani nie odtwarza zgód. Operacje wymagają braku przypiętej sesji; przy wyłączonych sesjach również braku awaiting_approval/queued/running w TaskManager. Przed pierwszym zapisem funkcja tworzy nieprzepisywaną kopię config.json.pre-project-profiles.bak. Kopia i bazy pozostają poza Git.

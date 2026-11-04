@@ -10,14 +10,57 @@ wymagać OKF w wybranym zakresie; poprawne dokumenty OKF są chronione przed utr
 Szczegóły: [polityka zapisu](docs/specs/okf-integration/write-policy.md).
 Aktualizacja i końcowe testy na Windows: [docs/windows-okf.md](docs/windows-okf.md).
 
-## Uruchomienie
+## Instalacja na Windows
+
+Wymagania: zainstalowana conda z Pythonem i dostęp do pakietów pip. Pobierz cały
+projekt do zapisywalnego folderu użytkownika; nie kopiuj cudzego venv, configu,
+baz, kluczy ani trust. Przed instalacją zatrzymaj działający sklr.
+
+Uruchom `install.bat` (domyślnie środowisko conda `root`). Jeśli conda nie jest
+dostępna z dwukliku, otwórz Anaconda/Miniforge Prompt, przejdź do katalogu projektu
+i wykonaj:
+
+```bat
+install.bat root
 ```
+
+Dla środowiska o nazwie `base` użyj `install.bat base`. Instalator aktywuje conda
+tylko do utworzenia lokalnego `venv`, następnie ją dezaktywuje. Zależności instaluje
+przez `venv\Scripts\python.exe -m pip`, bez potrzeby aktywowania venv.
+Istniejący venv jest używany ponownie; niekompletny nie jest kasowany ani nadpisywany.
+Ponowne uruchomienie może zmienić zależności zgodnie z `requirements.txt`.
+Instalator nie instaluje conda/skilli, nie uruchamia serwera ani testów. Błąd kończy
+instalację kodem 1; częściowa instalacja zależności/venv nie jest automatycznie cofana.
+
+Gdy brak `config.json`, pomocnik `scripts/init_install_config.py` tworzy go z
+`config.example.json` w UTF-8 bez BOM: **sesje włączone**, autopilot wyłączony,
+panel włączony, MCP na `127.0.0.1`, lista folderów pusta. Istniejący config pozostaje
+bez zmian; wyłączone sesje są sygnalizowane. Niepoprawny JSON/BOM lub niepoprawna
+sekcja sesji kończą ten krok błędem, bez nadpisywania. To nie pełna walidacja configu
+ani potwierdzenie uruchomienia aplikacji.
+
+Po instalacji uruchom `sklr.bat`. Otwórz aktualny link panelu z konsoli, w zakładce
+„Projekty i foldery” dodaj własny istniejący folder projektu, odśwież stan i naciśnij
+**Start**. Brak folderów oznacza nieaktywny Start. Jeśli zachowany config ma
+`work_sessions.enabled=false`, zmień tę flagę na `true` i zrestartuj sklr.
+
+## Uruchomienie ręczne
+
+W firmowym środowisku Windows najpierw aktywuj conda do utworzenia venv:
+
+```bat
+call activate root
 python -m venv venv
-venv\Scripts\activate
-pip install -r requirements.txt
+call conda deactivate
+call venv\Scripts\activate.bat
+python -m pip install -r requirements.txt
+python scripts\init_install_config.py
 python main.py
 ```
-Serwer: `http://127.0.0.1:8101/mcp` (host, port i CORS w `config.json`).
+
+W starszej conda zamiast `call conda deactivate` użyj `call deactivate`.
+Serwer: `http://127.0.0.1:8101/mcp`, panel: `http://127.0.0.1:8102`
+(host, port i CORS w `config.json`).
 
 `config.json` pozostaje lokalnie obok `main.py` i jest ignorowany przez Git.
 Istniejącą konfigurację zachowaj; nie zastępuj jej przykładem. Przy nowej instalacji

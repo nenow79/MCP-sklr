@@ -74,6 +74,8 @@ Kontrakt: [zewnętrzne MCP](../specs/external-mcp-support.md). Nie deklarować p
 
 ## 6. Publikacja, migracja i brakujące scenariusze Windows
 
+- [ ] **W7 — odbiór prostego instalatora Windows:** install.bat na czystym katalogu, conda root/base i brak aktywacji w zwykłym CMD, ścieżka ze spacjami, istniejący/niekompletny venv, błąd pip, nowy config i zachowanie istniejącego byte-for-byte, wyłączone sesje, błędny JSON/BOM i błąd zapisu. Rzeczywisty sklr.bat → aktualny link panelu → dodanie własnego folderu → Start. Osobno uzgodnić testy pomocnika na tymczasowych plikach; bez tworzenia środowisk/instalacji automatycznie. Obecna implementacja i brak wykonania: CURRENT.
+
 - [ ] **W4 — ustalenie pozostałego zakresu publikacji:** sprawdzić bieżący Git/remote i późniejsze publikacje; ustalić czy dawna paczka kandydata nadal ma niewysłane zmiany. Jeśli tak, osobno uzgodnić commit/remote/branch i publikację. Wykluczyć config/venv/bazy/klucze/poufne wyniki/logi/smoke i zachować cudze zmiany. Nie deklarować publikacji na podstawie samego zlecenia.
 - [ ] **W5 — domknięcie przekazania:** sprawdzić niewykonane kroki procedury PowerShell/migracji z zachowaniem lokalnej konfiguracji i środowiska, restart/aktualizację katalogu przez użytkownika i zależności bez automatycznej instalacji. Odbiory S2–S6/A2b5/I6/D10–D12 w ich zadaniach, nie jako duplikaty. Przed „autonomia ukończona” odebrać faktycznie wydany zakres testów/poprawek/Git.
 - [ ] **W6 — pominięte scenariusze:** uzgodnić potrzebny odbiór pandas, POSIX process groups/mode, case-sensitive filesystem i symlink/link/junction. Skip nie jest potwierdzeniem ochrony. Nie instalować zależności ani zmieniać uprawnień automatycznie; wyniki i ograniczenia do CURRENT.
