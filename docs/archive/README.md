@@ -6,7 +6,7 @@ tags: [sklr, documentation, archive]
 ---
 # Archiwum dokumentacji
 
-Historia nie jest instrukcją bieżącej pracy ani aktywnym backlogiem. Aktualny stan: [CURRENT](../plan/CURRENT.md); zadania: [backlog](../plan/backlog.md); mapa: [docs](../README.md).
+Historia nie jest instrukcją bieżącej pracy ani aktywnym backlogiem. Aktualny stan: [CURRENT](../plan/CURRENT.md); zadania: [backlog](../plan/backlog.md); indeks: [docs](../index.md).
 
 ## Przegląd stanu 2026-10-21
 

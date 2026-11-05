@@ -15,7 +15,9 @@ Implementacja i odbiór testowy. Aktualny stan: `docs/plan/CURRENT.md`. Jedyny a
 ## Dokumentacja
 - `docs/specs/skills-support.md` – obsługa skills (spec + nasze rozszerzenia)
 - `docs/decisions/` – ADR (decyzje architektoniczne)
-- [Mapa docs](docs/README.md) – wybierz temat bez ładowania całości
+- [README](README.md) – opis projektu, instalacja, uruchomienie i podstawowe użycie
+- [Indeks docs](docs/index.md) – mapa dokumentacji; wybierz temat bez ładowania całości
+- README i indeks są punktami wejścia; nie zastępują kontraktów, bieżącego stanu ani zasad z tego pliku
 - [Kontrakty OKF](docs/specs/okf-support.md) i [standard OKF 0.2](docs/specs/OKF/SPEC.md) – krótkie mapy dokumentów
 - `docs/plan/` – tylko bieżący stan (`CURRENT.md`) i jeden backlog
 - [Archiwum](docs/archive/README.md) – zakończone/dawne plany i wyniki sesji; nie jest listą prac

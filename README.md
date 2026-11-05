@@ -1,6 +1,6 @@
 # MCP-my-codex-sklr
 
-Nowy lokalny serwer MCP oparty na standardzie Agent Skills. Zasady: [AGENTS.md](AGENTS.md). Dokumentacja: [krótka mapa](docs/README.md), [aktualny stan](docs/plan/CURRENT.md), [backlog](docs/plan/backlog.md).
+Nowy lokalny serwer MCP oparty na standardzie Agent Skills. Zasady: [AGENTS.md](AGENTS.md). Dokumentacja: [indeks](docs/index.md), [aktualny stan](docs/plan/CURRENT.md), [backlog](docs/plan/backlog.md).
 
 Wersja OKF: panel **Wiedza**, centralne i projektowe bundles, search/get/save,
 `prepare_project`, audyt i opcjonalna konwersja `docs/` oraz plików `.vibecoder_*`.
