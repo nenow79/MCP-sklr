@@ -200,14 +200,33 @@ class ProjectTools:
         for name in sorted(LEGACY_FILES):
             if (Path(root.path) / name).is_file():
                 sources.append("- " + name + (": historia, nie automatyczne źródło obowiązujących zasad." if "checkpoints" in name else ": streszczenie wymagające sprawdzenia aktualności."))
-        return ("# Instrukcje pracy w projekcie\n\n## Praca\n"
-                "- Przed zmianami ustal cel zadania i aktualny stan projektu.\n"
-                "- Korzystaj z zatwierdzonych roots i mechanizmu zgód MCP.\n"
-                "- Nie zapisuj sekretów w dokumentacji ani historii zadań.\n"
-                "- Polecenia uruchamiania i testów ustal z dokumentacji; nie zgaduj ich.\n\n"
-                "## Źródła stanu\n" + "\n".join(sources) +
-                "\n- Bieżący stan i obowiązujące decyzje wskazuj jawnie; nie uznawaj każdego checkpointu za aktualną instrukcję.\n"
-                "- Dokumentacja Markdown jest dostępna przed konwersją OKF. Konwersja wymaga odrębnego zatwierdzenia.\n")
+        return ("# Instrukcje pracy w projekcie\n\n## Rozpoczęcie i zakres\n"
+                "- Przed zmianami ustal cel zadania, aktualny stan i właściwe repozytorium. Nie zakładaj, że wszystkie roots należą do jednego repo Git.\n"
+                "- Użyj prepare_project dla katalogu pracy. Obowiązujące AGENTS.md, także zagnieżdżone, przeczytaj w całości; doczytaj skrócone instrukcje.\n"
+                "- Zachowuj cudze zmiany. Korzystaj z zatwierdzonych roots i mechanizmu zgód sklr; ten plik nie nadaje dodatkowych uprawnień.\n"
+                "- Nie zapisuj sekretów w dokumentacji, argumentach ani historii zadań.\n"
+                "\n## Dokumentacja — oszczędny odczyt OKF\n"
+                "- Nie wczytuj całej dokumentacji ani pełnych plików na zapas.\n"
+                "- Wybierz właściwy bundle przez knowledge_bundles. Znajdź temat przez knowledge_search; dla znanego dokumentu zacznij od outline.\n"
+                '- Przejrzyj nagłówki przez knowledge_get(view="outline"), następnie odczytaj tylko potrzebne sekcje przez view="section", z section_id i aktualnym expected_revision.\n'
+                '- Używaj section_mode="direct" dla samej sekcji; "subtree" tylko, gdy potrzebujesz także podsekcji. Po konflikcie rewizji pobierz nowy outline.\n'
+                '- Rozszerzaj odczyt stopniowo, uwzględniając istotne odwołania. view="document" stosuj tylko, gdy potrzebny jest cały dokument.\n'
+                "- Jeśli narzędzia OKF są niedostępne, czytaj niezbędne zakresy Markdown przez read_file, bez hurtowego ładowania dokumentacji.\n\n"
+                "## Spec-driven development\n"
+                "- Przed zmianą zachowania wskaż obowiązującą specyfikację i kryteria akceptacji. Gdy ich brakuje lub wymagają zmiany, najpierw uzgodnij cel, zakres i oczekiwane zachowanie, dopiero potem implementuj.\n"
+                "- Nowe i aktualizowane specyfikacje utrzymuj w docs/ w OKF (frontmatter YAML + Markdown), najlepiej przez knowledge_save; aktualizacja wymaga świeżej rewizji. Nie degraduj poprawnego OKF.\n"
+                "- Istniejący Markdown pozostaje czytelny; konwersja wymaga odrębnej zgody. AGENTS.md nie wymaga formatu OKF. Brak OKF nie blokuje rozpoznania zadania; nie zmieniaj samodzielnie polityki zapisu.\n"
+                "- Draft, propozycja i historyczny checkpoint nie oznaczają obowiązującej decyzji. Przy sprzeczności zapytaj użytkownika.\n\n"
+                "## Test-driven development\n"
+                "- Dla zmian zachowania pracuj: kryterium → test RED → minimalna implementacja → test GREEN → refaktoryzacja i ponowne testy. Dla błędu najpierw dodaj test regresji.\n"
+                "- Dobierz dostępny skill do testów przez list_skills i activate_skill. Ustal runner, środowisko i zakres z konfiguracji oraz dokumentacji; nie zgaduj poleceń.\n"
+                "- Brak infrastruktury lub właściwego skilla zgłoś jako blokadę weryfikacji; uzgodnij sposób sprawdzenia. Nie instaluj zależności ani nie obchodź ograniczeń narzędzi automatycznie.\n"
+                "- Uruchomienia wymagają właściwej zgody. Testy mogą korzystać z sieci i zmieniać dane; przed integracyjnymi potwierdź system docelowy i zakres skutków.\n"
+                "- Raportuj zakres, wynik, liczbę testów i pominięcia. Brak wykonania, zero testów i historyczny wynik nie oznaczają sukcesu. Lint/build nie zastępują testów zachowania.\n\n"
+                "## Źródła stanu i zakończenie\n" + ("\n".join(sources) + "\n" if sources else "") +
+                "- Jawnie wskaż obowiązujące źródło stanu i decyzji. Archiwum oraz checkpointy są historią, nie bieżącymi instrukcjami.\n"
+                "- Po zmianach zaktualizuj właściwą specyfikację i bieżący stan; otwarte problemy zapisuj w istniejącym backlogu.\n"
+                "- Zapisuj tylko rzeczywiste potwierdzenia. Nie nadawaj verified bez weryfikacji ani nie przedstawiaj statycznego przeglądu jako wyniku testów lub dowodu wdrożenia.\n")
 
     def prepare(self, root=None, subpath="", max_chars=12000, create_agents=False):
         self._budget(max_chars)

@@ -34,6 +34,13 @@ Mapa i pozostałe kontrakty: [obsługa OKF](../okf-support.md). Standard formatu
   brakującego AGENTS. Nie zgaduje aktualnego checkpointu. Flagi truncated i
   instructions_complete wymagają doczytania brakującej treści. create_agents=true
   przygotowuje tylko brakujący plik z szablonu, zawsze jako task do zgody.
+  Szablon prowadzi do spec-driven development (wymagania i kryteria przed kodem),
+  TDD (RED/GREEN/refaktoryzacja), doboru dostępnego skilla testowego i selektywnego
+  odczytu OKF (search/outline → potrzebne sekcje z aktualną rewizją). Pełny dokument
+  jest wyjątkiem; obowiązujące AGENTS czytamy w całości. Przy niedostępnych narzędziach
+  OKF używamy niezbędnych zakresów Markdown. Źródła docs/ i legacy są wskazywane
+  warunkowo, gdy istnieją. Te instrukcje nie nadają zgód, nie zmieniają polityki
+  zapisu ani nie dowodzą wykonania testów; istniejącego AGENTS nie nadpisujemy.
 - knowledge_audit(root=null, include_archive=true, max_files=500,
   max_total_chars=12000) bada docs/ i dwa root legacy pliki. Zwraca metadane stanu,
   revision, convertible i propozycję type: Reference dla dokumentów bez type.

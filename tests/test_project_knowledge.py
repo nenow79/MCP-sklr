@@ -204,7 +204,55 @@ def test_prepare_missing_agents_offers_template_and_does_not_block_work(env):
     task = env.projects.prepare(create_agents=True)
     assert not (env.work / "AGENTS.md").exists()
     assert decide(env, task).status.value == "done"
+    assert (env.work / "AGENTS.md").read_text(encoding="utf-8") == result["agents_template"]
     assert env.projects.prepare()["instructions_complete"]
+
+
+@pytest.mark.parametrize("required", [
+    "## Spec-driven development", "specyfikację i kryteria akceptacji",
+    "frontmatter YAML + Markdown", "knowledge_save",
+    "## Test-driven development", "test RED → minimalna implementacja → test GREEN",
+    "list_skills i activate_skill", "Nie instaluj zależności",
+    "Uruchomienia wymagają właściwej zgody", "Lint/build nie zastępują testów",
+    "Nie wczytuj całej dokumentacji", 'knowledge_get(view="outline")',
+    'view="section"', "section_id i aktualnym expected_revision",
+    'section_mode="direct"', 'view="document" stosuj tylko',
+    "niezbędne zakresy Markdown przez read_file", "przeczytaj w całości",
+    "ten plik nie nadaje dodatkowych uprawnień", "konwersja wymaga odrębnej zgody",
+    "Nie nadawaj verified bez weryfikacji",
+])
+def test_prepare_template_contains_workflow_rules(env, required):
+    result = env.projects.prepare()
+    assert required in result["agents_template"]
+    assert not result["truncated"]
+    assert len(json.dumps(result, ensure_ascii=False)) <= 12000
+    assert not env.requests and not (env.work / "AGENTS.md").exists()
+
+
+@pytest.mark.parametrize("has_docs,has_legacy", [(False, False), (True, False), (False, True), (True, True)])
+def test_prepare_template_sources_follow_existing_files(env, has_docs, has_legacy):
+    if not has_docs:
+        (env.work / "docs").rmdir()
+    if has_legacy:
+        for name in (".vibecoder_context.md", ".vibecoder_checkpoints.md"):
+            (env.work / name).write_text("# History\n", encoding="utf-8")
+    template = env.projects.prepare()["agents_template"]
+    assert ("- Dokumentacja projektu: docs/." in template) == has_docs
+    assert ("- .vibecoder_context.md: streszczenie wymagające sprawdzenia aktualności." in template) == has_legacy
+    assert ("- .vibecoder_checkpoints.md: historia, nie automatyczne źródło obowiązujących zasad." in template) == has_legacy
+    assert "## Spec-driven development" in template
+    assert not env.requests
+
+
+def test_prepare_template_never_overwrites_existing_agents(env):
+    path = env.work / "AGENTS.md"
+    original = b"# Custom project rules\n"
+    path.write_bytes(original)
+    result = env.projects.prepare()
+    assert result["agents_template"] is None and result["instructions_complete"]
+    with pytest.raises(WriteError):
+        env.projects.prepare(create_agents=True)
+    assert path.read_bytes() == original and not env.requests
 
 
 def test_prepare_nested_agents_and_truncation_are_explicit(env):
