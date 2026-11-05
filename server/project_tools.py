@@ -197,6 +197,16 @@ class ProjectTools:
         sources = []
         if (Path(root.path) / "docs").is_dir():
             sources.append("- Dokumentacja projektu: docs/. Archiwum nie jest źródłem bieżących instrukcji.")
+        if (Path(root.path) / "README.md").is_file():
+            sources.append("- README.md: opis projektu, instalacja i uruchomienie; punkt wejścia, nie zastępuje AGENTS.md ani bieżącego stanu.")
+        has_index = (Path(root.path) / "docs" / "index.md").is_file()
+        has_old_map = (Path(root.path) / "docs" / "README.md").is_file()
+        if has_index and has_old_map:
+            sources.append("- docs/index.md i docs/README.md: dwie mapy dokumentacji; zapytaj użytkownika, która obowiązuje, zanim wskażesz źródło.")
+        elif has_index:
+            sources.append("- docs/index.md: indeks dokumentacji; wybierz temat bez czytania całego docs/.")
+        elif has_old_map:
+            sources.append("- docs/README.md: mapa dokumentacji (starsza konwencja; nie zmieniaj nazwy bez zgody użytkownika).")
         for name in sorted(LEGACY_FILES):
             if (Path(root.path) / name).is_file():
                 sources.append("- " + name + (": historia, nie automatyczne źródło obowiązujących zasad." if "checkpoints" in name else ": streszczenie wymagające sprawdzenia aktualności."))

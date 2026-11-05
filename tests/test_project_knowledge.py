@@ -229,6 +229,25 @@ def test_prepare_template_contains_workflow_rules(env, required):
     assert not env.requests and not (env.work / "AGENTS.md").exists()
 
 
+@pytest.mark.parametrize("files,expected,absent", [
+    ([], [], ["- README.md:", "docs/index.md", "docs/README.md"]),
+    (["README.md"], ["- README.md: opis projektu"], ["docs/index.md", "docs/README.md"]),
+    (["docs/index.md"], ["- docs/index.md: indeks dokumentacji"], ["docs/README.md", "dwie mapy"]),
+    (["docs/README.md"], ["- docs/README.md: mapa dokumentacji (starsza konwencja"], ["docs/index.md", "dwie mapy"]),
+    (["docs/index.md", "docs/README.md"], ["dwie mapy dokumentacji; zapytaj użytkownika"], ["- docs/index.md: indeks", "- docs/README.md: mapa"]),
+    (["README.md", "docs/index.md"], ["- README.md: opis projektu", "- docs/index.md: indeks dokumentacji"], ["dwie mapy"]),
+])
+def test_prepare_template_points_to_existing_readme_and_docs_map(env, files, expected, absent):
+    for name in files:
+        (env.work / name).write_text("# Test\n", encoding="utf-8")
+    template = env.projects.prepare()["agents_template"]
+    for text in expected:
+        assert text in template
+    for text in absent:
+        assert text not in template
+    assert not env.requests
+
+
 @pytest.mark.parametrize("has_docs,has_legacy", [(False, False), (True, False), (False, True), (True, True)])
 def test_prepare_template_sources_follow_existing_files(env, has_docs, has_legacy):
     if not has_docs:
