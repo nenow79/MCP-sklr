@@ -324,6 +324,32 @@ details[open] > summary { margin-bottom: 12px; }
   .section-head { flex-wrap: wrap; gap: 10px; }
   .topbar-right { flex-wrap: wrap; }
 }
+/* Zakładka O narzędziu */
+.about-view { max-width: 720px; padding: 20px 24px 40px; margin: 0 auto; }
+.about-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+}
+.about-card h2 { font-size: 22px; margin: 0 0 12px; }
+.about-card h3 { font-size: 15px; margin: 20px 0 8px; color: var(--muted); }
+.about-lead { font-size: 15px; margin: 0 0 8px; }
+.about-info { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; }
+.about-info dt { color: var(--muted); font-size: 13px; }
+.about-info dd { margin: 0; }
+.about-disclaimer {
+  margin-top: 20px;
+  padding: 16px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--warn);
+  border-radius: 8px;
+}
+.about-disclaimer h3 { margin-top: 0; }
+.about-disclaimer p { margin: 0 0 8px; }
+.about-disclaimer p:last-child { margin-bottom: 0; }
+
 [hidden] { display: none !important; }
 
 /* Wspólna lista folderów i wybór trybu sesji. */

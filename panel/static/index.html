@@ -18,6 +18,7 @@
       <button id="tab-knowledge" type="button" class="tab">Wiedza</button>
       <button id="tab-external" type="button" class="tab">Zewnętrzne MCP</button>
       <button id="tab-session" type="button" class="tab">Projekty i foldery</button>
+      <button id="tab-about" type="button" class="tab">O narzędziu</button>
     </nav>
     <div class="topbar-right">
       <span id="pending-badge" class="badge badge-pending" hidden></span>
@@ -339,6 +340,30 @@ docs/archives/</textarea></label>
         Przygotowanie wznowienia nie otwiera bramki:
         potrzebny jest aktualny plan potwierdzony przez model. Przełączenie przypiętej sesji jest niedostępne.</p>
     </details>
+  </main>
+
+  <main id="about-view" class="about-view" hidden>
+    <div class="about-card">
+      <h2>O narzędziu sklr</h2>
+      <p class="about-lead">sklr to lokalny serwer MCP, który pośredniczy między modelem językowym
+        a Twoim systemem plików, kolejką zadań i panelem zgód. Wszystkie operacje na plikach
+        i skryptach wymagają Twojej jawnej zgody w panelu — model nie wykonuje niczego automatycznie.</p>
+
+      <h3>Deweloper</h3>
+      <dl class="about-info">
+        <dt>Imię i nazwisko</dt><dd>Pawel Rajko-Nenow</dd>
+        <dt>Dział</dt><dd>WwP/MFD</dd>
+      </dl>
+
+      <div class="about-disclaimer">
+        <h3>Zastrzeżenie &mdash; ważne przed użyciem</h3>
+        <p>To narzędzie daje dostęp do plików na Twoim komputerze. Używaj go z rozwagą
+          i wyłącznie w środowiskach, nad którymi masz pełną kontrolę.</p>
+        <p>Deweloper nie ponosi odpowiedzialności za niewłaściwe użycie tego narzędzia,
+          w tym za utratę lub ujawnienie danych, szkody spowodowane niezamierzonymi operacjami
+          na plikach ani żadne inne negatywne konsekwencje wynikające z jego stosowania.</p>
+      </div>
+    </div>
   </main>
 </body>
 </html>

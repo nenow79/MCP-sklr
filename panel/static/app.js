@@ -526,7 +526,7 @@
       clearSessionResume();
       $("session-supplement").value = "";
     }
-    ["tasks", "skills", "knowledge", "external", "session"].forEach(function (tab) {
+    ["tasks", "skills", "knowledge", "external", "session", "about"].forEach(function (tab) {
       if ($(tab + "-view")) { $(tab + "-view").hidden = tab !== name; }
       if ($("tab-" + tab)) { $("tab-" + tab).className = tab === name ? "tab active" : "tab"; }
     });
@@ -2015,6 +2015,7 @@
     $("notify-btn").addEventListener("click", enableNotifications);
     $("status-filter").addEventListener("change", function () { refresh(); });
     $("tab-tasks").addEventListener("click", function () { showTab("tasks"); });
+    $("tab-about").addEventListener("click", function () { showTab("about"); });
     $("root-form").addEventListener("submit", submitRoot);
     $("root-pick").addEventListener("click", pickRootDirectory);
     $("tab-skills").addEventListener("click", function () { showTab("skills"); });
