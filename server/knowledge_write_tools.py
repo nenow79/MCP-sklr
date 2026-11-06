@@ -118,6 +118,27 @@ def _executor(service, transaction, plan, context, guard, concept_id):
     return execute
 
 
+# Stałe podpowiedzi: nigdy argumenty wejściowe ani surowe wyjątki.
+_SAVE_ERROR_HINTS = {
+    "INVALID_ARGUMENT": "Sprawdź argumenty knowledge_save: mode=create/update, całe body bez frontmattera; section_id i section_mode należą wyłącznie do knowledge_get.",
+    "METADATA_REQUIRED": "Create wymaga metadata_yaml: sam YAML mapping, bez delimiterów ---.",
+    "BODY_FRONTMATTER_UNSUPPORTED": "body musi zawierać całe body dokumentu bez frontmattera. Dla update metadata_yaml=null zachowuje frontmatter.",
+    "METADATA_DELIMITERS_UNSUPPORTED": "metadata_yaml to sam YAML mapping bez delimiterów --- lub ...; frontmatter nie należy do body.",
+    "REVISION_CONFLICT": 'Pobierz aktualny knowledge_get(view="document"), sprawdź kompletność i czy zamierzona zmiana już istnieje. Jeśli nie, przygotuj całe body na aktualnej treści i użyj rewizji tego odczytu.',
+    "MASKED_UPDATE_UNSUPPORTED": "Nie zastępuj zamaskowanego zakresu placeholderami ani nie ujawniaj sekretów automatycznie. Potrzebna jest osobna jawnie zatwierdzona naprawa.",
+    "METADATA_KEY_LOSS": "Propozycja metadata_yaml usuwa istniejące klucze. Zachowaj je; jeśli zmieniasz tylko body, użyj metadata_yaml=null.",
+    "KNOWLEDGE_INTERNAL_ERROR": "Nie ponawiaj zapisu automatycznie. Sprawdź list_tasks/get_task i aktualny dokument; błąd nie dowodzi braku zadania lub zapisu.",
+}
+
+
+def _save_error(code, hint=None):
+    result = {"success": False, "error": code}
+    hint = hint or _SAVE_ERROR_HINTS.get(code)
+    if hint:
+        result["hint"] = hint
+    return result
+
+
 def knowledge_save_impl(service, roots, manager, transaction, config_lock, panel_available,
                         bundle_id, concept_id, mode, body, metadata_yaml=None,
                         expected_revision=None, description=""):
@@ -125,15 +146,20 @@ def knowledge_save_impl(service, roots, manager, transaction, config_lock, panel
     try:
         identity = DocumentIdentity(bundle_id, concept_id)
         if mode not in ("create", "update"):
-            raise KnowledgeError("INVALID_ARGUMENT")
-        if ((mode == "create" and expected_revision is not None) or
-                (mode == "update" and (not isinstance(expected_revision, str) or
-                                        not expected_revision or len(expected_revision) > 200))):
-            raise KnowledgeError("INVALID_ARGUMENT")
+            return _save_error("INVALID_ARGUMENT", "mode musi być create albo update; brak upsert.")
+        if mode == "create" and expected_revision is not None:
+            return _save_error("INVALID_ARGUMENT", "Dla create pomiń expected_revision lub podaj null.")
+        if mode == "update" and (not isinstance(expected_revision, str) or
+                                 not expected_revision or len(expected_revision) > 200):
+            return _save_error("INVALID_ARGUMENT", "Update wymaga expected_revision ze świeżego knowledge_get; nie pustego ani dłuższego niż 200 znaków.")
+        if not isinstance(body, str):
+            return _save_error("INVALID_ARGUMENT", "body musi być tekstem: całe body dokumentu bez frontmattera, nie pojedyncza sekcja.")
+        if metadata_yaml is not None and not isinstance(metadata_yaml, str):
+            return _save_error("INVALID_ARGUMENT", "metadata_yaml musi być tekstem YAML mapping lub null; update z null zachowuje frontmatter.")
         try:
             description = mask_text(check_description(description)).text
         except ChangeError:
-            raise KnowledgeError("INVALID_ARGUMENT") from None
+            return _save_error("INVALID_ARGUMENT", "description musi być krótkim tekstem do 500 znaków, bez znaków sterujących, formatowania Unicode lub bidi.")
         with config_lock:
             context = service.write_context(bundle_id)
             path, canonical = _target(context, concept_id, mode)
@@ -187,14 +213,14 @@ def knowledge_save_impl(service, roots, manager, transaction, config_lock, panel
                                            "concept_id": canonical, "sensitive": True,
                                            "truncated": preview["truncated"], "hint": WAIT_HINT}}
     except (KnowledgeError, DocumentError, WriteError, SnapshotError) as exc:
-        return {"success": False, "error": exc.code}
+        return _save_error(exc.code)
     except (IdentityError, PathError):
-        return {"success": False, "error": "INVALID_ARGUMENT"}
+        return _save_error("INVALID_ARGUMENT")
     except ChangeError:
-        return {"success": False, "error": "DOCUMENT_UNAVAILABLE"}
+        return _save_error("DOCUMENT_UNAVAILABLE")
     except QueueFullError:
-        return {"success": False, "error": "QUEUE_FULL"}
+        return _save_error("QUEUE_FULL")
     except TaskStateError:
-        return {"success": False, "error": "TASK_UNAVAILABLE"}
+        return _save_error("TASK_UNAVAILABLE")
     except Exception:
-        return {"success": False, "error": "KNOWLEDGE_INTERNAL_ERROR"}
+        return _save_error("KNOWLEDGE_INTERNAL_ERROR")

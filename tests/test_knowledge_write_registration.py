@@ -21,7 +21,9 @@ def test_knowledge_save_registration_and_forwarding(args, kwargs, expected):
     assert [ast.unparse(node) for node in function.decorator_list] == ["register_confidential_tool"]
     assert "wait" not in {arg.arg for arg in function.args.args}
     doc = ast.get_docstring(function)
-    for text in ("task_id", "get_task", "list_tasks", "committed", "bez Ufaj", "expected_revision"):
+    for text in ("task_id", "get_task", "list_tasks", "committed", "bez Ufaj", "expected_revision",
+                 "CAŁEGO", "zastępuje całe body", "section_id", "section_mode",
+                 'view="document"', "truncated=false", "execution_unknown"):
         assert text in doc
     dependencies = [object() for _ in range(5)]
     calls = []
@@ -45,3 +47,15 @@ def test_knowledge_save_registration_and_forwarding(args, kwargs, expected):
     namespace["PANEL_SERVER"] = None
     assert calls[0][5]() is False
     assert calls[0][6:] == expected
+    assert doc.index("zastępuje całe body") < doc.index("task_id")
+    assert not {"section_id", "section_mode"} & {arg.arg for arg in function.args.args}
+
+
+def test_knowledge_get_warns_that_section_is_not_save_body():
+    path = Path(__file__).resolve().parents[1] / "main.py"
+    tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+    function = next(node for node in tree.body
+                    if isinstance(node, ast.FunctionDef) and node.name == "knowledge_get")
+    doc = ast.get_docstring(function)
+    assert "nie jest kompletnym body" in doc
+    assert "knowledge_save" in doc and "truncated=false" in doc

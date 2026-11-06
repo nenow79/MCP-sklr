@@ -630,6 +630,8 @@ def knowledge_get(bundle_id: str, concept_id: str, view: str = "outline",
     restart daje REVISION_CONFLICT: pobierz nowy outline przed wyborem sekcji.
     max_chars 1000-80000 obejmuje JSON metadanych i treści/outline; truncated jest jawne.
     Pełny dokument wymaga view=document. Brak auto-fetch URL i wykonywania kodu.
+    Odczyt sekcji nie jest kompletnym body do knowledge_save, które zastępuje całe body.
+    Przed update pobierz view="document", sprawdź truncated=false i zachowaj resztę treści.
     Dokument projektowy bez frontmattera ma format=markdown, metadata={} i warning
     unconverted; jest dostępny przed opcjonalną konwersją przez knowledge_convert.
     """
@@ -641,8 +643,14 @@ def knowledge_get(bundle_id: str, concept_id: str, view: str = "outline",
 def knowledge_save(bundle_id: str, concept_id: str, mode: str, body: str,
                    metadata_yaml: Optional[str] = None, expected_revision: Optional[str] = None,
                    description: str = "") -> Dict[str, Any]:
-    """Proponuje create/update OKF jako jedno zadanie do zgody w panelu, bez Ufaj.
-    Body to Markdown bez frontmattera; metadata_yaml to sam YAML mapping.
+    """Zapis CAŁEGO dokumentu OKF, nie pojedynczej sekcji ani patcha.
+    Update zastępuje całe body: wysłanie samej sekcji usunie pozostałą treść.
+    section_id i section_mode należą wyłącznie do knowledge_get; nie przekazuj ich tutaj.
+    Aby zmienić sekcję: knowledge_get(view="document"), sprawdź truncated=false,
+    zmień sekcję w pełnym body, zachowaj resztę i użyj rewizji tego odczytu.
+    Nie zapisuj skróconej treści ani zamaskowanych placeholderów jako pełnego body.
+    Proponuje create/update OKF jako jedno zadanie do zgody w panelu, bez Ufaj.
+    Body to cały Markdown bez frontmattera; metadata_yaml to sam YAML mapping.
     Create wymaga metadata_yaml i nie przyjmuje expected_revision. Update wymaga
     expected_revision z knowledge_get; metadata_yaml=null zachowuje frontmatter.
     Katalog rodzica musi istnieć. Zmiana maskowanego zakresu jest blokowana.
@@ -652,7 +660,10 @@ def knowledge_save(bundle_id: str, concept_id: str, mode: str, body: str,
     podsumuj i STOP do wiadomości użytkownika bez kolejnych wait/anulowania/resubmit.
     Po decyzji śledź
     ten sam task_id; sprawdź sukces przez get_task przed zależnym krokiem.
-    Po błędzie ': ping' najpierw list_tasks, nie ponawiaj zapisu w ciemno.
+    Po błędzie komunikacji, execution_unknown lub ': ping' nie ponawiaj automatycznie:
+    sprawdź list_tasks/get_task i aktualny dokument. Aktywna sesja i brak zadań
+    oczekujących nie dowodzą braku zapisu. REVISION_CONFLICT: odczytaj aktualny
+    dokument, sprawdź czy zmiana już istnieje, potem przygotuj zmianę z nową rewizją.
     Wynik zadania rozróżnia committed, rollback_complete, cleanup_complete i index_state.
     Błąd indeksu nie cofa zapisu. Przy błędzie cleanup sprawdź committed i plik.
     """

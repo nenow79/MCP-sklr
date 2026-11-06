@@ -10,6 +10,10 @@ Jedyna lista długu projektu: potrzebne prace, niekoniecznie do realizacji teraz
 
 Backlog nie nadaje uprawnień wykonawczych. Plan i akceptacja przed kodem; pytest i serwery tylko na wyraźne polecenie. Nie ponawiać zaliczonych testów bez nowej przyczyny; nowa paczka kodu wymaga odpowiedniej walidacji. Zielona regresja nie zastępuje odbioru panelu/harnessu ani pominiętych scenariuszy.
 
+## Knowledge save — odbiór podpowiedzi
+
+- [ ] Wyjaśnić jeden skip z #2592 (127 passed, 1 skipped; cztery uzgodnione pliki zaliczone bez błędów, wynik w CURRENT). Po restarcie/odświeżeniu katalogu odebrać nowe opisy w harnessie oraz zachowanie walidacji obcych argumentów section_id/section_mode przed adapterem, bez zapisu testowego na danych projektu. Nie obiecujemy celowanego hint dla błędów warstwy MCP ani wsparcia zapisu sekcji. Nie powtarzać zaliczonego zakresu bez nowej przyczyny.
+
 ## 1. Sesje i obecny autopilot — pozostały odbiór
 
 Kontrakty: [sesje](../specs/work-session-pause.md), [autopilot A2](../specs/autopilot-contract.md). Scenariusze: [Windows](../windows-okf.md). Nie implementować ponownie istniejącej pauzy, wznowienia ani usuniętego checkpointu.

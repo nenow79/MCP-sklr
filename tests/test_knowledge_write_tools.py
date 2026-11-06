@@ -451,6 +451,64 @@ def test_invalid_arguments_never_queue(env, kwargs):
     assert env.manager.list() == []
 
 
+@pytest.mark.parametrize("kwargs,code,hint_part", [
+    ({"mode": "upsert"}, "INVALID_ARGUMENT", "mode"),
+    ({"expected_revision": "r1.PRIVATE_SENTINEL"}, "INVALID_ARGUMENT", "create"),
+    ({"mode": "update", "expected_revision": None}, "INVALID_ARGUMENT", "expected_revision"),
+    ({"body": None}, "INVALID_ARGUMENT", "body"),
+    ({"metadata_yaml": 7}, "INVALID_ARGUMENT", "metadata_yaml"),
+    ({"description": "bad\nPRIVATE_SENTINEL"}, "INVALID_ARGUMENT", "description"),
+    ({"metadata_yaml": None}, "METADATA_REQUIRED", "metadata_yaml"),
+    ({"body": "---\ntype: Reference\n---\nPRIVATE_SENTINEL\n"},
+     "BODY_FRONTMATTER_UNSUPPORTED", "frontmattera"),
+    ({"metadata_yaml": "---\ntype: Reference\n---\n"},
+     "METADATA_DELIMITERS_UNSUPPORTED", "delimiterów"),
+])
+def test_save_preparation_errors_have_safe_targeted_hints(env, kwargs, code, hint_part):
+    result = save(env, **kwargs)
+    assert result["success"] is False and result["error"] == code
+    assert hint_part in result["hint"]
+    assert "PRIVATE_SENTINEL" not in json.dumps(result)
+    assert env.manager.list() == [] and not (env.base / "note.md").exists()
+
+
+def test_revision_hint_requires_read_and_check_before_retry(env):
+    path = put(env)
+    old = revision(env)
+    path.write_bytes(path.read_bytes() + b"external edit\n")
+    result = update(env, old)
+    assert result["error"] == "REVISION_CONFLICT"
+    assert 'view="document"' in result["hint"]
+    assert "już istnieje" in result["hint"] and old not in json.dumps(result)
+    assert env.manager.list() == []
+
+
+@pytest.mark.parametrize("code,fragment", [
+    ("MASKED_UPDATE_UNSUPPORTED", "placeholder"),
+    ("METADATA_KEY_LOSS", "metadata_yaml=null"),
+])
+def test_writer_hints_do_not_echo_input(env, monkeypatch, code, fragment):
+    def fail(*args, **kwargs):
+        raise tools.WriteError(code)
+
+    monkeypatch.setattr(tools, "prepare_write", fail)
+    result = save(env, body="PRIVATE_SENTINEL")
+    assert result["error"] == code and fragment in result["hint"]
+    assert "PRIVATE_SENTINEL" not in json.dumps(result) and env.manager.list() == []
+
+
+def test_internal_error_hint_does_not_claim_no_write(env, monkeypatch):
+    def fail(*args, **kwargs):
+        raise RuntimeError("PRIVATE_SENTINEL")
+
+    monkeypatch.setattr(env.manager, "submit", fail)
+    result = save(env)
+    assert result["error"] == "KNOWLEDGE_INTERNAL_ERROR"
+    assert "Nie ponawiaj" in result["hint"]
+    assert "list_tasks" in result["hint"] and "get_task" in result["hint"]
+    assert "PRIVATE_SENTINEL" not in json.dumps(result)
+
+
 def test_panel_and_queue_failure_never_write(env, monkeypatch):
     env.panel["available"] = False
     assert save(env)["error"] == "PANEL_UNAVAILABLE"
