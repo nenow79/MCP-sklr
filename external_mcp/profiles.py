@@ -107,6 +107,10 @@ def connection_digest(profile):
     """Digest of settings that define WHERE/HOW we connect. Alias, description and enabled
     are excluded on purpose: renaming or toggling a profile must not revoke trust."""
     keys = CONNECTION_FIELDS[profile['transport']]
+    # Preserve the exact v1 digest for missing/default mode so reading old
+    # profiles does not revoke trust. Persistent changes HOW state is retained.
+    if profile['transport'] == 'stdio' and profile.get('stdio_mode', 'one_shot') == 'persistent':
+        keys = (*keys, 'stdio_mode')
     encoded = json.dumps({key: profile.get(key) for key in keys}, sort_keys=True,
                          separators=(',', ':'), ensure_ascii=True).encode('utf-8')
     return hashlib.sha256(encoded).hexdigest()
@@ -193,6 +197,10 @@ def validate_profile(proposal, *, stored=False, blocked_ports=()):
     metadata = {'id', 'revision'} if stored else set()
     # 'trust' exists only in stored rows written by the registry, never in a proposal.
     optional = {'trust'} if stored else set()
+    # Optional even for stored rows: v1 did not contain this field. Never
+    # accept stdio-only state policy on a network transport.
+    if transport == 'stdio':
+        optional.add('stdio_mode')
     if set(proposal) - common - fields - metadata - optional:
         raise ProfileError('unknown_fields')
     if stored and not common.union(fields, metadata).issubset(proposal):
@@ -206,6 +214,10 @@ def validate_profile(proposal, *, stored=False, blocked_ports=()):
         raise ProfileError('enabled')
     result = dict(alias=alias, description=description, enabled=enabled, transport=transport)
     if transport == 'stdio':
+        mode = proposal.get('stdio_mode', 'one_shot')
+        if not isinstance(mode, str) or mode not in ('one_shot', 'persistent'):
+            raise ProfileError('stdio_mode')
+        result['stdio_mode'] = mode
         command = text(proposal.get('command'), 'command')
         if command != command.strip():
             raise ProfileError('command')

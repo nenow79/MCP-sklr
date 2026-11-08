@@ -86,7 +86,11 @@ def test_cleanup_terminate_and_survivor(monkeypatch):
     survivor = Process(graceful=False, survive=True)
     with pytest.raises(ExternalError, match='stdio_cleanup_failed'):
         anyio.run(stop_process, survivor)
-    assert survivor.actions == ['terminate', 'kill']
+    # Closing local handles is attempted even when the direct process survives;
+    # it must never turn unconfirmed process cleanup into a successful result.
+    assert survivor.actions == ['terminate', 'kill', 'close']
+    assert survivor.returncode is None
+    assert survivor.stdin.closed
 
 
 def test_exact_environment_and_no_stderr_logging(monkeypatch):

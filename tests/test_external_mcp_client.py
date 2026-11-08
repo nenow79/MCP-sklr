@@ -118,7 +118,9 @@ def test_no_call_when_tool_missing_or_schema_changed(name, expected, code):
     ({'type': 'object', 'required': ['q']}, {}, 'arguments_schema'),
     ({'type': 'object', 'additionalProperties': False}, {'extra': 'PRIVATE'}, 'arguments_schema'),
     ({'$ref': 'https://example.test/PRIVATE'}, {}, 'schema_reference_blocked'),
-    ({'$schema': 'http://json-schema.org/draft-07/schema#'}, {}, 'schema_dialect'),
+    ({'$schema': 'http://json-schema.org/draft-04/schema#'}, {}, 'schema_dialect'),
+    ({'$schema': 'http://json-schema.org/draft-07/schema#', 'type': 'object',
+      'required': ['q']}, {}, 'arguments_schema'),
     ({'type': 'PRIVATE_BAD_TYPE'}, {}, 'schema_invalid'),
 ])
 def test_schema_rejection_precedes_dispatch_and_closes_transport(schema, arguments, code):
@@ -131,6 +133,25 @@ def test_schema_rejection_precedes_dispatch_and_closes_transport(schema, argumen
     assert 'PRIVATE' not in str(raised.value)
     assert session.calls == []
     assert transport.opened == transport.closed == 1
+
+
+def test_draft7_call_preserves_schema_digest_and_dispatch_guard():
+    schema = {'$schema': 'http://json-schema.org/draft-07/schema#',
+              'type': 'object', 'required': ['q'],
+              'properties': {'q': {'type': 'string'}}, 'additionalProperties': False}
+    session = Session(tools=[{**TOOL, 'inputSchema': schema}])
+    transport, guards = Transport(), []
+    def guard(name, digest):
+        assert session.calls == []
+        guards.append((name, digest))
+    result = call_tool(profile(), 'lookup', {'q': 'x'},
+                       expected_schema_sha256=schema_digest(schema),
+                       transport=transport, session_factory=factory(session),
+                       before_dispatch=guard, timeout=5)
+    assert guards == [('lookup', schema_digest(schema))]
+    assert session.calls == [('lookup', {'q': 'x'}, 5.0)]
+    assert transport.opened == transport.closed == 1
+    assert result['result']['isError'] is False
 
 
 def test_schema_worker_timeout_is_not_uncertain(monkeypatch):
@@ -260,6 +281,37 @@ def test_invalid_inputs_do_not_open_transport(name, arguments):
     with pytest.raises(ExternalError):
         call_tool(profile(), name, arguments, transport=transport, session_factory=factory(Session()))
     assert transport.opened == 0
+
+
+@pytest.mark.parametrize('operation', ['catalog', 'call'])
+def test_persistent_mode_refuses_one_shot_before_transport(operation, monkeypatch):
+    row = validate_profile({'alias': 'local', 'transport': 'stdio', 'command': 'node',
+                            'stdio_mode': 'persistent'})
+    row.update(id=str(uuid4()), revision=str(uuid4()))
+    session, transport = Session(), Transport()
+    prepared = []
+    original = __import__('external_mcp.client', fromlist=['prepare_runtime']).prepare_runtime
+    def tracked(*args, **kwargs):
+        prepared.append(True)
+        return original(*args, **kwargs)
+    monkeypatch.setattr('external_mcp.client.prepare_runtime', tracked)
+    with pytest.raises(ExternalError) as raised:
+        if operation == 'catalog':
+            fetch_catalog(row, environ={}, transport=transport, session_factory=factory(session))
+        else:
+            call_tool(row, 'lookup', {}, environ={}, transport=transport,
+                      session_factory=factory(session))
+    assert raised.value.code == 'persistent_runtime_required'
+    assert prepared == []
+    assert transport.opened == transport.closed == 0
+    assert session.lists == [] and session.calls == []
+
+
+def test_persistent_refusal_code_survives_model_adapter():
+    from server.external_mcp_tools import OperationError, error
+    code = 'persistent_runtime_required'
+    assert error(code)['code'] == code
+    assert OperationError(code).safe_error == 'Zewnętrzne MCP: ' + code
 
 
 def test_secrets_are_cleared_after_operation():

@@ -6,7 +6,9 @@ No stderr is persisted or logged. Importing this module does not spawn a process
 """
 import os
 import subprocess
+import time
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
 
 import anyio
 
@@ -15,6 +17,10 @@ from external_mcp.process_containment import create_containment
 
 MAX_MESSAGE_BYTES = 2 * 1024 * 1024
 READ_CHUNK_BYTES = 16384
+
+# Internal operation-local deadline, not model input or persistent session state.
+# Set by the owner immediately before session teardown, reset after transport exit.
+cleanup_deadline_context = ContextVar('external_mcp_cleanup_deadline', default=None)
 
 
 class LineFramer:
@@ -59,14 +65,27 @@ def parse_line(line):
         raise ExternalError('stdio_invalid_json') from None
 
 
-async def stop_process(process):
-    """Bounded graceful wait -> terminate -> kill. Report survivors rather than hide them."""
+async def stop_process(process, *, deadline=None):
+    """One total cleanup deadline, including pipe and process handle close.
+
+    The caller may supply an earlier shared deadline. Stage windows reserve
+    time for escalation; none can restart the total budget. A timed-out close
+    is a failure even if the direct process has already exited.
+    """
+    start = time.monotonic()
+    deadline = min(deadline, start + CLEANUP_TIMEOUT_S) if deadline is not None else start + CLEANUP_TIMEOUT_S
+    window = max(0, deadline - start) / 4
+    failed = False
     with anyio.CancelScope(shield=True):
         if process.stdin is not None:
-            try:
-                await process.stdin.aclose()
-            except (OSError, anyio.BrokenResourceError, anyio.ClosedResourceError):
-                pass
+            with anyio.move_on_after(max(0, min(window, deadline - time.monotonic()))) as scope:
+                try:
+                    await process.stdin.aclose()
+                except (OSError, anyio.BrokenResourceError, anyio.ClosedResourceError):
+                    pass
+                except Exception:
+                    failed = True
+            failed = failed or scope.cancel_called
         for action in (None, 'terminate', 'kill'):
             if process.returncode is not None:
                 break
@@ -74,13 +93,26 @@ async def stop_process(process):
                 try:
                     getattr(process, action)()
                 except ProcessLookupError:
-                    break
-            with anyio.move_on_after(CLEANUP_TIMEOUT_S / 3):
-                await process.wait()
+                    pass
+                except Exception:
+                    failed = True
+            remaining = max(0, deadline - time.monotonic())
+            allowance = min(window, remaining) if action != 'kill' else remaining / 2
+            with anyio.move_on_after(allowance):
+                try:
+                    await process.wait()
+                except Exception:
+                    failed = True
         if process.returncode is None:
-            raise ExternalError('stdio_cleanup_failed')
-        with anyio.move_on_after(1):
-            await process.aclose()
+            failed = True
+        with anyio.move_on_after(max(0, deadline - time.monotonic())) as scope:
+            try:
+                await process.aclose()
+            except Exception:
+                failed = True
+        failed = failed or scope.cancel_called
+    if failed:
+        raise ExternalError('stdio_cleanup_failed') from None
 
 
 def _command(runtime):
@@ -100,35 +132,82 @@ async def bounded_stdio_client(runtime):
     """
     from mcp.shared.message import SessionMessage
 
-    containment = create_containment()
+    containment = None
     process = None
+    streams_to_close = []
+    failure = None
+    cancelled = None
+    phase = 'stdio_containment_failed'
     try:
+        containment = create_containment()
+        phase = 'stdio_spawn_failed'
+        command = _command(runtime)
         process = await anyio.open_process(
-            _command(runtime), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL, cwd=runtime.cwd, env=dict(runtime.env),
             **containment.spawn_kwargs,
         )
-    except Exception:
-        containment.close()
-        raise ExternalError('stdio_spawn_failed') from None
-    try:
-        containment.attach(process.pid)  # Windows: assign suspended process to job, then resume
-    except Exception:
-        # Fail closed: never run an uncontained server.
-        with anyio.CancelScope(shield=True):
-            try:
-                process.kill()
-            except ProcessLookupError:
-                pass
-            containment.close()
-            try:
-                await stop_process(process)
-            except ExternalError:
-                pass
-        raise ExternalError('stdio_containment_failed') from None
+        phase = 'stdio_containment_failed'
+        containment.attach(process.pid)
+        phase = 'stdio_stream_failed'
+        received, read_stream = anyio.create_memory_object_stream(0)
+        streams_to_close.extend((received, read_stream))
+        write_stream, pending = anyio.create_memory_object_stream(0)
+        streams_to_close.extend((write_stream, pending))
+    except BaseException as exc:
+        if isinstance(exc, anyio.get_cancelled_exc_class()):
+            cancelled = exc
+        else:
+            failure = exc.code if isinstance(exc, ExternalError) else phase
 
-    received, read_stream = anyio.create_memory_object_stream(0)
-    write_stream, pending = anyio.create_memory_object_stream(0)
+    async def cleanup():
+        # All paths, including failed __aenter__, use this one cleanup attempt.
+        # Synchronous containment APIs must remain short OS calls; this is not
+        # a bound on a malicious blocking injected factory or an OS hard hang.
+        deadline = time.monotonic() + CLEANUP_TIMEOUT_S
+        inherited_deadline = cleanup_deadline_context.get()
+        if inherited_deadline is not None:
+            deadline = min(deadline, inherited_deadline)
+        code = None
+        with anyio.CancelScope(shield=True):
+            for stream in streams_to_close:
+                try:
+                    stream.close()
+                except Exception:
+                    code = 'stdio_cleanup_failed'
+            if process is not None:
+                if failure == 'stdio_containment_failed':
+                    try:
+                        process.kill()  # never leave an unattached server running
+                    except ProcessLookupError:
+                        pass
+                    except Exception:
+                        code = 'stdio_cleanup_failed'
+                try:
+                    await stop_process(process, deadline=deadline)
+                except Exception:
+                    code = 'stdio_cleanup_failed'
+            if containment is not None:
+                try:
+                    if process is not None:
+                        containment.kill_tree()
+                except Exception:
+                    code = 'stdio_containment_failed'
+                finally:
+                    try:
+                        containment.close()
+                    except Exception:
+                        code = 'stdio_containment_failed'
+        return code
+
+    if failure is not None or cancelled is not None:
+        cleanup_code = await cleanup()
+        if cancelled is not None:
+            raise cancelled
+        error = ExternalError(cleanup_code or failure)
+        if cleanup_code:
+            error.cause_code = failure
+        raise error from None
 
     async def reader():
         framer = LineFramer()
@@ -176,23 +255,22 @@ async def bounded_stdio_client(runtime):
             try:
                 yield read_stream, write_stream
             finally:
-                with anyio.CancelScope(shield=True):
-                    read_stream.close()
-                    write_stream.close()
-                    await stop_process(process)
+                # End transport workers before process cleanup. They only own
+                # memory streams and cancellable pipe I/O, not process handles.
                 group.cancel_scope.cancel()
+    except BaseException as exc:
+        if isinstance(exc, anyio.get_cancelled_exc_class()):
+            cancelled = exc
+        else:
+            from external_mcp.client import _leaves
+            failure = next((leaf.code for leaf in _leaves(exc)
+                            if isinstance(leaf, ExternalError)), 'stdio_failed')
     finally:
-        with anyio.CancelScope(shield=True):
-            # Also runs when task-group construction/startup or cleanup raises.
-            try:
-                if process.returncode is None:
-                    await stop_process(process)
-            finally:
-                try:
-                    containment.kill_tree()
-                finally:
-                    containment.close()
-                    received.close()
-                    read_stream.close()
-                    write_stream.close()
-                    pending.close()
+        cleanup_code = await cleanup()
+    if cancelled is not None:
+        raise cancelled
+    if cleanup_code or failure:
+        error = ExternalError(cleanup_code or failure)
+        if cleanup_code and failure:
+            error.cause_code = failure
+        raise error from None

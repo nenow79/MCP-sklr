@@ -37,6 +37,23 @@ def test_registration_and_forwarding(name, args, kwargs, expected):
     assert calls == [(dependency,) + expected]
 
 
+def test_knowledge_get_revision_conflict_has_hint():
+    """REVISION_CONFLICT z knowledge_get zawiera hint z instrukcją odczytu outline."""
+    from okf_engine.service import KnowledgeError
+    from server.knowledge_tools import _call
+
+    def raise_conflict(*args, **kwargs):
+        raise KnowledgeError("REVISION_CONFLICT")
+
+    result = _call(raise_conflict)
+    assert result["success"] is False
+    assert result["error"] == "REVISION_CONFLICT"
+    assert "hint" in result
+    assert "outline" in result["hint"] and "section_id" in result["hint"]
+    # Hint nie może zawierać danych wejściowych
+    assert "expected_revision" not in result["hint"]
+
+
 def test_service_uses_process_dependencies_once():
     path = Path(__file__).resolve().parents[1] / "main.py"
     tree = ast.parse(path.read_text(encoding="utf-8-sig"))

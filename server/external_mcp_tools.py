@@ -40,7 +40,7 @@ SAFE_CODES = frozenset({
     'environment_invalid', 'header_invalid', 'tls_configuration', 'cwd_unavailable',
     'stdio_spawn_failed', 'stdio_containment_failed', 'stdio_cleanup_failed',
     'stdio_batch_not_supported', 'stdio_invalid_json', 'message_limit',
-    'queue_full', 'task_state', 'panel_unavailable',
+    'queue_full', 'task_state', 'panel_unavailable', 'persistent_runtime_required',
 })
 
 

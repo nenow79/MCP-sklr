@@ -35,7 +35,7 @@ class ExternalMCPRegistry:
             return {'version': 1, 'generation': None, 'profiles': []}
         if not isinstance(raw, dict) or set(raw) != {'version', 'generation', 'profiles'}:
             raise ProfileError('section_format')
-        if type(raw['version']) is not int or raw['version'] != 1:
+        if type(raw['version']) is not int or raw['version'] not in (1, 2):
             raise ProfileError('section_version')
         identifier(raw['generation'], 'generation')
         rows = raw['profiles']
@@ -49,7 +49,9 @@ class ExternalMCPRegistry:
             aliases.add(profile['alias'])
             ids.add(profile['id'])
             parsed.append(profile)
-        return {'version': 1, 'generation': raw['generation'], 'profiles': parsed}
+        # Normalization is detached: list/resolve never migrate the live config
+        # or save it. Promotion belongs only to an authorized write below.
+        return {'version': raw['version'], 'generation': raw['generation'], 'profiles': parsed}
 
     def _revision(self, config):
         # generation prevents ABA after undo/delete/recreate; hash detects out-of-band edits.
@@ -105,6 +107,10 @@ class ExternalMCPRegistry:
             section = self._section(config)
             self._check(config, expected_revision)
             change(section, config)
+            # Normalized stdio rows use the v2 shape, including explicit default
+            # mode. Keep network-only v1 writes unchanged; never downgrade v2.
+            if any('stdio_mode' in row for row in section['profiles']):
+                section['version'] = 2
             section['generation'] = str(uuid4())
             config['external_mcp'] = section
             # Revalidate uniqueness/limits before the shared store commits.

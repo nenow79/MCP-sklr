@@ -497,6 +497,25 @@ def test_writer_hints_do_not_echo_input(env, monkeypatch, code, fragment):
     assert "PRIVATE_SENTINEL" not in json.dumps(result) and env.manager.list() == []
 
 
+def test_edit_file_multiple_matches_hint_does_not_show_content(env):
+    """Hint przy count>1 nie pokazuje treści pliku, podaje instrukcję zawężenia."""
+    path = env.base / "multi.md"
+    path.write_text("---\ntype: Reference\n---\nrepeat\nrepeat\n", encoding="utf-8")
+    # Sztuczny save przez knowledge_save_impl nie mamy tu edit_file, ale możemy
+    # sprawdzić _replace bezpośrednio.
+    from server.file_changes import _replace, ChangeError
+    try:
+        _replace("repeat\nrepeat\n", "repeat", "other", ("multi.md",), 1)
+    except ChangeError as exc:
+        msg = str(exc)
+        assert "2 dopasowań" in msg
+        assert "unikalny kontekst" in msg
+        # Nie pokazujemy fragmentu pliku przy wielu dopasowaniach
+        assert "od linii" not in msg
+    else:
+        assert False, "oczekiwano ChangeError"
+
+
 def test_internal_error_hint_does_not_claim_no_write(env, monkeypatch):
     def fail(*args, **kwargs):
         raise RuntimeError("PRIVATE_SENTINEL")

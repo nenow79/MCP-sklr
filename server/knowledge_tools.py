@@ -144,6 +144,10 @@ def _call(operation, *args, **kwargs):
         result = {"success": False, "error": exc.code}
         if exc.code == "RESULT_TOO_LARGE":
             result["hint"] = "Zwiększ max_chars (maksymalnie 80000)."
+        elif exc.code == "REVISION_CONFLICT":
+            result["hint"] = ("Plik zmienił się od ostatniego odczytu lub serwer został zrestarowany."
+                              " Pobierz aktualny outline przez knowledge_get(view='outline'),"
+                              " wybierz właściwy section_id z nowej rewizji i ponów odczyt.")
         return result
     except SearchError:
         return {"success": False, "error": "INVALID_ARGUMENT"}

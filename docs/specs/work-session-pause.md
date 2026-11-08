@@ -48,6 +48,18 @@ Oczekujące zadania zachowują dane i dotychczasową decyzję. Zatwierdzenie pod
 
 „Anuluj” pozostaje odrębne. Stop w harnessie przeglądarkowym jest środkiem awaryjnym; nie potwierdza stanu kolejki ani skutku rozpoczętej operacji.
 
+### Uzupełnienie: granica dispatch opcjonalnego persistent stdio
+
+Zaakceptowane wymagania docelowe opisuje [kontrakt persistent stdio](external-mcp-persistent-stdio-proposal.md); stan implementacji i odbioru pozostaje w CURRENT. Dotyczy wyłącznie profili stdio_mode=persistent. Nie zmienia granicy dotychczasowego one-shot, HTTP/SSE ani pozostałych narzędzi.
+
+Rozpoczęcie executora i jego admission token nie oznaczają dopuszczenia biznesowego tools/call. Executor może czekać na slot albo pobierać katalog i walidować argumenty. Po tych czynnościach trzeba ponownie sprawdzić WorkSession, profil/rewizję, właściciela/generację, zgodę/delegację, trust/limiter i cancel. Krótki zsynchronizowany punkt dopuszczenia tools/call rozstrzyga wyścig z pauzą lub utratą dostępu; globalne blokady nie obejmują I/O.
+
+Pauza natychmiast zamyka nowe dopuszczenia i unieważnia generację persistent. Niedopuszczony tools/call nie zostaje wysłany, również gdy executor już rozpoczął oczekiwanie na slot lub przygotowanie. Przygotowanie należy bezpiecznie przerwać lub zakończyć bez biznesowego dispatch; żądanie pauzy nie czeka na I/O. Już dopuszczony tools/call kończy się w dotychczasowym limicie, bez ustawiania cancel tylko z powodu pauzy; następnie runtime jest sprzątany z jednym deadline 5 s. Zamknięcie lokalne nie cofa zdalnego skutku. Wynik/awaria po dopuszczeniu mogą oznaczać niepewny skutek, bez automatycznego retry.
+
+Bezczynny runtime nie liczy się jako rozpoczęte działanie sesji. Potwierdzenie paused nadal wymaga zwolnienia rozpoczętych działań; sam status paused nie jest dowodem udanego cleanup procesu. Stan runtime/cleanup raportuje się osobno. Błąd cleanup pozostawia broken i blokuje proces zastępczy tego właściciela/profilu do potwierdzonego sprzątnięcia. Wznowienie i nowa WorkSession nie odzyskują runtime/preview/generacji ani starego zadania. Nowe autoryzowane discovery może utworzyć świeżą instancję; call nie wykonuje automatycznego reconnect. Globalne profile pozostają zapisane po zmianie projektu.
+
+Kontrola właściciela/generacji jest niezależna od samego powiadomienia lifecycle; awaria callbacku nie może pozwolić na dispatch. Dopuszczony call drain także przy końcu sesji lub zmianie połączenia; nowe calls są blokowane. Ta granica wymaga testów wyścigów po slot/walidacji, podczas zgody i po dopuszczeniu. Akceptacja kontraktu nie jest zgodą na ich uruchomienie ani odbiorem zapisu flow.
+
 ## 3. Komunikat dla LLM
 
 Nie używać pustego wyniku, zwykłego błędu transportu ani pozornego sukcesu. Odpowiedź sterująca ma jednoznaczny kod pauzy, reason=user_requested_pause, session_id, rewizję i informację, że nie wolno kontynuować pracy.

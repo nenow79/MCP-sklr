@@ -429,6 +429,9 @@ def _replace(text: str, old: str, new: str, names: Tuple[str, ...], index: int) 
         message = f"Zmiana {index}: old_text ma {count} dopasowań; wymagane dokładnie 1."
         if count == 0:
             message += "\n" + _hint(names, text, old)
+        else:
+            message += ("\nDodaj unikalny kontekst: rozszerz old_text o kilka sąsiadujących linii,"
+                        " które razem z fragmentem nie powtarzają się w pliku.")
         raise ChangeError(message)
     return text[:first] + new + text[first + len(old):]
 

@@ -16,6 +16,7 @@ from external_mcp.limits import (
     MAX_TOOLS, ExternalError, arguments_view, catalog_view, result_view, timeout_seconds,
 )
 from external_mcp.runtime_config import prepare_runtime
+from external_mcp.profiles import validate_profile
 from external_mcp.schema_validation import validate_arguments
 
 MAX_CATALOG_PAGES = 10
@@ -102,6 +103,12 @@ async def _guarded(operation, timeout, cancel_event, state):
 def _execute(profile, operation_factory, timeout, cancel_event, environ, blocked_ports,
              transport, session_factory, uncertain_phase):
     timeout = timeout_seconds(timeout)
+    # This entry point owns only a short-lived session. Until a separate
+    # persistent supervisor/routing exists, never silently discard its policy.
+    # Check the validated profile before resolving credentials or spawning.
+    checked = validate_profile(profile, stored=True, blocked_ports=blocked_ports)
+    if checked.get('stdio_mode') == 'persistent':
+        raise ExternalError('persistent_runtime_required')
     cancel_event = cancel_event if cancel_event is not None else threading.Event()
     state = {'phase': 'connecting'}
     runtime = prepare_runtime(profile, environ=environ, blocked_ports=blocked_ports)

@@ -12,6 +12,15 @@ MAX_INPUT_BYTES = 196608
 MAX_DEPTH = 32
 MAX_NODES = 50000
 DIALECT = 'https://json-schema.org/draft/2020-12/schema'
+DRAFT7_DIALECT = 'http://json-schema.org/draft-07/schema'
+
+
+def _dialect(declaration):
+    # Explicit allowlist; never fetch a meta-schema or guess an unknown dialect.
+    for dialect in (DIALECT, DRAFT7_DIALECT):
+        if declaration in (dialect, dialect + '#'):
+            return dialect
+    return None
 CODES = frozenset({
     'ok', 'schema_invalid', 'schema_dialect', 'schema_reference_blocked',
     'arguments_schema', 'schema_validation_failed', 'schema_worker_input',
@@ -27,6 +36,9 @@ def check_policy(schema):
     """
     if not isinstance(schema, dict):
         return 'schema_invalid'
+    dialect = _dialect(schema.get('$schema', DIALECT))
+    if dialect is None:
+        return 'schema_dialect'
     pending = [(schema, 0)]
     nodes = 0
     while pending:
@@ -35,7 +47,9 @@ def check_policy(schema):
         if nodes > MAX_NODES or depth > MAX_DEPTH:
             return 'schema_invalid'
         if isinstance(node, dict):
-            if '$schema' in node and node['$schema'] not in (DIALECT, DIALECT + '#'):
+            # One dialect per document: nested switches would otherwise be
+            # interpreted by the root validator with potentially different rules.
+            if '$schema' in node and _dialect(node['$schema']) != dialect:
                 return 'schema_dialect'
             if any(key in node for key in ('$id', '$anchor', '$dynamicAnchor',
                                            '$dynamicRef', '$recursiveRef', '$recursiveAnchor')):
@@ -58,16 +72,21 @@ def validate_payload(schema, arguments):
     if not isinstance(arguments, dict):
         return 'schema_worker_input'
     try:
-        from jsonschema import Draft202012Validator
+        from jsonschema import Draft7Validator, Draft202012Validator
         from referencing import Registry
 
         def deny_resource(uri):
             # Never fetch a URL or file, even if the preflight missed a reference.
             raise RuntimeError('resource retrieval disabled')
 
-        validator = Draft202012Validator(schema, registry=Registry(retrieve=deny_resource))
+        # Missing $schema retains the previous 2020-12 behavior. Do not rewrite
+        # schemas: their original content/digest remains bound to approval/trust.
+        validator_class = (Draft7Validator
+                           if _dialect(schema.get('$schema', DIALECT)) == DRAFT7_DIALECT
+                           else Draft202012Validator)
+        validator = validator_class(schema, registry=Registry(retrieve=deny_resource))
         try:
-            Draft202012Validator.check_schema(schema)
+            validator_class.check_schema(schema)
         except Exception:
             return 'schema_invalid'
         # Stop at the first error; never serialize the error, path or instance.

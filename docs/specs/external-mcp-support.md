@@ -8,6 +8,8 @@ tags: [sklr, mcp, panel, security]
 
 Zakres zaakceptowany przez użytkownika w rozmowie. Dokument opisuje docelowy kontrakt, nie potwierdza wdrożenia. Stan implementacji i odbioru pozostaje w [CURRENT](../plan/CURRENT.md), otwarte zadania wyłącznie w [backlogu](../plan/backlog.md).
 
+Zaakceptowane rozszerzenie: [opcjonalne persistent stdio](external-mcp-persistent-stdio-proposal.md). Określa docelowe stdio_mode, zgodność konfiguracji v1/v2, właściciela WorkSession, generację, supervisor, limity i granicę dispatch. One-shot pozostaje domyślny, HTTP/SSE bez zmiany. Poniższe zasady krótkotrwałej sesji i wyłączenie trwałych sesji z zakresu v1 dotyczą bazowego trybu; rozszerzenie stanowi jawny wyjątek wyłącznie dla opt-in stdio. Akceptacja wymagań nie oznacza wdrożenia ani odbioru: aktualny kod/stan pozostaje w CURRENT. Zmiana trybu zeruje trust, generacja nie jest zgodą, a wynik persistent dodatkowo sprawdza właściciela WorkSession. Pozostałe reguły v1, limity, poufność i brak retry pozostają.
+
 ## 1. Zakres i rozdzielenie stanów
 
 sklr jest klientem zewnętrznych serwerów MCP. Profile są globalne, niezależne od roots i domyślnego projektu. Zmiana projektu ani restart nie usuwa profili.
@@ -84,6 +86,8 @@ Użytkownik może w panelu oznaczyć profil jako zaufany, aby wywołania jego na
 ## 6. Wykonanie i ograniczenia
 
 Żadne wywołanie MCP nie czeka na sieć ani decyzję dłużej niż istniejący budżet harnessa. Zadania zewnętrzne mają ograniczony timeout, limity liczby narzędzi, rozmiaru schematów, argumentów i wyników; konkretne wartości i walidacja muszą być ustalone przed kodem klienta. Wynik jawnie wskazuje ograniczenie lub odrzucenie zbyt dużych danych; nie wolno cicho ucinać schematu i prezentować go jako kompletny.
+
+Walidacja argumentów narzędzi zewnętrznych MCP obsługuje jawnie JSON Schema draft 2020-12 (`https://json-schema.org/draft/2020-12/schema`) oraz draft-07 (`http://json-schema.org/draft-07/schema`), także z końcowym `#`. Brak `$schema` zachowuje domyślny draft 2020-12. Dla deklarowanego dialektu używać właściwego walidatora i sprawdzać poprawność schematu; nie przepisywać `$schema`, treści ani digestu przypiętego do zgody/trust. Nieobsługiwane deklaracje i mieszanie dialektów w jednym dokumencie odrzucać przed dispatch. Zachować blokadę pobierania zasobów z URL/plików, wyłącznie lokalne `$ref` typu JSON Pointer, blokady identyfikatorów zasobów i referencji dynamicznych, limity oraz timeout workera. Bez konwersji argumentów, wstawiania default ani wymuszania `format`. Zmiana dotyczy tylko external MCP, nie parsera skilli ani narzędzi wbudowanych.
 
 Zachować typowane bloki content, structuredContent i isError; nie sprowadzać wszystkich bloków do str(). Nie pobierać automatycznie URL ani zasobów wskazanych w wynikach. Błąd narzędzia nie oznacza sukcesu zadania biznesowego.
 

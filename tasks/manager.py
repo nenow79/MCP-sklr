@@ -42,6 +42,14 @@ class TaskStateError(Exception):
     pass
 
 
+@dataclass(frozen=True)
+class ExternalDispatchTicket:
+    """Snapshot of internal executor authority, not reusable authorization."""
+    task_id: int
+    session_id: str
+    consent: str
+
+
 class TaskResumeError(TaskStateError):
     """Fixed error code and number of confirmed cancellations only."""
     def __init__(self, cancelled_count):
@@ -229,6 +237,33 @@ class TaskManager:
                                 and self._confidential_ok(task, ctx)
                                 and task.decision == "allow" and ctx.decision == "allow")
             return False
+
+    def admit_external_dispatch(self, event: threading.Event) -> ExternalDispatchTicket:
+        """Internal persistent adapter only: exact live event/owner/consent.
+
+        No token allocation, trust callback, I/O or consent mutation here.
+        A returned snapshot alone cannot authorize a later business call.
+        """
+        with self._cond:
+            if self._stopped or self._sessions is None or event.is_set():
+                raise TaskStateError('External dispatch unavailable.')
+            for task_id, ctx in self._ctx.items():
+                if ctx.cancel_event is not event:
+                    continue
+                task = self._store.get(task_id)
+                if (not ctx.external or ctx.session_independent or task is None
+                        or task.kind != EXTERNAL_KIND or task.status != TaskStatus.RUNNING
+                        or not self._confidential_ok(task, ctx)):
+                    raise TaskStateError('External executor is not current.')
+                if task.decision == 'allow' and ctx.decision == 'allow':
+                    consent = 'approved'
+                elif ctx.authorized and not task.decision and not ctx.decision:
+                    consent = 'authorized'
+                else:
+                    raise TaskStateError('External consent is not current.')
+                owner = self._sessions.admit_dispatch(task_id)
+                return ExternalDispatchTicket(task_id, owner, consent)
+            raise TaskStateError('External executor is not current.')
 
     def get_approval_preview(self, task_id: int) -> Optional[Dict[str, Any]]:
         """Authenticated PANEL ONLY: detached RAM preview for pending external task.

@@ -209,6 +209,31 @@ class SessionController:
                 raise SessionBlocked('Task session association is not current.')
             return self.begin_action()
 
+    def admit_dispatch(self, task_id):
+        """Internal business dispatch check; never allocates an action token.
+
+        Caller holds the manager condition first. This check is not a durable
+        capability: the final dispatch marker must share this controller lock.
+        No manager callback or business I/O may run under the controller lock.
+        """
+        with self._lock:
+            if self._selected is None or self._blocked or self._stopping:
+                raise SessionBlocked('Session execution is blocked.')
+            try:
+                item = self._store.get(self._selected)
+                link = self._store.get_task_link(task_id)
+            except Exception:
+                self._blocked = True
+                raise SessionBlocked('Session state is unavailable.') from None
+            if (item is not None and item.state == SessionState.ACTIVE and link is not None
+                    and link.session_id == self._selected and link.session_revision < item.revision):
+                raise StaleSessionTask('Task belongs to an old session generation.')
+            if (item is None or item.lifecycle != 'open' or item.state != SessionState.ACTIVE
+                    or link is None or link.session_id != self._selected
+                    or link.session_revision != item.revision):
+                raise SessionBlocked('Task session association is not current.')
+            return link.session_id
+
     def stop_admissions(self):
         """Irreversible process shutdown latch; started actions may still finish."""
         with self._lock:

@@ -85,6 +85,23 @@ def decide(env, task_id, decision="allow", wait=5):
     return env.manager.wait(task_id, wait)
 
 
+def test_multiple_matches_hint_advises_narrowing(tmp_path):
+    """Hint przy count > 1 zawiera instrukcję zawężenia, nie pokazuje treści pliku."""
+    from server.file_changes import _replace, ChangeError
+
+    text = "foo\nfoo\nbar\n"
+    try:
+        _replace(text, "foo", "baz", ("dup.txt",), 1)
+    except ChangeError as exc:
+        msg = str(exc)
+        assert "2 dopasowań" in msg
+        assert "unikalny kontekst" in msg
+        # Nie pokazujemy fragmentu pliku przy wielu dopasowaniach
+        assert "od linii" not in msg
+    else:
+        pytest.fail("oczekiwano ChangeError")
+
+
 class StubTx:
     """Atrapa transakcji: test adaptera wyniku bez dotykania plików."""
 
