@@ -1,7 +1,7 @@
-"""Persistent runtime supervisor, P3b-S1; NOT wired into the server.
+"""Persistent runtime supervisor; manual M1 composition lives in the server.
 
-Transport/session factories are required deliberately: the existing one-shot
-stdio cleanup has not been accepted as a shared-deadline persistent adapter.
+Transport/session factories are required deliberately; production stdio/SDK
+composition is in server.external_mcp_runtime, separate from one-shot calls.
 This module alone cannot enable persistent profiles or authorize WorkSessions.
 The caller must supply current per-operation authority/dispatch guards; P3c is
 responsible for the synchronized manager/controller/store admission boundary.
@@ -16,6 +16,7 @@ import concurrent.futures
 import threading
 import time
 from dataclasses import dataclass, field
+from contextlib import nullcontext
 from uuid import uuid4
 
 import anyio
@@ -66,6 +67,7 @@ class _Request:
     arguments: dict = None
     schema_digest: str = None
     before_start: object = None
+    discovery_admission: object = None
     before_dispatch: object = None
     dispatch_admission: object = None
     dispatched: bool = False
@@ -78,6 +80,8 @@ class _Runtime:
     digest: str
     state: str = 'starting'
     generation: str = None
+    # Allocated before start, published as generation only after initialize.
+    incarnation: str = field(default_factory=lambda: str(uuid4()))
     reason: str = ''
     blocked: bool = False
     reserved: bool = True
@@ -157,6 +161,7 @@ class PersistentSupervisor:
         self._stop = None
         self._boot = threading.Event()
         self._boot_failed = False
+        self._shutdown_future = None
 
     def _key(self, owner, profile_id):
         if not isinstance(owner, str) or not owner or len(owner) > 256:
@@ -225,13 +230,19 @@ class PersistentSupervisor:
         return row
 
     def fetch_catalog(self, profile, *, owner, timeout=60, cancel_event=None,
-                      before_start=None):
+                      before_start=None, discovery_admission=None):
         row = self._checked(profile)
         self._key(owner, row['id'])
         if before_start is not None and not callable(before_start):
             raise ExternalError('dispatch_guard')
+        if discovery_admission is not None:
+            from external_mcp.persistent_discovery import DiscoveryAdmission
+            if before_start is not None or not isinstance(discovery_admission, DiscoveryAdmission):
+                raise ExternalError('dispatch_guard')
+            discovery_admission.check_binding(owner, cancel_event)
         request = _Request('discovery', row, self._clock.monotonic() + timeout_seconds(timeout),
-                           cancel_event, before_start=before_start)
+                           cancel_event, before_start=before_start,
+                           discovery_admission=discovery_admission)
         return self._submit(owner, request, timeout_seconds(timeout))
 
     def call_tool(self, profile, tool_name, arguments, *, owner,
@@ -366,6 +377,17 @@ class PersistentSupervisor:
                 if self._clock.monotonic() >= deadline:
                     raise ExternalError('timeout')
                 value = await operation()
+            except Exception as exc:
+                # SDK request timers can raise before our watchdog's next poll.
+                # Use only current local control state, never exception text
+                # or arbitrary upstream attributes. Preserve explicit safe
+                # refusals (schema/profile/admission) and successful replies.
+                if not isinstance(exc, ExternalError):
+                    if cancel is not None and cancel.is_set():
+                        raise ExternalError('cancelled') from None
+                    if self._clock.monotonic() >= deadline:
+                        raise ExternalError('timeout') from None
+                raise
             finally:
                 watcher.cancel()
                 try:
@@ -376,15 +398,30 @@ class PersistentSupervisor:
             raise ExternalError(outcome)
         return value
 
+    def _admit_discovery(self, runtime, request, *, starting=False):
+        boundary = (request.discovery_admission.boundary()
+            if request.discovery_admission is not None else nullcontext(lambda generation: None))
+        # Enter control/store admission before the supervisor lock, never from
+        # a legacy before_start callback. There is no await/I/O in this scope.
+        with boundary as track:
+            with self._lock:
+                self._check_runtime(runtime, request)
+                self._check_request(request)
+                if not starting:
+                    if request.before_start is not None and request.before_start() is not None:
+                        raise ExternalError('dispatch_guard')
+                    request.generation = runtime.generation
+                    runtime.state = 'busy'
+                track(runtime.incarnation if starting else runtime.generation)
+
     async def _perform(self, runtime, session, request):
-        with self._lock:
-            self._check_runtime(runtime, request)
-            self._check_request(request)
-            runtime.state = 'busy'
-            if request.kind == 'discovery':
-                if request.before_start is not None and request.before_start() is not None:
-                    raise ExternalError('dispatch_guard')
-                request.generation = runtime.generation
+        if request.kind == 'discovery':
+            self._admit_discovery(runtime, request)
+        else:
+            with self._lock:
+                self._check_runtime(runtime, request)
+                self._check_request(request)
+                runtime.state = 'busy'
         catalog = await _catalog(session)
         if request.kind == 'discovery':
             return {'tools': catalog, 'runtime_generation': request.generation}
@@ -448,6 +485,7 @@ class PersistentSupervisor:
 
                 async def start():
                     nonlocal transport_entered, session_cm, session, session_entered
+                    self._admit_discovery(runtime, request, starting=True)
                     streams = await transport_cm.__aenter__()
                     transport_entered = True
                     if callable(getattr(streams[0], 'receive', None)):
@@ -494,7 +532,7 @@ class PersistentSupervisor:
                 with self._lock:
                     if runtime.blocked or self._closed:
                         raise ExternalError('runtime_generation')
-                    runtime.generation = str(uuid4())
+                    runtime.generation = runtime.incarnation
                     runtime.state = 'ready'
                 while True:
                     with self._lock:
@@ -617,7 +655,9 @@ class PersistentSupervisor:
         """Leaf lifecycle operation: compare and close under the same lock.
 
         A delayed event cannot invalidate a replacement process. Never accepts
-        a missing generation as a wildcard. Cleanup remains owner-task work.
+        a missing generation as a wildcard. Admission can pin the unpublished
+        incarnation during start; snapshot still exposes no ready generation.
+        Cleanup remains owner-task work.
         """
         if not isinstance(expected_runtime_generation, str) or not expected_runtime_generation:
             raise ExternalError('runtime_generation')
@@ -626,7 +666,9 @@ class PersistentSupervisor:
         with self._lock:
             runtime = self._runtimes.get(self._key(owner, profile_id))
             if (runtime is None or runtime.blocked
-                    or runtime.generation != expected_runtime_generation):
+                    or (runtime.generation != expected_runtime_generation
+                        and not (runtime.state == 'starting'
+                                 and runtime.incarnation == expected_runtime_generation))):
                 return False
             self._mark_closing(runtime, safe_reason)
             if self._loop is not None and not self._loop.is_closed():
@@ -668,20 +710,38 @@ class PersistentSupervisor:
             await asyncio.gather(*(runtime.task for runtime in runtimes))
         self._stop.set()
 
-    def shutdown(self):
+    def shutdown(self, timeout=315):
+        """Drain/cleanup once within the caller's remaining real-time budget.
+
+        A timed-out wait leaves the same shutdown running, never cancels or
+        resubmits it. False means cleanup remains unconfirmed (e.g. broken).
+        """
+        deadline = time.monotonic() + max(0, timeout)
         with self._lock:
             self._closed = True
-            thread, loop = self.thread, self._loop
+            thread = self.thread
             if thread is None:
-                return
+                return not self._runtimes and not self._boot_failed
         if thread is threading.current_thread():
             raise ExternalError('persistent_supervisor_thread')
         if not thread.is_alive():
-            return
+            with self._lock:
+                return not self._runtimes and not self._boot_failed
         try:
-            asyncio.run_coroutine_threadsafe(self._shutdown(), loop).result(timeout=310)
-            thread.join(timeout=5)
+            if not self._boot.wait(timeout=max(0, deadline - time.monotonic())):
+                raise ExternalError('persistent_shutdown_failed')
+            with self._lock:
+                loop = self._loop
+                if self._boot_failed or loop is None or loop.is_closed():
+                    raise ExternalError('persistent_shutdown_failed')
+                if self._shutdown_future is None:
+                    self._shutdown_future = asyncio.run_coroutine_threadsafe(self._shutdown(), loop)
+                future = self._shutdown_future
+            future.result(timeout=max(0, deadline - time.monotonic()))
+            thread.join(timeout=max(0, deadline - time.monotonic()))
         except BaseException:
             raise ExternalError('persistent_shutdown_failed') from None
         if thread.is_alive():
             raise ExternalError('persistent_shutdown_failed')
+        with self._lock:
+            return not self._runtimes and not self._boot_failed

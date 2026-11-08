@@ -57,18 +57,18 @@ def verify_session_registration(runtime, names):
         verify_classification(names)
 
 
-def stop_work_session(manager, runtime, budget=5):
+def stop_work_session(manager, runtime, budget=5, *, external_mcp=None):
     """Stop submissions, wait boundedly, never close stores beneath execution.
 
     No cancellation/retry of remote operations. False means RAM/store closure
     was deliberately withheld because a worker/action still needs them.
     Application exit may interrupt the daemon workers as before.
     """
-    manager.shutdown()
-    if runtime is None:
-        return True
     deadline = time.monotonic() + budget
-    autopilot = getattr(runtime.controller, '_autopilot', None)
+    manager.shutdown()
+    if runtime is None and external_mcp is None:
+        return True
+    autopilot = getattr(runtime.controller, '_autopilot', None) if runtime is not None else None
     if autopilot is not None and not autopilot.stop_watchdog(timeout=max(0, deadline - time.monotonic())):
         return False
     for worker in manager._workers:
@@ -77,9 +77,23 @@ def stop_work_session(manager, runtime, budget=5):
         return False
     if autopilot is not None and not autopilot.close():
         return False
-    with runtime.controller._lock:
-        if runtime.controller._tokens:
+    if runtime is not None:
+        with runtime.controller._lock:
+            if runtime.controller._tokens:
+                return False
+            runtime.controller._blocked = True
+    # Never join lifecycle or supervisor under control/config locks. Failed
+    # cleanup must leave session stores available to outstanding execution.
+    if external_mcp is not None:
+        try:
+            confirmed = external_mcp.close_persistent(timeout=max(0, deadline - time.monotonic()))
+        except Exception:
+            confirmed = False
+        if confirmed is not True:
             return False
-        runtime.controller._blocked = True
-        runtime.close()
+    if runtime is not None:
+        with runtime.controller._lock:
+            if runtime.controller._tokens:
+                return False
+            runtime.close()
     return True

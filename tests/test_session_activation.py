@@ -195,5 +195,11 @@ def test_main_integration_ast_and_registration_order():
     assert 'work_sessions=WORK_SESSION.admin if WORK_SESSION is not None else None' in source
     assert source.index('= session_registrars(') < source.index('@register_tool')
     assert source.index('verify_session_registration(WORK_SESSION, SESSION_TOOL_NAMES)') > source.index('def knowledge_convert(')
-    assert source.count('stop_work_session(TASK_MANAGER, WORK_SESSION, budget=5)') == 3
+    stops = [node for node in ast.walk(ast.parse(source)) if isinstance(node, ast.Call)
+             and isinstance(node.func, ast.Name) and node.func.id == 'stop_work_session']
+    assert len(stops) == 3
+    for call in stops:
+        keywords = {kw.arg: ast.unparse(kw.value) for kw in call.keywords}
+        assert keywords['external_mcp'] == 'EXTERNAL_MCP_TOOLS'
+        assert keywords['budget'] == 'PERSISTENT_SHUTDOWN_BUDGET_S'
     assert 'work_sessions.db*' in MAIN.with_name('.gitignore').read_text(encoding='utf-8')

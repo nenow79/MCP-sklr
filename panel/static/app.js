@@ -1146,7 +1146,7 @@
     if (current && current.state === "pending") { return Promise.resolve(); }
     var body = {};
     if (profile.transport === "stdio") {
-      if (!window.confirm("Test uruchomi lokalny program: " + visibleText(externalTarget(profile)) +
+      if (!window.confirm("Test jednorazowy uruchomi osobny lokalny program: " + visibleText(externalTarget(profile)) +
           " Program działa z Twoimi uprawnieniami i może pobierać oraz wykonywać kod. Kontynuować?")) {
         return Promise.resolve();
       }
@@ -1170,7 +1170,9 @@
     var names = selectedExternalTools(rec);
     if (!names.length) { return Promise.resolve(false); }
     if (!window.confirm(visibleText("Zaufać profilowi " + profile.alias + "? Wywołania narzędzi: " +
-        names.join(", ") + " nie będą wymagały Twojej zgody (do 30 na minutę). Treść z zewnętrznych " +
+        names.join(", ") + (profile.stdio_mode === "persistent" ?
+          ". Każde wywołanie persistent wymaga osobnej zgody, także przy zaufaniu. " :
+          " nie będą wymagały Twojej zgody (do 30 na minutę). ") + "Treść z zewnętrznych " +
         "źródeł, np. stron internetowych, może próbować nakłonić model do kolejnych wywołań, także " +
         "zmieniających stan. Zaufanie dotyczy schematu narzędzia, nie jego działania, i znika po " +
         "zmianie ustawień połączenia. Kontynuować?"))) {
@@ -1297,6 +1299,7 @@
       profile.args = parseArgs();
       profile.cwd = optionalText("external-cwd");
       profile.env_refs = env;
+      profile.stdio_mode = $("external-stdio-mode").value;
     } else {
       var headers = parseRefs("external-headers");
       if (headers === null) { return refsError; }
@@ -1328,11 +1331,15 @@
 
   function externalCard(profile) {
     var card = el("article", {className: "task-card"});
+    var persistent = profile.transport === "stdio" && profile.stdio_mode === "persistent";
     var badges = [
       el("span", {className: "badge badge-kind", text: profile.transport}),
       el("span", {className: "badge " + (profile.enabled ? "badge-external-on" : "badge-external-off"),
         text: profile.enabled ? "włączony" : "wyłączony"})
     ];
+    if (profile.transport === "stdio") {
+      badges.push(el("span", {className: "badge", text: persistent ? "persistent" : "jednorazowy"}));
+    }
     if (profile.trusted) { badges.push(el("span", {className: "badge badge-trusted", text: "zaufany"})); }
     card.appendChild(el("h3", {}, badges.concat([document.createTextNode(visibleText(profile.alias))])));
     if (profile.description) { card.appendChild(el("p", {text: visibleText(profile.description)})); }
@@ -1349,13 +1356,23 @@
     if (profile.trusted && profile.trust) {
       var names = Object.keys(profile.trust.tools || {}).sort();
       card.appendChild(el("p", {text: "Zaufanie (od " + fmtTime(profile.trust.granted_at) +
-        ") obejmuje narzędzia: " + visibleText(names.join(", ")) + ". Ich wywołania nie wymagają zgody; " +
+        ") obejmuje narzędzia: " + visibleText(names.join(", ")) + (persistent ?
+          ". Każde wywołanie persistent wymaga osobnej zgody, także przy zaufaniu; " :
+          ". Ich wywołania nie wymagają zgody; ") +
         "zmiana ustawień połączenia zeruje zaufanie."}));
     }
+    if (persistent) {
+      var runtime = profile.runtime;
+      card.appendChild(el("p", {text: !runtime ? "Runtime sesji pracy: niedostępny." :
+        "Runtime sesji pracy: " + visibleText(runtime.state) +
+        (runtime.runtime_generation ? " · generacja: " + visibleText(runtime.runtime_generation) : " · brak generacji") +
+        (runtime.reason ? " · powód: " + visibleText(runtime.reason) : "")}));
+    }
     var last = profile.last_test;
-    card.appendChild(el("p", {className: "muted", text: !last ? "Brak testu połączenia w tej sesji serwera." :
-      (last.state === "ok" ? "Ostatni test (" + fmtTime(last.at) + "): połączono, narzędzi: " + last.tools :
-        "Ostatni test (" + fmtTime(last.at) + ") nieudany, kod: " + visibleText(last.code))}));
+    card.appendChild(el("p", {className: "muted", text: !last ? "Brak testu administracyjnego w tej sesji serwera." :
+      "Test administracyjny jednorazowy (" + fmtTime(last.at) + "): " +
+      (last.state === "ok" ? "połączono, narzędzi: " + last.tools :
+        "nieudany, kod: " + visibleText(last.code)) + ". Nie potwierdza połączenia roboczego."}));
     var inspection = externalInspect[profile.id];
     var testing = !!(inspection && inspection.state === "pending");
     var testButton = el("button", {type: "button", className: "btn",
@@ -1474,6 +1491,7 @@
     externalEditing = null;
     EXTERNAL_TEXT_FIELDS.forEach(function (id) { $(id).value = ""; });
     $("external-transport").value = "http";
+    $("external-stdio-mode").value = "one_shot";
     $("external-enabled").checked = false;
     $("external-form-title").textContent = "Dodaj profil";
     $("external-save").textContent = "Zapisz profil";
@@ -1487,6 +1505,7 @@
     $("external-alias").value = profile.alias;
     $("external-description").value = profile.description || "";
     $("external-transport").value = profile.transport;
+    $("external-stdio-mode").value = profile.stdio_mode || "one_shot";
     $("external-url").value = profile.url || "";
     $("external-bearer").value = profile.bearer_env || "";
     $("external-ca").value = profile.ca_file || "";
@@ -1516,7 +1535,7 @@
       return;
     }
     if (current && current.trusted && !window.confirm("Ten profil jest zaufany. Zmiana ustawień połączenia " +
-        "(adres, polecenie, argumenty, katalog, zmienne, nagłówki, CA, transport) zeruje zaufanie i trzeba je " +
+        "(adres, polecenie, argumenty, katalog, zmienne, nagłówki, CA, transport, tryb stdio) zeruje zaufanie i trzeba je " +
         "nadać od nowa. Zmiana samej nazwy, opisu lub włączenia go nie zeruje. Zapisać?")) {
       return;
     }

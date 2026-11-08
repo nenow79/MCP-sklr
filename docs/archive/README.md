@@ -8,6 +8,10 @@ tags: [sklr, documentation, archive]
 
 Historia nie jest instrukcją bieżącej pracy ani aktywnym backlogiem. Aktualny stan: [CURRENT](../plan/CURRENT.md); zadania: [backlog](../plan/backlog.md); indeks: [docs](../index.md).
 
+## Przekazanie Windows sprzed Linux M1
+
+[Poprzednia procedura Windows](windows-handoff-before-m1-2026-11-08.md) zachowuje dawne instrukcje autonomii, migracji OKF i diagnostyki. Nie jest bieżącą listą prac. Aktualna [procedura Windows](../windows-okf.md) i [prompt](../continue-work.md) prowadzą do odbioru persistent M1 po Linux L1–L4.
+
 ## Przegląd stanu 2026-10-21
 
 [Poprzedni CURRENT z wynikami paczek](state-review-2026-10-21/CURRENT.md) i [poprzedni backlog](state-review-2026-10-21/backlog.md) zachowują historię etapów sesji, zewnętrznych MCP i OKF. Opisy odłączonej integracji, dawne priorytety i checkboxy nie wyznaczają bieżącej pracy.

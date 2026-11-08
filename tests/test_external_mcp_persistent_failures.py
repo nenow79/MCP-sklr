@@ -14,6 +14,7 @@ import pytest
 
 from external_mcp.limits import ExternalError
 from external_mcp_persistent_fakes import Gate, rig, wait
+from external_mcp_persistent_fakes import Session
 
 
 @contextmanager
@@ -33,6 +34,26 @@ def safe_refusal(task, *, uncertain=False):
     assert ('uncertain' in raised.value.code) is uncertain
     assert 'PRIVATE' not in str(raised.value)
     return raised.value.code
+
+
+@pytest.mark.parametrize('cause', ['timeout', 'cancel'])
+def test_sdk_error_before_watchdog_poll_uses_current_local_deadline_or_cancel(rig, monkeypatch, cause):
+    generation = rig.discover()['runtime_generation']
+    cancel = threading.Event()
+    original = Session.call_tool
+    async def call(session, *args, **kwargs):
+        await original(session, *args, **kwargs)
+        # SDK can raise before our polling watchdog gets its next checkpoint.
+        if cause == 'timeout':
+            rig.clock.advance(2.1)
+        else:
+            cancel.set()
+        raise RuntimeError('PRIVATE_SDK_ERROR')
+    monkeypatch.setattr(Session, 'call_tool', call)
+    task = rig.launch(lambda: rig.call(generation, timeout=2, cancel_event=cancel))
+    assert safe_refusal(task, uncertain=True) == (
+        'call_timeout_uncertain' if cause == 'timeout' else 'call_cancelled_uncertain')
+    assert len(rig.hub.backends[0].calls) == 1
 
 
 @pytest.mark.parametrize('phase', ['call', 'catalog', 'validation'])

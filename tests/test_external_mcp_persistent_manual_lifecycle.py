@@ -9,7 +9,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from external_mcp_persistent_admission_helpers import wait
+from external_mcp_persistent_admission_helpers import until, wait
+from tasks.models import TaskStatus
 
 from external_mcp_persistent_manual_lifecycle_helpers import LifecycleRig
 
@@ -89,3 +90,87 @@ def test_profile_change_automatically_closes_idle_runtime(rig, change):
     assert response['success'] is False, response
     assert len(rig.hub.backends) == 1
     assert rig.legacy.calls == []
+
+
+@pytest.mark.parametrize('change', ['pause', 'disable'])
+def test_event_before_generation_tracking_still_cleans_runtime(rig, change):
+    original = rig.supervisor.fetch_catalog
+    def fetch(*args, **kwargs):
+        response = original(*args, **kwargs)
+        if change == 'pause':
+            rig.controller.request_pause(rig.controller.snapshot()['revision'])
+        else:
+            rig.registry.set_enabled(rig.profile['id'], False,
+                                     rig.registry.list()['revision'])
+        return response
+    rig.supervisor.fetch_catalog = fetch
+    task = rig.settle(rig.tools.list_tools('fake'))
+    assert task.status != TaskStatus.DONE
+    rig.assert_closed()
+    assert rig.tools.catalogs == {}
+
+
+def test_closed_lifecycle_blocks_discovery_and_call_without_new_task(rig):
+    rig.discover()
+    assert rig.tools.close_lifecycle()
+    rig.assert_closed()
+    assert rig.tools.list_tools('fake')['success'] is False
+    assert rig.call()['success'] is False
+    assert len(rig.hub.backends) == 1
+
+
+def test_supervisor_cannot_change_after_first_discovery(rig):
+    rig.discover()
+    with pytest.raises(RuntimeError):
+        rig.tools.persistent_supervisor = object()
+
+
+def test_supervisor_cannot_change_during_first_discovery(rig):
+    original = rig.supervisor.fetch_catalog
+    entered, release = threading.Event(), threading.Event()
+    def fetch(*args, **kwargs):
+        entered.set()
+        wait(release, 'first discovery release')
+        return original(*args, **kwargs)
+    rig.supervisor.fetch_catalog = fetch
+    response = rig.tools.list_tools('fake')
+    try:
+        wait(entered, 'first discovery entry')
+        with pytest.raises(RuntimeError):
+            rig.tools.persistent_supervisor = object()
+    finally:
+        if rig.tools.persistent_supervisor is not rig.supervisor:
+            rig.tools.persistent_supervisor = rig.supervisor
+        release.set()
+        assert rig.settle(response).status == TaskStatus.DONE
+
+
+def test_worker_failure_after_validation_started_refuses_dispatch(rig):
+    rig.discover()
+    backend = rig.hub.backends[0]
+    backend.validation.release.clear()
+    original = rig.supervisor.invalidate_generation
+    def fail(**kwargs):
+        raise RuntimeError('injected lifecycle failure')
+    try:
+        response = rig.call()
+        tid = response['data']['task_id']
+        rig.manager.resolve_approval(tid, 'allow')
+        wait(backend.validation.entered, 'call validation')
+        rig.supervisor.invalidate_generation = fail
+        rig.tools._lifecycle.session_changed(rig.session.id, 'pause')
+        until(lambda: rig.tools._lifecycle.blocked, 'worker failure latch')
+        # Failed callback did not touch supervisor state. The independent
+        # admission gate must refuse even with a still-ready generation.
+        state = rig.supervisor.snapshot(owner=rig.session.id, profile_id=rig.profile['id'])
+        assert state['runtime_generation'] == rig.generation
+        backend.validation.release.set()
+        done = rig.manager.wait(tid, 5)
+        assert done.status == TaskStatus.FAILED, done.error
+        assert 'uncertain' not in (done.error or '')
+        assert backend.calls == []
+        assert rig.call()['success'] is False
+        assert rig.tools.list_tools('fake')['success'] is False
+    finally:
+        backend.validation.release.set()
+        rig.supervisor.invalidate_generation = original

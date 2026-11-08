@@ -140,6 +140,9 @@ docs/archives/</textarea></label>
         <label>Plik CA (opcjonalnie, ścieżka bezwzględna) <input id="external-ca" type="text" maxlength="4096"></label>
       </div>
       <div id="external-stdio-fields" hidden>
+        <label>Tryb stdio <select id="external-stdio-mode"><option value="one_shot">Jednorazowy (domyślny)</option><option value="persistent">Persistent (sesja robocza)</option></select></label>
+        <p class="muted">Persistent wymaga aktywnej sesji pracy i osobnej zgody na każde wywołanie, także przy zaufaniu.
+          Zapis ani włączenie profilu nie uruchamiają programu. Test połączenia jest osobnym uruchomieniem jednorazowym.</p>
         <p class="muted">Uruchomienie programu: serwer stdio to lokalny program uruchamiany z Twoimi uprawnieniami.
           Może pobierać i wykonywać kod (np. przez npx). Na Windows podaj plik wykonywalny, nie .cmd ani .bat.</p>
         <label>Program (pełna ścieżka lub nazwa) <input id="external-command" type="text" maxlength="4096"></label>

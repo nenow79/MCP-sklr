@@ -65,6 +65,20 @@ class ExternalApprovalRequired(Exception):
     """
 
 
+class PersistentCallUncertain(Exception):
+    """Internal adapter proof of uncertainty after persistent call admission.
+
+    Exact type only; never infer this from raw upstream exception attributes.
+    Does not change finalization of legacy one-shot/HTTP/SSE operations.
+    """
+    def __init__(self, code):
+        if code not in {'call_failed_uncertain', 'call_timeout_uncertain',
+                        'call_cancelled_uncertain'}:
+            code = 'call_failed_uncertain'
+        self.safe_error = 'Zewnętrzne MCP: ' + code
+        super().__init__(code)
+
+
 class TaskNotFoundError(KeyError):
     pass
 
@@ -80,6 +94,7 @@ class _Ctx:
     external: bool = False
     authorized: bool = False  # zewnętrzne MCP bez okna zgody (profil zaufany); weryfikuje verify()
     safe_error: Optional[str] = None
+    persistent_uncertain: bool = False
     allow_external_reapproval: bool = False
     reapproval_used: bool = False
     approval_preview: Optional[Dict[str, Any]] = None
@@ -721,6 +736,7 @@ class TaskManager:
             if ctx.external:
                 # Tylko jawny atrybut safe_error adaptera; treść wyjątku nigdy nie trafia do zadania.
                 ctx.safe_error = getattr(exc, "safe_error", None)
+                ctx.persistent_uncertain = type(exc) is PersistentCallUncertain
             if ctx.confidential:
                 self._finish_secret(task_id, ctx, None, started)
             else:
@@ -831,9 +847,12 @@ class TaskManager:
                                   stdout_truncated=False, stderr_truncated=False,
                                   duration_s=round(time.monotonic() - started, 3))
                     if ctx.cancel_event.is_set():
-                        status, error = TaskStatus.CANCELLED, "Anulowano."
+                        status = TaskStatus.CANCELLED
+                        error = ctx.safe_error if ctx.persistent_uncertain else "Anulowano."
                     elif self._stopped:
-                        status, error = TaskStatus.FAILED, "Serwer zatrzymany; wynik ujawnienia odrzucono."
+                        status = TaskStatus.FAILED
+                        error = (ctx.safe_error if ctx.persistent_uncertain else
+                                 "Serwer zatrzymany; wynik ujawnienia odrzucono.")
                     elif not self._confidential_ok(task, ctx) or result is None:
                         status, error = TaskStatus.FAILED, self._confidential_error(ctx)
                     else:

@@ -10,7 +10,7 @@ Nie trzeba czytać całego docs/ ani archiwum. Wybierz jeden temat poniżej.
 # Uruchomienie i przekazanie pracy
 
 * [Windows OKF](windows-okf.md) - aktualizacja i odbiór na Windows
-* [Prompt startowy i punkt przekazania](continue-work.md) - kontynuacja na innym komputerze
+* [Prompt przekazania na Windows](continue-work.md) - odbiór persistent M1 po Linux L1–L4
 * [Migracja projektu legacy do OKF](migracja-projektu-legacy-do-okf.md) - przejście ze starych plików .vibecoder do docs/ i OKF
 
 # Kontrakty i specyfikacje

@@ -213,7 +213,8 @@ def test_inspection_runs_as_task_without_approval_and_even_when_disabled(env):
     assert task.status == TaskStatus.DONE and task.kind == 'external_mcp' and task.decision == ''
     assert env.fake.calls[0]['blocked_ports'] == (8101, 8102) and env.fake.calls[0]['timeout'] == 60
     assert env.listing()['profiles'][0]['last_test'] == {
-        'state': 'ok', 'code': '', 'at': env.listing()['profiles'][0]['last_test']['at'], 'tools': 2}
+        'state': 'ok', 'code': '', 'at': env.listing()['profiles'][0]['last_test']['at'],
+        'tools': 2, 'execution_mode': 'one_shot'}
 
 
 def test_task_record_and_result_channel_hold_only_a_summary(env):

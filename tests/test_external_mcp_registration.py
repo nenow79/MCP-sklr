@@ -3,7 +3,7 @@ import ast
 import queue
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 
 MAIN = Path(__file__).resolve().parents[1] / 'main.py'
@@ -16,29 +16,34 @@ def test_three_confidential_wrappers_forward_to_shared_adapter():
     assert len(functions) == 3
     calls = []
     def record(name):
-        def impl(*args):
-            calls.append((name, args))
+        def impl(*args, **kwargs):
+            calls.append((name, args, kwargs))
             return {'success': True}
         return impl
     adapter = SimpleNamespace(list_profiles=record('profiles'), list_tools=record('tools'),
                               call_tool=record('call'))
     for function in functions:
         assert [ast.unparse(item) for item in function.decorator_list] == ['register_confidential_tool']
-    namespace = {'Any': Any, 'Dict': Dict, 'EXTERNAL_MCP_TOOLS': adapter,
+    namespace = {'Any': Any, 'Dict': Dict, 'Optional': Optional, 'EXTERNAL_MCP_TOOLS': adapter,
                  'register_confidential_tool': lambda function: function}
     exec(compile(ast.Module(body=functions, type_ignores=[]), str(MAIN), 'exec'), namespace)
     namespace['list_external_mcp']()
     namespace['list_external_mcp_tools']('browser')
     namespace['call_external_mcp_tool']('browser', 'list_open_tabs', {})
-    assert calls == [('profiles', ()), ('tools', ('browser', 60)),
-                     ('call', ('browser', 'list_open_tabs', {}, 60))]
+    namespace['call_external_mcp_tool']('browser', 'list_open_tabs', {},
+                                      expected_runtime_generation='pinned-generation')
+    assert calls == [('profiles', (), {}), ('tools', ('browser', 60), {}),
+                     ('call', ('browser', 'list_open_tabs', {}, 60),
+                      {'expected_runtime_generation': None}),
+                     ('call', ('browser', 'list_open_tabs', {}, 60),
+                      {'expected_runtime_generation': 'pinned-generation'})]
     assert 'get_task' in ast.get_docstring(next(item for item in functions if item.name == 'call_external_mcp_tool'))
 
 
 def test_panel_and_model_share_registry_and_manager():
     tree = ast.parse(MAIN.read_text(encoding='utf-8-sig'))
     adapters = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Name) and node.func.id == 'ExternalMCPTools']
+                and isinstance(node.func, ast.Name) and node.func.id == 'create_external_mcp_tools']
     admins = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
               and isinstance(node.func, ast.Name) and node.func.id == 'ExternalMCPAdmin']
     assert len(adapters) == len(admins) == 1

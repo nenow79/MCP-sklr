@@ -22,7 +22,7 @@ from panel.directory_picker import DIRECTORY_PICKER, DirectoryPickerBusy, Direct
 from server.panel_timing import measure, timing_header
 from roots import RootConflict, RootError, RootNotFound
 from server.skills_admin import SkillConflict, SkillNotFound
-from external_mcp.profiles import ProfileConflict, ProfileError, ProfileNotFound
+from external_mcp.profiles import ProfileConflict as ExternalProfileConflict, ProfileError, ProfileNotFound
 from server.knowledge_admin import KnowledgeConflict
 from tasks.approval import ApprovalService
 from tasks.manager import TaskManager, TaskNotFoundError, TaskStateError
@@ -488,7 +488,7 @@ def create_panel_app(manager: TaskManager, approval: ApprovalService, auth: Pane
 
     def _external_error(exc: Exception) -> JSONResponse:
         # ProfileError messages hold a machine code only, never a submitted value.
-        if isinstance(exc, ProfileConflict):
+        if isinstance(exc, ExternalProfileConflict):
             return _err(str(exc), 409)
         if isinstance(exc, ProfileNotFound):
             return _err(str(exc), 404)

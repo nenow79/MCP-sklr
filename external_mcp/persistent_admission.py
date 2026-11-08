@@ -1,4 +1,4 @@
-"""Internal P3c-A dispatch boundary; not wired to the production MCP route.
+"""Internal dispatch boundary; manual-first routing supplies resource admission.
 
 Profile/schema/generation/limiter and supervisor lifecycle are separate checks.
 A ticket is an authority snapshot, never a durable grant or retry capability.

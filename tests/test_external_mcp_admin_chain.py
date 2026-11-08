@@ -103,3 +103,18 @@ def test_inspection_goes_through_the_real_client_and_pins_real_digests(env):
     assert registry.trust_decision('browser', 'read_page', digests['read_page'])['trusted'] is True
     changed = schema_digest({'type': 'object', 'properties': {'extra': {'type': 'string'}}})
     assert registry.trust_decision('browser', 'read_page', changed)['reason'] == 'schema_changed'
+
+
+def test_persistent_admin_inspection_is_detached_one_shot_and_trust_pins_original(env):
+    registry, manager, admin = env
+    registry.add({'alias': 'fake', 'transport': 'stdio', 'command': 'never-executed',
+                  'stdio_mode': 'persistent'}, registry.list()['revision'])
+    profile = admin.list()['profiles'][0]
+    started = admin.start_inspection(profile['id'], acknowledge_launch=True)
+    result = settle(admin, started['token'])
+    assert result['state'] == 'ready', result
+    granted = admin.grant_trust(profile['id'], started['token'], None,
+                                registry.list()['revision'])
+    assert granted['profiles'][0]['stdio_mode'] == 'persistent'
+    assert granted['profiles'][0]['trust']['tools']
+    assert granted['profiles'][0]['last_test']['execution_mode'] == 'one_shot'

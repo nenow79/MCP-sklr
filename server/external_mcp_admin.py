@@ -39,7 +39,8 @@ def _now():
 
 
 class ExternalMCPAdmin:
-    def __init__(self, registry, manager, *, client=None, environ=None, clock=time.monotonic):
+    def __init__(self, registry, manager, *, client=None, environ=None, clock=time.monotonic,
+                 runtime=None):
         self.registry, self.manager = registry, manager
         self._client_module = client
         self._environ = environ  # None = os.environ at call time (never copied)
@@ -47,6 +48,7 @@ class ExternalMCPAdmin:
         self._lock = threading.RLock()
         self._tests = {}
         self._inspections = {}
+        self._runtime = runtime
 
     # --- helpers ---
 
@@ -110,6 +112,9 @@ class ExternalMCPAdmin:
                 view['env_missing'] = self._missing_env(row)
                 view['trusted'] = bool(row.get('trust'))
                 views.append(view)
+        # No admin/config lock while reading WorkSession -> supervisor RAM.
+        for view in views:
+            view['runtime'] = self._runtime.runtime_view(view) if self._runtime else None
         return {**listing, 'profiles': views}
 
     def add(self, proposal, expected_revision):
@@ -187,8 +192,11 @@ class ExternalMCPAdmin:
                 current = self._find(profile_id)
                 if connection_digest(current) != digest:
                     raise ExternalError('profile_changed')
+                execution = copy.deepcopy(current)
+                if execution['transport'] == 'stdio':
+                    execution['stdio_mode'] = 'one_shot'
                 result = self._client().fetch_catalog(
-                    current, timeout=INSPECT_TIMEOUT_S, cancel_event=cancel_event,
+                    execution, timeout=INSPECT_TIMEOUT_S, cancel_event=cancel_event,
                     environ=self._environ, blocked_ports=self._ports())
                 tools = result['tools']
             except ProfileError as exc:  # includes ExternalError; code only, never a value
@@ -212,6 +220,7 @@ class ExternalMCPAdmin:
             else:
                 self._tests[profile_id] = {'state': 'ok', 'code': '', 'at': at,
                                            'tools': len(tools), 'digest': digest}
+            self._tests[profile_id]['execution_mode'] = 'one_shot'
             record = self._inspections.get(token)
             if record is None:
                 return

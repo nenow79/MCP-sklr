@@ -114,5 +114,8 @@ class ManualRig:
 
     def close(self):
         self.manager.shutdown()
+        close_worker = getattr(self.tools, 'close_lifecycle', None)
+        if close_worker is not None:
+            assert close_worker()
         self.store.close()
         self.sessions.close()

@@ -9,12 +9,15 @@ import json
 import re
 import threading
 import time
+from contextlib import contextmanager
 
 from external_mcp.client import schema_digest
 from external_mcp.limits import ExternalError, arguments_view, catalog_view, result_view, timeout_seconds
 from external_mcp.profiles import ProfileError, connection_digest
+from external_mcp.persistent_lifecycle import PersistentLifecycle
 from external_mcp.trust import TrustRateLimiter, trusted_decision
-from tasks.manager import EXTERNAL_KIND, ExternalApprovalRequired, QueueFullError, TaskStateError
+from tasks.manager import (EXTERNAL_KIND, ExternalApprovalRequired, PersistentCallUncertain,
+                           QueueFullError, TaskStateError)
 from tasks.volatile_results import MAX_CONTENT_CHARS, VolatileResult
 from server.task_tools import MANUAL_APPROVAL_HINT
 
@@ -95,12 +98,71 @@ class ExternalMCPTools:
                  persistent_supervisor=None):
         self.registry, self.manager = registry, manager
         self.client = client
-        # Injection only: production routing/lifecycle is not enabled here.
-        self.persistent_supervisor = persistent_supervisor
+        # Composition supplies the supervisor; construction starts no transport.
+        self._lifecycle = PersistentLifecycle(persistent_supervisor,
+            name='external-mcp-lifecycle-' + str(id(self)))
         self.limiter = limiter if limiter is not None else TrustRateLimiter()
         self.panel_available, self.clock = panel_available, clock
         self.lock = threading.RLock()
         self.catalogs = {}
+        if manager._sessions is not None:
+            manager._sessions.add_lifecycle_listener(self._lifecycle.session_changed)
+        registry.store.add_change_listener(self._persistent_config_changed)
+
+    @property
+    def persistent_supervisor(self):
+        return self._lifecycle.supervisor
+
+    @persistent_supervisor.setter
+    def persistent_supervisor(self, supervisor):
+        self._lifecycle.set_supervisor(supervisor)
+
+    def _persistent_config_changed(self):
+        # Called under ConfigStore: RAM fingerprints only, no registry/control
+        # reads, supervisor calls, I/O or worker joins.
+        try:
+            profiles = self.registry.store.data.get('external_mcp', {}).get('profiles', [])
+            fingerprints = {p['id']: connection_digest(p) for p in profiles
+                if p.get('enabled') is True and self._persistent(p)}
+        except Exception:
+            fingerprints = {}
+        self._lifecycle.config_changed(fingerprints)
+
+    def close_lifecycle(self, timeout=5):
+        return self._lifecycle.close(timeout)
+
+    def close_persistent(self, timeout=5):
+        """Bounded shutdown acknowledgement; false never authorizes store close."""
+        deadline = time.monotonic() + max(0, timeout)
+        try:
+            if not self.close_lifecycle(timeout=max(0, deadline - time.monotonic())):
+                return False
+            supervisor = self.persistent_supervisor
+            if supervisor is None:
+                return True
+            return supervisor.shutdown(timeout=max(0, deadline - time.monotonic())) is True
+        except Exception:
+            return False
+
+    def _track_persistent(self, owner, alias, snapshot, generation):
+        profile = snapshot['profile']
+        try:
+            # Track and final recheck share control/config locks with events.
+            # An event just before track is caught by the independent recheck.
+            with self.manager._cond:
+                with self.manager._sessions._lock:
+                    with self.registry.store.lock:
+                        self._lifecycle.track(owner, profile, generation)
+                        self._manual_owner(owner)
+                        self._current(alias, snapshot)
+                        self._generation(owner, profile['id'], generation)
+        except Exception:
+            # Also handles a response arriving after close/failure: no control
+            # or store lock while retiring its exact generation. No replay.
+            self.persistent_supervisor.invalidate_generation(owner=owner,
+                profile_id=profile['id'], expected_runtime_generation=generation,
+                reason='profile_changed')
+            raise
 
     @staticmethod
     def _persistent(profile):
@@ -113,6 +175,8 @@ class ExternalMCPTools:
             if controller is None or self.persistent_supervisor is None:
                 raise ExternalError('persistent_runtime_required')
             with controller._lock:
+                if self._lifecycle.blocked:
+                    raise ExternalError('dispatch_guard')
                 state = controller.snapshot()
                 autopilot = controller._autopilot
                 if (state['execution_blocked'] or state['state'] != 'active'
@@ -121,12 +185,14 @@ class ExternalMCPTools:
                     raise ExternalError('dispatch_guard')
                 if expected is not None and state['session_id'] != expected:
                     raise ExternalError('dispatch_guard')
+                self._lifecycle.bind()
                 return state['session_id']
 
     def _generation(self, owner, profile_id, expected):
         if not isinstance(expected, str) or not expected:
             raise ExternalError('dispatch_guard')
-        runtime = self.persistent_supervisor.snapshot(owner=owner, profile_id=profile_id)
+        with self._lifecycle.admission(owner, profile_id, expected):
+            runtime = self.persistent_supervisor.snapshot(owner=owner, profile_id=profile_id)
         if (runtime['state'] not in ('ready', 'busy')
                 or runtime.get('runtime_generation') != expected):
             raise ExternalError('dispatch_guard')
@@ -140,7 +206,13 @@ class ExternalMCPTools:
             try:
                 if controller.snapshot()['session_id'] != owner:
                     return 'owner_changed'
-                return base.access_check()
+                problem = base.access_check()
+                # Profile access may wait for ConfigStore. Never disclose a
+                # result if the pinned owner was lost during that wait. No
+                # reverse config -> controller nesting: profile lock is gone.
+                if controller.snapshot()['session_id'] != owner:
+                    return 'owner_changed'
+                return problem
             except Exception:
                 return 'owner_unavailable'
         return VolatileResult(base.data | {'runtime_generation': generation}, access)
@@ -161,14 +233,17 @@ class ExternalMCPTools:
             try:
                 if verify() or event.is_set():
                     raise ExternalError('dispatch_guard')
-                # No control callback under supervisor lock. Spawn coordination
-                # and lifecycle wiring remain a separate, mandatory acceptance.
+                from external_mcp.persistent_discovery import DiscoveryAdmission
+                admission = DiscoveryAdmission(self.manager, event,
+                    registry=self.registry, snapshot=snapshot,
+                    lifecycle=self._lifecycle, panel_available=lambda: self.panel_available())
                 response = self.persistent_supervisor.fetch_catalog(profile,
-                    owner=owner, timeout=timeout, cancel_event=event)
+                    owner=owner, timeout=timeout, cancel_event=event,
+                    discovery_admission=admission)
+                generation = response['runtime_generation']
+                self._track_persistent(owner, alias, snapshot, generation)
                 if verify() or event.is_set():
                     raise ExternalError('dispatch_guard')
-                generation = response['runtime_generation']
-                self._generation(owner, profile['id'], generation)
                 tools = catalog_view(response['tools'])
                 for tool in tools:
                     tool['schemaSha256'] = schema_digest(tool['inputSchema'])
@@ -215,12 +290,15 @@ class ExternalMCPTools:
             digest = tool['schemaSha256']
         adapter = self
         class ManualAdmission(ResourceDispatchAdmission):
+            @contextmanager
             def _resource_boundary(self, ticket, tool_name, sha):
                 # Boundary already owns manager/controller, before ConfigStore.
                 adapter._manual_owner(owner)
                 if ticket.consent != 'approved':
                     raise ExternalError('dispatch_guard')
-                return super()._resource_boundary(ticket, tool_name, sha)
+                with super()._resource_boundary(ticket, tool_name, sha):
+                    with adapter._lifecycle.admission(owner, profile['id'], generation):
+                        yield
         def verify():
             try:
                 self._manual_owner(owner)
@@ -239,7 +317,7 @@ class ExternalMCPTools:
                 admission = ManualAdmission(self.manager, event, None,
                     registry=self.registry, snapshot=snapshot, tool_name=name,
                     schema_digest=digest, limiter=self.limiter,
-                    panel_available=self.panel_available)
+                    panel_available=lambda: self.panel_available())
                 response = self.persistent_supervisor.call_tool(profile, name, arguments,
                     owner=owner, expected_runtime_generation=generation,
                     expected_schema_sha256=digest, timeout=timeout,
@@ -247,10 +325,13 @@ class ExternalMCPTools:
                 return self._persistent_result({'result': result_view(response['result']),
                     'schemaSha256': digest}, alias, profile, 'call', owner, generation)
             except ProfileError as exc:
+                if admission is not None and admission.admitted:
+                    raise PersistentCallUncertain(exc.code) from None
                 raise OperationError(exc.code) from None
             except Exception:
-                raise OperationError('call_failed_uncertain' if admission is not None
-                    and admission.admitted else 'client_failed') from None
+                if admission is not None and admission.admitted:
+                    raise PersistentCallUncertain('call_failed_uncertain') from None
+                raise OperationError('client_failed') from None
         fields = dict(kind=EXTERNAL_KIND, sensitive=True, offer_trust=False,
             timeout=timeout, title='Zewnętrzne MCP: ' + alias + ' / ' + name,
             approval_reason='Persistent M1: osobne Allow dla każdego wywołania.',
@@ -321,13 +402,34 @@ class ExternalMCPTools:
         return {'success': True, 'data': {'task_id': task.id, 'status': task.status.value,
                 'hint': hint}}
 
+    def runtime_view(self, profile):
+        """Current owner's RAM snapshot only: no admission, spawn or idle touch."""
+        if not self._persistent(profile):
+            return None
+        absent = {'state': 'absent', 'runtime_generation': None, 'reason': ''}
+        with self.manager._cond:
+            controller = self.manager._sessions
+            supervisor = self.persistent_supervisor
+            if controller is None or supervisor is None:
+                return absent
+            with controller._lock:
+                owner = controller.snapshot()['session_id']
+                if owner is None:
+                    return absent
+                snapshot = supervisor.snapshot(owner=owner, profile_id=profile['id'])
+                return {key: snapshot.get(key, '' if key == 'reason' else None)
+                        for key in ('state', 'runtime_generation', 'reason')}
+
     def list_profiles(self):
         try:
             listing = self.registry.list()
             if not listing['configuration_valid']:
                 return error('configuration_invalid')
             profiles = [{key: row[key] for key in ('id', 'alias', 'description', 'enabled', 'transport')}
-                        | {'trusted': bool(row.get('trust'))} for row in listing['profiles']]
+                        | {'trusted': bool(row.get('trust')), 'runtime': self.runtime_view(row)}
+                        | ({'stdio_mode': row.get('stdio_mode', 'one_shot')}
+                           if row['transport'] == 'stdio' else {})
+                        for row in listing['profiles']]
             return {'success': True, 'data': {'profiles': profiles, 'count': len(profiles)}}
         except Exception:
             return error('client_failed')

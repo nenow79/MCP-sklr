@@ -1,4 +1,4 @@
-"""Persistent resource admission scaffold; no production routing or delegation.
+"""Persistent resource admission; manual M1 adds its own control/lifecycle gate.
 
 ConfigStore is retained only across final checks and local dispatch commit.
 No transport, schema worker, slot waiting or cleanup under this resource lock.
