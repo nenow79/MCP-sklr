@@ -91,13 +91,177 @@ def argument_preview(arguments):
 
 class ExternalMCPTools:
     def __init__(self, registry, manager, *, client=None, limiter=None,
-                 panel_available=lambda: True, clock=time.monotonic):
+                 panel_available=lambda: True, clock=time.monotonic,
+                 persistent_supervisor=None):
         self.registry, self.manager = registry, manager
         self.client = client
+        # Injection only: production routing/lifecycle is not enabled here.
+        self.persistent_supervisor = persistent_supervisor
         self.limiter = limiter if limiter is not None else TrustRateLimiter()
         self.panel_available, self.clock = panel_available, clock
         self.lock = threading.RLock()
         self.catalogs = {}
+
+    @staticmethod
+    def _persistent(profile):
+        return profile['transport'] == 'stdio' and profile.get('stdio_mode') == 'persistent'
+
+    def _manual_owner(self, expected=None):
+        # Control reads use manager -> controller. Never call from supervisor lock.
+        with self.manager._cond:
+            controller = self.manager._sessions
+            if controller is None or self.persistent_supervisor is None:
+                raise ExternalError('persistent_runtime_required')
+            with controller._lock:
+                state = controller.snapshot()
+                autopilot = controller._autopilot
+                if (state['execution_blocked'] or state['state'] != 'active'
+                        or state['session_id'] is None
+                        or autopilot is not None and autopilot.engaged):
+                    raise ExternalError('dispatch_guard')
+                if expected is not None and state['session_id'] != expected:
+                    raise ExternalError('dispatch_guard')
+                return state['session_id']
+
+    def _generation(self, owner, profile_id, expected):
+        if not isinstance(expected, str) or not expected:
+            raise ExternalError('dispatch_guard')
+        runtime = self.persistent_supervisor.snapshot(owner=owner, profile_id=profile_id)
+        if (runtime['state'] not in ('ready', 'busy')
+                or runtime.get('runtime_generation') != expected):
+            raise ExternalError('dispatch_guard')
+
+    def _persistent_result(self, value, alias, profile, op, owner, generation):
+        base = self._result(value, alias, profile, op)
+        def access():
+            controller = self.manager._sessions
+            if controller is None:
+                return 'owner_unavailable'
+            try:
+                if controller.snapshot()['session_id'] != owner:
+                    return 'owner_changed'
+                return base.access_check()
+            except Exception:
+                return 'owner_unavailable'
+        return VolatileResult(base.data | {'runtime_generation': generation}, access)
+
+    def _persistent_list(self, alias, snapshot, timeout):
+        owner = self._manual_owner()
+        profile = snapshot['profile']
+        def verify():
+            try:
+                self._manual_owner(owner)
+                self._current(alias, snapshot)
+                if not self.panel_available():
+                    raise ExternalError('panel_unavailable')
+                return None
+            except Exception:
+                return 'Zewnętrzne MCP: dispatch_guard'
+        def executor(event):
+            try:
+                if verify() or event.is_set():
+                    raise ExternalError('dispatch_guard')
+                # No control callback under supervisor lock. Spawn coordination
+                # and lifecycle wiring remain a separate, mandatory acceptance.
+                response = self.persistent_supervisor.fetch_catalog(profile,
+                    owner=owner, timeout=timeout, cancel_event=event)
+                if verify() or event.is_set():
+                    raise ExternalError('dispatch_guard')
+                generation = response['runtime_generation']
+                self._generation(owner, profile['id'], generation)
+                tools = catalog_view(response['tools'])
+                for tool in tools:
+                    tool['schemaSha256'] = schema_digest(tool['inputSchema'])
+                result = self._persistent_result({'tools': tools}, alias, profile,
+                    'catalog', owner, generation)
+                key = (owner, profile['id'], generation)
+                with self.lock:
+                    now = self.clock()
+                    for expired in [k for k, v in self.catalogs.items() if v['expires'] <= now]:
+                        del self.catalogs[expired]
+                    if len(self.catalogs) >= MAX_CATALOGS and key not in self.catalogs:
+                        raise ExternalError('catalog_limit')
+                    self.catalogs[key] = {'tools': copy.deepcopy(tools),
+                        'revision': snapshot['revision'], 'expires': now + CATALOG_TTL_S}
+                return result
+            except ProfileError as exc:
+                raise OperationError(exc.code) from None
+            except Exception:
+                raise OperationError('client_failed') from None
+        fields = dict(kind=EXTERNAL_KIND, sensitive=True, offer_trust=False,
+            timeout=timeout, title='Zewnętrzne MCP: ' + alias + ' / katalog',
+            payload={'profile_id': profile['id'], 'alias': alias, 'op': 'catalog'})
+        with self.manager._cond:
+            controller = self.manager._sessions
+            with controller._lock:
+                self._manual_owner(owner)
+                task = self.manager.submit(fields, executor, False, verify=verify)
+        return self._response(task)
+
+    def _persistent_call(self, alias, snapshot, name, arguments, timeout, generation):
+        from external_mcp.persistent_resources import ResourceDispatchAdmission
+        owner = self._manual_owner()
+        profile = snapshot['profile']
+        self._generation(owner, profile['id'], generation)
+        with self.lock:
+            catalog = self.catalogs.get((owner, profile['id'], generation))
+            if catalog is None or catalog['revision'] != snapshot['revision']:
+                raise ExternalError('catalog_required')
+            if catalog['expires'] <= self.clock():
+                raise ExternalError('catalog_expired')
+            tool = next((t for t in catalog['tools'] if t['name'] == name), None)
+            if tool is None:
+                raise ExternalError('tool_not_found')
+            digest = tool['schemaSha256']
+        adapter = self
+        class ManualAdmission(ResourceDispatchAdmission):
+            def _resource_boundary(self, ticket, tool_name, sha):
+                # Boundary already owns manager/controller, before ConfigStore.
+                adapter._manual_owner(owner)
+                if ticket.consent != 'approved':
+                    raise ExternalError('dispatch_guard')
+                return super()._resource_boundary(ticket, tool_name, sha)
+        def verify():
+            try:
+                self._manual_owner(owner)
+                self._current(alias, snapshot)
+                self._generation(owner, profile['id'], generation)
+                if not self.panel_available():
+                    raise ExternalError('panel_unavailable')
+                return None
+            except Exception:
+                return 'Zewnętrzne MCP: dispatch_guard'
+        def executor(event):
+            admission = None
+            try:
+                if verify() or event.is_set():
+                    raise ExternalError('dispatch_guard')
+                admission = ManualAdmission(self.manager, event, None,
+                    registry=self.registry, snapshot=snapshot, tool_name=name,
+                    schema_digest=digest, limiter=self.limiter,
+                    panel_available=self.panel_available)
+                response = self.persistent_supervisor.call_tool(profile, name, arguments,
+                    owner=owner, expected_runtime_generation=generation,
+                    expected_schema_sha256=digest, timeout=timeout,
+                    cancel_event=event, dispatch_admission=admission)
+                return self._persistent_result({'result': result_view(response['result']),
+                    'schemaSha256': digest}, alias, profile, 'call', owner, generation)
+            except ProfileError as exc:
+                raise OperationError(exc.code) from None
+            except Exception:
+                raise OperationError('call_failed_uncertain' if admission is not None
+                    and admission.admitted else 'client_failed') from None
+        fields = dict(kind=EXTERNAL_KIND, sensitive=True, offer_trust=False,
+            timeout=timeout, title='Zewnętrzne MCP: ' + alias + ' / ' + name,
+            approval_reason='Persistent M1: osobne Allow dla każdego wywołania.',
+            payload={'profile_id': profile['id'], 'alias': alias, 'op': 'call', 'tool': name})
+        with self.manager._cond:
+            controller = self.manager._sessions
+            with controller._lock:
+                self._manual_owner(owner)
+                task = self.manager.submit(fields, executor, True, verify=verify,
+                    approval_preview=argument_preview(arguments))
+        return self._response(task)
 
     def _client(self):
         if self.client is not None:
@@ -173,6 +337,8 @@ class ExternalMCPTools:
             timeout = timeout_seconds(timeout)
             snapshot = self._snapshot(alias)
             profile = snapshot['profile']
+            if self._persistent(profile):
+                return self._persistent_list(alias, snapshot, timeout)
             def executor(event):
                 try:
                     current = self._current(alias, snapshot)
@@ -212,7 +378,8 @@ class ExternalMCPTools:
         except Exception:
             return error('client_failed')
 
-    def call_tool(self, alias, tool_name, arguments, timeout=60):
+    def call_tool(self, alias, tool_name, arguments, timeout=60,
+                  expected_runtime_generation=None):
         try:
             timeout = timeout_seconds(timeout)
             arguments = arguments_view(arguments)
@@ -220,6 +387,9 @@ class ExternalMCPTools:
                 raise ExternalError('tool_name')
             snapshot = self._snapshot(alias)
             profile = snapshot['profile']
+            if self._persistent(profile):
+                return self._persistent_call(alias, snapshot, tool_name, arguments,
+                    timeout, expected_runtime_generation)
             with self.lock:
                 catalog = self.catalogs.get(profile['id'])
                 if catalog is None:

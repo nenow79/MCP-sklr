@@ -612,6 +612,27 @@ class PersistentSupervisor:
             if self._loop is not None and not self._loop.is_closed():
                 self._loop.call_soon_threadsafe(runtime.wake.set)
 
+    def invalidate_generation(self, *, owner, profile_id,
+                              expected_runtime_generation, reason):
+        """Leaf lifecycle operation: compare and close under the same lock.
+
+        A delayed event cannot invalidate a replacement process. Never accepts
+        a missing generation as a wildcard. Cleanup remains owner-task work.
+        """
+        if not isinstance(expected_runtime_generation, str) or not expected_runtime_generation:
+            raise ExternalError('runtime_generation')
+        safe_reason = reason if reason in ('pause', 'end', 'idle', 'shutdown',
+            'profile_changed', 'disabled', 'project_changed') else 'persistent_invalidated'
+        with self._lock:
+            runtime = self._runtimes.get(self._key(owner, profile_id))
+            if (runtime is None or runtime.blocked
+                    or runtime.generation != expected_runtime_generation):
+                return False
+            self._mark_closing(runtime, safe_reason)
+            if self._loop is not None and not self._loop.is_closed():
+                self._loop.call_soon_threadsafe(runtime.wake.set)
+            return True
+
     async def _reap(self):
         with self._lock:
             for runtime in list(self._runtimes.values()):

@@ -27,6 +27,18 @@ Tryb wybiera wyłącznie użytkownik w panelu z oczekiwaną rewizją. Model nie 
 
 Zmiana obejmuje external MCP, panel i wiring WorkSession. Parser skilli, zwykłe skille, narzędzia plikowe i pozostałe wbudowane funkcje nie zmieniają zachowania. Nie rozszerzać uprawnień zgód ani delegacji autopilota. Węższa granica dispatch dla persistent jest jawnie opisana poniżej i w kontrakcie WorkSession. API pozostaje ogólne, nie specyficzne dla FlowAgent; zgodność wielokrotnych calls w jednej sesji wymaga odbioru konkretnej wersji serwera.
 
+## Pierwszy odbiór M1 — manual-first
+
+Zaakceptowany zakres pierwszego wdrożenia jest węższy od wymagań docelowych: persistent działa wyłącznie z aktywną, przypiętą WorkSession i poza zaangażowaną delegacją autopilota, także zawieszoną. Sam pusty ContextVar albo brak ticketu nie dowodzi trybu ręcznego. Serwer sprawdza ograniczenie przed submit/start oraz ponownie przy dopuszczeniu spawn/commit. Odmowa nie wyłącza autopilota, nie tworzy automatycznej ręcznej zgody i nie przechodzi do one-shot. Błąd kontroli pozostawia bramkę zamkniętą.
+
+Każdy persistent tools/call w M1 wymaga osobnego Allow dla konkretnego zadania, także przy zapisanym trust. Trust nie autoryzuje calls w tej wersji. Discovery zachowuje autoryzację przez enabled profilu, bez osobnego okna zgody, ale podlega WorkSession, ograniczeniu autopilota i aktualnym kontrolom profilu. Oczekiwanie na Allow nie zajmuje slotu runtime ani workera; zgoda nie przedłuża generacji, katalogu ani tokenu preview. Ręczne Allow nie omija kontroli schema/profile/panel/owner/generation/cancel/deadline. Ścieżka approved omija wyłącznie trust i limiter zgodnie z istniejącą polityką ręcznych zgód; M1 nie wprowadza automatycznego reapproval persistent.
+
+M1 obejmuje osobny routing discovery/call do supervisora, wymagane expected_runtime_generation, cache przypięty do właściciela i generacji, kontrolę właściciela wyników oraz lifecycle pause/end/profile/shutdown. Granica discovery/spawn musi zachować kolejność manager → controller → stores → supervisor; nie wolno wywoływać manager/controller z callbacku pod blokadą supervisora. Kontrole i lokalne dopuszczenie nie utrzymują globalnych blokad podczas I/O, slotu, walidacji lub cleanup. Call korzysta z resource-aware dispatch boundary, nie starego before_dispatch. Blokada persistent_runtime_required w kliencie one-shot pozostaje ochroną przed fallbackiem.
+
+Integracja rzeczywistego scope i rozliczania autopilota (C2) jest odłożona, nie odebrana ani usunięta z wymagań docelowych. M1 nie implementuje wyjątku exhausted/expired. Kryteria P04/P05 dotyczące delegacji/trust/reapproval pozostają otwarte w tym zakresie; M1 wymaga testów odmowy autopilota i osobnego Allow także przy trust. One-shot/HTTP/SSE pozostają bez zmiany.
+
+Włączenie opt-in wymaga odbioru ręcznego routingu/lifecycle, lokalnej ścieżki API → TaskManager → SDK → fake z dwoma calls i osobnymi zgodami oraz minimalnego panelu z rewizją i oddzielnym admin one-shot. Sam zapis kontraktu lub testy atrap nie autoryzują przełączenia profilu. P5 Power Automate safe-edit, instalacje, restarty i zmiany konfiguracji nadal wymagają osobnego uzgodnienia.
+
 ## Konfiguracja, migracja i trust
 
 Rejestr czyta poprawne istniejące external_mcp v1 bez zapisu i bez zmiany zachowania. Przy pierwszej zatwierdzonej zmianie wykorzystującej nową strukturę zapisuje v2 przez ConfigStore.update, z dotychczasowym rollbackiem pamięci przy błędzie. Puste external_mcp={} nadal oznacza brak profili. Nie migrować nieznanych, uszkodzonych ani niepustych historycznych struktur w ciemno. Nie wykonywać połączenia w celu migracji.

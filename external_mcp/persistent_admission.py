@@ -81,6 +81,21 @@ class DispatchAdmission:
         if owner != self._ticket.session_id or event is not self._event:
             raise ExternalError('dispatch_guard')
 
+    def _prepare_consent(self, ticket, name, schema_sha, trust_check):
+        if ticket.consent == 'authorized':
+            if trust_check is None or trust_check(name, schema_sha) is not True:
+                raise ExternalError('dispatch_guard')
+        elif ticket.consent != 'approved':
+            raise ExternalError('dispatch_guard')
+
+    @contextmanager
+    def _resource_boundary(self, ticket, name, schema_sha):
+        """Internal leaf extension; entered after manager/controller locks."""
+        yield
+
+    def _before_commit(self, ticket, name, schema_sha):
+        """Internal no-I/O leaf extension, before any dispatch marker."""
+
     @contextmanager
     def dispatch_boundary(self, name, schema_sha, trust_check=None):
         """Yield a single-use commit only inside manager -> controller locks.
@@ -101,11 +116,7 @@ class DispatchAdmission:
                     ticket = self._manager.admit_external_dispatch(self._event)
                     if ticket != self._ticket:
                         raise ExternalError('dispatch_guard')
-                    if ticket.consent == 'authorized':
-                        if trust_check is None or trust_check(name, schema_sha) is not True:
-                            raise ExternalError('dispatch_guard')
-                    elif ticket.consent != 'approved':
-                        raise ExternalError('dispatch_guard')
+                    self._prepare_consent(ticket, name, schema_sha, trust_check)
                 except Exception:
                     raise ExternalError('dispatch_guard') from None
 
@@ -120,24 +131,25 @@ class DispatchAdmission:
                                 raise ExternalError('dispatch_guard')
                         except Exception:
                             raise ExternalError('dispatch_guard') from None
-                        active = True
-                        def commit(mark_request_dispatched):
-                            nonlocal active
-                            if (not active or self._admitted
-                                    or not callable(mark_request_dispatched)):
-                                raise ExternalError('dispatch_guard')
-                            # These markers are internal in-memory assignments,
-                            # not transport/user callbacks. No fallible resource
-                            # check belongs after the local admission point.
-                            active = False
-                            mark_request_dispatched()
-                            self._admitted = True
-                            if self._scope is not None:
-                                self._scope.dispatched = True
-                        try:
-                            yield commit
-                        finally:
-                            active = False
+                        with self._resource_boundary(current, name, schema_sha):
+                            active = True
+                            def commit(mark_request_dispatched):
+                                nonlocal active
+                                if (not active or self._admitted
+                                        or not callable(mark_request_dispatched)):
+                                    raise ExternalError('dispatch_guard')
+                                # A commit attempt is single-use, also if the
+                                # resource/limiter leaf refuses before marking.
+                                active = False
+                                self._before_commit(current, name, schema_sha)
+                                mark_request_dispatched()
+                                self._admitted = True
+                                if self._scope is not None:
+                                    self._scope.dispatched = True
+                            try:
+                                yield commit
+                            finally:
+                                active = False
             finally:
                 CURRENT.reset(marker)
 

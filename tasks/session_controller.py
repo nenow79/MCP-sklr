@@ -45,10 +45,33 @@ class SessionController:
         # without acquiring the controller lock in reverse order. Never admission.
         self._project_selection = (None, ())
         self._activation_listeners = []
+        self._lifecycle_listeners = []
 
     @property
     def project_selection(self):
         return self._project_selection
+
+    def add_lifecycle_listener(self, listener):
+        """Internal RAM-only leaf callback (owner, reason), under session lock.
+
+        Must not acquire manager/config/supervisor locks, wait, or perform I/O.
+        Authorization always requires independent final admission checks.
+        """
+        if not callable(listener):
+            raise ValueError('Invalid lifecycle listener.')
+        with self._lock:
+            self._lifecycle_listeners.append(listener)
+
+    def _notify_lifecycle(self, reason):
+        if self._selected is None:
+            return
+        for listener in tuple(self._lifecycle_listeners):
+            try:
+                listener(self._selected, reason)
+            except Exception:
+                # Never reopen admission after a publication failure.
+                self._blocked = True
+                logging.getLogger(__name__).warning('Lifecycle notification failed.')
 
     def add_activation_listener(self, listener):
         with self._lock:
@@ -238,6 +261,7 @@ class SessionController:
         """Irreversible process shutdown latch; started actions may still finish."""
         with self._lock:
             self._stopping = self._blocked = True
+            self._notify_lifecycle('shutdown')
             self._invalidate_resume()
             if self._selected is not None:
                 try:
@@ -276,6 +300,7 @@ class SessionController:
         if item is None or item.revision != revision or item.lifecycle not in ('open', 'ending', 'ended'):
             raise SessionConflict('Session revision changed.')
         self._blocked = True
+        self._notify_lifecycle('end')
         self._project_selection = (None, ())
         self._end_ready = False
         self._store.request_end(sid, revision)
@@ -302,6 +327,7 @@ class SessionController:
             # Close admission before I/O. Even conflicts leave admission closed;
             # user must inspect status and retry with the current revision.
             self._blocked = True
+            self._notify_lifecycle('pause')
             if self._autopilot is not None:
                 self._autopilot.session_paused_internal()
             self._resume_pending_revision = None
