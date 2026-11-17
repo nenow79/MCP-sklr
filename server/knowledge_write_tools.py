@@ -120,6 +120,9 @@ def _executor(service, transaction, plan, context, guard, concept_id):
 
 # Stałe podpowiedzi: nigdy argumenty wejściowe ani surowe wyjątki.
 _SAVE_ERROR_HINTS = {
+    "FULL_DOCUMENT_READ_REQUIRED": 'Update zastępuje całe body i wymaga pełnego odczytu: wywołaj knowledge_get(view="document") dla tego dokumentu i użyj rewizji z tego odczytu. Outline, sekcja ani wynik z truncated=true nie wystarczą. Zwiększ max_chars (maksymalnie 80000). Jeśli dokument nadal się nie mieści, nie zapisuj go przez knowledge_save — zgłoś to użytkownikowi.',
+    "BUNDLE_UNAVAILABLE": "Nieznany bundle_id: pobierz go z knowledge_bundles, nie zgaduj.",
+    "DOCUMENT_UNAVAILABLE": "Nieznany concept_id: znajdź go przez knowledge_search; to ścieżka dokumentu względem bundle, bez .md, nie ścieżka pliku w repozytorium.",
     "INVALID_ARGUMENT": "Sprawdź argumenty knowledge_save: mode=create/update, całe body bez frontmattera; section_id i section_mode należą wyłącznie do knowledge_get.",
     "METADATA_REQUIRED": "Create wymaga metadata_yaml: sam YAML mapping, bez delimiterów ---.",
     "BODY_FRONTMATTER_UNSUPPORTED": "body musi zawierać całe body dokumentu bez frontmattera. Dla update metadata_yaml=null zachowuje frontmatter.",
@@ -174,6 +177,8 @@ def knowledge_save_impl(service, roots, manager, transaction, config_lock, panel
                                       str(context.bundle.path), str(path))
             if mode == "update" and not context.signer.verify(expected_revision, binding, snapshot.raw):
                 raise KnowledgeError("REVISION_CONFLICT")
+            if mode == "update" and not service.has_full_read(bundle_id, canonical, expected_revision):
+                raise KnowledgeError("FULL_DOCUMENT_READ_REQUIRED")
             prepared = prepare_write(identity, mode, body, metadata_yaml,
                                      before=snapshot.raw if snapshot is not None else None,
                                      limits=context.limits.to_parse_limits(), now=context.now)

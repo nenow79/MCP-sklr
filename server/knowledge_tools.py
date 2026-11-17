@@ -137,12 +137,26 @@ def start_background_refresh(service, manager):
     return result
 
 
+_DISCOVERY_HINTS = {
+    "PROJECT_UNAVAILABLE": "Nieznany root: pobierz alias z list_roots, nie zgaduj.",
+    "BUNDLE_UNAVAILABLE": "Nieznany bundle_id: pobierz go z knowledge_bundles, nie zgaduj ani nie powtarzaj odgadniętej wartości.",
+    "DOCUMENT_UNAVAILABLE": "Nieznany concept_id: znajdź go przez knowledge_search lub outline; to ścieżka dokumentu względem bundle, bez .md, a nie filepath z knowledge_audit ani ścieżka pliku.",
+}
+_TRUNCATED_HINT = ("Odczyt skrócony (truncated=true): nie nadaje się do knowledge_save(update). "
+                   "Zwiększ max_chars (maksymalnie 80000) albo czytaj sekcjami; do zapisu wymagany jest pełny odczyt view=document z truncated=false.")
+
+
 def _call(operation, *args, **kwargs):
     try:
-        return {"success": True, "data": operation(*args, **kwargs)}
+        data = operation(*args, **kwargs)
+        if isinstance(data, dict) and data.get("truncated") and data.get("view") in ("outline", "section", "document"):
+            data["hint"] = _TRUNCATED_HINT
+        return {"success": True, "data": data}
     except (KnowledgeError, DocumentError) as exc:
         result = {"success": False, "error": exc.code}
-        if exc.code == "RESULT_TOO_LARGE":
+        if exc.code in _DISCOVERY_HINTS:
+            result["hint"] = _DISCOVERY_HINTS[exc.code]
+        elif exc.code == "RESULT_TOO_LARGE":
             result["hint"] = "Zwiększ max_chars (maksymalnie 80000)."
         elif exc.code == "REVISION_CONFLICT":
             result["hint"] = ("Plik zmienił się od ostatniego odczytu lub serwer został zrestarowany."

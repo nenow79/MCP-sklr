@@ -51,6 +51,16 @@ def test_knowledge_save_registration_and_forwarding(args, kwargs, expected):
     assert not {"section_id", "section_mode"} & {arg.arg for arg in function.args.args}
 
 
+def test_descriptions_mention_server_enforced_full_read():
+    path = Path(__file__).resolve().parents[1] / "main.py"
+    tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+    docs = {node.name: ast.get_docstring(node) for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name in ("knowledge_get", "knowledge_save")}
+    assert "FULL_DOCUMENT_READ_REQUIRED" in docs["knowledge_save"]
+    assert "knowledge_search" in docs["knowledge_save"] and "knowledge_bundles" in docs["knowledge_save"]
+    assert "80000" in docs["knowledge_get"] and "knowledge_audit" in docs["knowledge_get"]
+
+
 def test_knowledge_get_warns_that_section_is_not_save_body():
     path = Path(__file__).resolve().parents[1] / "main.py"
     tree = ast.parse(path.read_text(encoding="utf-8-sig"))

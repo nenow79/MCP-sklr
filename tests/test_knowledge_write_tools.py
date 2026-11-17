@@ -67,7 +67,8 @@ def put(env, body="# Alpha\nold\n", metadata="type: Reference\n", raw=None):
 
 
 def revision(env):
-    return env.service.get("general", "note")["revision"]
+    # Rewizja z pełnego odczytu dokumentu: tylko taka uprawnia do update.
+    return env.service.get("general", "note", "document")["revision"]
 
 
 def decide(env, result, decision="allow"):
@@ -84,6 +85,90 @@ def update(env, expected=None, **kwargs):
                   metadata_yaml=None, body="# Alpha\nupdated\n")
     params.update(kwargs)
     return save(env, **params)
+
+
+@pytest.mark.parametrize("view", ["outline", "section", "document"])
+def test_update_requires_complete_document_read(env, view):
+    path = put(env, body="# Alpha\n" + "text\n" * 1000)
+    before = path.read_bytes()
+    outline = env.service.get("general", "note")
+    kwargs = {"max_chars": 1000}
+    if view == "section":
+        kwargs.update(section_id="s1", expected_revision=outline["revision"])
+    read = env.service.get("general", "note", view, **kwargs)
+    if view != "outline":
+        assert read["truncated"]
+    result = update(env, expected=read["revision"], body="# Alpha\nfragment\n")
+    assert not result["success"], result
+    assert result["error"] == "FULL_DOCUMENT_READ_REQUIRED"
+    assert "knowledge_get" in result["hint"] and "max_chars" in result["hint"]
+    assert not env.requests and path.read_bytes() == before
+
+
+def test_complete_section_is_not_complete_document(env):
+    path = put(env)
+    outline = env.service.get("general", "note")
+    read = env.service.get("general", "note", "section", "s1",
+                           expected_revision=outline["revision"])
+    assert not read["truncated"]
+    result = update(env, expected=read["revision"])
+    assert result["error"] == "FULL_DOCUMENT_READ_REQUIRED"
+    assert not env.requests and "old" in path.read_text()
+
+
+def test_document_above_response_limit_cannot_be_replaced(env):
+    path = put(env, body="# Alpha\n" + "x" * 81000)
+    before = path.read_bytes()
+    read = env.service.get("general", "note", "document", max_chars=80000)
+    assert read["truncated"]
+    result = update(env, expected=read["revision"], body=read["content"])
+    assert result["error"] == "FULL_DOCUMENT_READ_REQUIRED"
+    assert "80000" in result["hint"]
+    assert not env.requests and path.read_bytes() == before
+
+
+def test_complete_read_after_truncated_read_allows_update(env):
+    put(env, body="# Alpha\n" + "text\n" * 1000)
+    assert env.service.get("general", "note", "document", max_chars=1000)["truncated"]
+    result = update(env, expected=revision(env))
+    assert result["success"] and result["data"]["status"] == "awaiting_approval"
+
+
+def test_full_read_confirmation_is_not_reusable_after_restart(env):
+    put(env)
+    old = revision(env)
+    env.service._full_reads.clear()  # nowy proces nie dziedziczy potwierdzeń
+    result = update(env, expected=old)
+    assert result["error"] == "FULL_DOCUMENT_READ_REQUIRED"
+
+
+def test_full_read_confirmation_does_not_survive_document_change(env):
+    path = put(env)
+    old = revision(env)
+    path.write_bytes(path.read_bytes() + b"external edit\n")
+    result = update(env, expected=old)
+    assert result["error"] == "REVISION_CONFLICT"
+    assert "knowledge_get" in result["hint"]
+
+
+@pytest.mark.parametrize("kwargs, error, expected_hint", [
+    (dict(bundle_id="missing", concept_id="note"), "BUNDLE_UNAVAILABLE", "knowledge_bundles"),
+    (dict(bundle_id="general", concept_id="docs/note"), "DOCUMENT_UNAVAILABLE", "knowledge_search"),
+])
+def test_get_errors_point_to_discovery(env, kwargs, error, expected_hint):
+    from server.knowledge_tools import knowledge_get_impl
+    put(env)
+    result = knowledge_get_impl(env.service, **kwargs)
+    assert result["error"] == error
+    assert expected_hint in result["hint"]
+
+
+def test_truncated_get_carries_hint(env):
+    from server.knowledge_tools import knowledge_get_impl
+    put(env, body="# Alpha\n" + "text\n" * 1000)
+    result = knowledge_get_impl(env.service, "general", "note", "document", max_chars=1000)
+    assert result["success"] and result["data"]["truncated"]
+    assert "max_chars" in result["data"]["hint"] and "nie" in result["data"]["hint"]
 
 
 def test_create_approval_get_and_search(env):

@@ -638,6 +638,10 @@ def knowledge_get(bundle_id: str, concept_id: str, view: str = "outline",
     Pełny dokument wymaga view=document. Brak auto-fetch URL i wykonywania kodu.
     Odczyt sekcji nie jest kompletnym body do knowledge_save, które zastępuje całe body.
     Przed update pobierz view="document", sprawdź truncated=false i zachowaj resztę treści.
+    Tylko taki pełny odczyt (bez truncated) uprawnia serwer do update; outline, section
+    i odczyt skrócony nie. Dokument większy niż 80000 znaków nie da się zaktualizować.
+    bundle_id i concept_id bierz z knowledge_bundles/knowledge_search, nie zgaduj;
+    concept_id to nie filepath z knowledge_audit.
     Dokument projektowy bez frontmattera ma format=markdown, metadata={} i warning
     unconverted; jest dostępny przed opcjonalną konwersją przez knowledge_convert.
     """
@@ -655,6 +659,9 @@ def knowledge_save(bundle_id: str, concept_id: str, mode: str, body: str,
     Aby zmienić sekcję: knowledge_get(view="document"), sprawdź truncated=false,
     zmień sekcję w pełnym body, zachowaj resztę i użyj rewizji tego odczytu.
     Nie zapisuj skróconej treści ani zamaskowanych placeholderów jako pełnego body.
+    Serwer wymusza to: update bez pełnego odczytu view="document" (truncated=false)
+    tej samej rewizji zwraca FULL_DOCUMENT_READ_REQUIRED i nie tworzy zadania; po restarcie
+    serwera odczyt trzeba powtórzyć. Identyfikatory bierz z knowledge_bundles/knowledge_search.
     Proponuje create/update OKF jako jedno zadanie do zgody w panelu, bez Ufaj.
     Body to cały Markdown bez frontmattera; metadata_yaml to sam YAML mapping.
     Create wymaga metadata_yaml i nie przyjmuje expected_revision. Update wymaga

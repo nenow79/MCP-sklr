@@ -11,6 +11,7 @@ import hmac
 import json
 import threading
 import time
+from collections import OrderedDict
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -123,6 +124,8 @@ class KnowledgeService:
         self._retry_at = {}
         self._refresh_diagnostics = {}
         self._dirty_documents = {}
+        # Tylko w pamięci: (bundle, concept, rewizja) pełnych, nieskróconych odczytów dokumentu.
+        self._full_reads = OrderedDict()
 
     def attach_refresh_backend(self, backend):
         """Podłączenie podczas bootstrapu, przed pierwszym odświeżeniem."""
@@ -345,6 +348,18 @@ class KnowledgeService:
                         'incremental': True, 'changed_documents': len(targets)}
             except Exception:
                 return {'index_state': 'error', 'index_error': 'REFRESH_UNAVAILABLE'}
+
+    def _remember_full_read(self, bundle_id, concept_id, revision):
+        key = (bundle_id, concept_id, revision)
+        self._full_reads.pop(key, None)
+        self._full_reads[key] = True
+        while len(self._full_reads) > 256:
+            self._full_reads.popitem(last=False)
+
+    def has_full_read(self, bundle_id, concept_id, revision):
+        """Czy ta rewizja dokumentu została zwrócona w pełnym odczycie view=document."""
+        with self._lock:
+            return (bundle_id, concept_id, revision) in self._full_reads
 
     def write_time(self):
         return self._now()
@@ -715,4 +730,6 @@ class KnowledgeService:
                 result.update(content=content, start_line=start,
                               end_line=start + len(split_lines(content)) - 1 if content else None)
             reader.check_document(document)
+            if view == "document" and not result["truncated"]:
+                self._remember_full_read(bundle_id, result["concept_id"], document.revision)
             return result
